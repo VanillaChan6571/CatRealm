@@ -67,6 +67,8 @@
           - macOS
           - Linux
           - Web Browser
+          - Android APK (sideloading)
+          - iOS (TestFlight)
           - Other
       validations:
         required: true
