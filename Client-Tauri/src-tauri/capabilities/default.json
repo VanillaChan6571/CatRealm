@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the main CatRealm window and auxiliary windows",
+  "windows": ["main", "screenshare-wizard"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "autostart:default",
+    "notification:default"
+  ]
+}

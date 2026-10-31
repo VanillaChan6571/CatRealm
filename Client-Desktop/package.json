@@ -1,0 +1,128 @@
+{
+  "name": "catrealm-client",
+  "private": true,
+  "version": "1.9.2",
+  "description": "Official CatRealm client for web and desktop.",
+  "license": "AGPL-3.0-or-later",
+  "homepage": "https://catrealm.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VanillaChan6571/CatRealm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/VanillaChan6571/CatRealm/issues"
+  },
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron --remote-debugging-port=9222 .\"",
+    "build": "tsc -b && vite build",
+    "build:electron": "tsc -b && vite build && node tools/prepare-gstreamer-runtime.cjs && electron-builder",
+    "prepare:gstreamer": "node tools/prepare-gstreamer-runtime.cjs",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:electron": "node --test electron/test/*.test.cjs",
+    "test:watch": "vitest"
+  },
+  "build": {
+    "appId": "app.catrealm.client",
+    "productName": "CatRealm",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "asarUnpack": [
+      "electron/native/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "public/CatRealm-512.png",
+      "category": "Network",
+      "maintainer": "CatRealm <support@catrealm.app>",
+      "publish": [
+        {
+          "provider": "generic",
+          "url": "https://catrealm.app/downloads/linux"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "displayLanguageSelector": false,
+      "uninstallDisplayName": "CatRealm"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://catrealm.app/downloads/win"
+      }
+    ]
+  },
+  "dependencies": {
+    "@browsermt/bergamot-translator": "^0.4.9",
+    "@hcaptcha/react-hcaptcha": "^2.0.2",
+    "@heroicons/react": "^2.2.0",
+    "@jitsi/rnnoise-wasm": "^0.2.1",
+    "@noble/curves": "^2.2.0",
+    "@simplewebauthn/browser": "^13.3.0",
+    "axios": "^1.13.5",
+    "eld": "^2.1.0",
+    "electron-updater": "^6.8.3",
+    "emojibase-data": "^17.0.0",
+    "i18next": "^26.2.0",
+    "idb": "^8.0.3",
+    "jszip": "^3.10.1",
+    "livekit-client": "^2.18.6",
+    "lucide-react": "^0.575.0",
+    "mediabunny": "1.61.2",
+    "motion": "^12.41.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-i18next": "^17.0.8",
+    "react-router-dom": "^7.13.0",
+    "socket.io-client": "^4.8.3",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.3",
+    "@tailwindcss/vite": "^4.2.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^25.3.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "concurrently": "^9.2.1",
+    "electron": "^42.11.14",
+    "electron-builder": "^26.8.1",
+    "eslint": "^9.39.3",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.0",
+    "globals": "^17.3.0",
+    "jsdom": "^28.1.0",
+    "tailwindcss": "^4.2.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.56.0",
+    "vite": "^7.3.1",
+    "vite-plugin-compression": "^0.5.1",
+    "vitest": "^4.0.18",
+    "wait-on": "^9.0.4"
+  }
+}

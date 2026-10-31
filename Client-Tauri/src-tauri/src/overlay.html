@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CatRealm Voice Overlay</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}body{background:transparent;font-family:system-ui,sans-serif;padding:12px;overflow:hidden}
+#users{display:flex;flex-flow:row wrap;gap:10px;align-items:flex-end}.user-card{display:flex;flex-direction:column;align-items:center;gap:4px;transition:opacity .2s}
+.avatar-wrap{position:relative;display:inline-block}.profile{display:block;object-fit:cover;transition:filter .2s}.ring{position:absolute;inset:-3px;border:3px solid transparent;pointer-events:none;transition:border-color .15s}.ring.speaking{border-color:#23d18b;box-shadow:0 0 6px #23d18b88}
+.user-name{font-size:12px;font-weight:600;color:#fff;text-shadow:0 1px 3px #000c,0 0 6px #0009;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+.mute-badge{position:absolute;right:-2px;bottom:-2px;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;background:#ed4245;color:#fff;font:bold 11px system-ui}
+.reactive-stack{position:relative;width:100%;height:100%;transition:transform .12s ease-out}.reactive-stack img,.reactive-stack video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;visibility:hidden}.reactive-stack .active{visibility:visible}.reactive .ring{display:none}
+.reactive.motion-pop.is-speaking .reactive-stack{transform:scale(1.08)}.reactive.motion-bounce.is-speaking .reactive-stack{animation:bounce .42s ease-in-out infinite}@keyframes bounce{50%{transform:translateY(-8%)}}
+</style>
+</head>
+<body><div id="users"></div><script>
+'use strict';
+const container=document.getElementById('users');
+let state={inVoice:false,users:[],settings:{showNames:true,avatarSize:64,grayscaleWhenSilent:false,hideWhenSilent:false,squareIcons:true}};
+function makeCard(id){
+  const card=document.createElement('div');card.className='user-card';card.dataset.userId=id;
+  const wrap=document.createElement('div');wrap.className='avatar-wrap';
+  const profile=document.createElement('img');profile.className='profile';
+  const ring=document.createElement('div');ring.className='ring';
+  const name=document.createElement('div');name.className='user-name';
+  wrap.append(profile,ring);card.append(wrap,name);container.append(card);return card;
+}
+function layerFor(stack,key,url){
+  const video=/\.webm(?:$|\?)/i.test(url);let layer=stack.querySelector(`[data-state="${key}"]`);
+  if(layer&&layer.tagName!==(video?'VIDEO':'IMG')){layer.remove();layer=null}
+  if(!layer){layer=document.createElement(video?'video':'img');layer.dataset.state=key;if(video){layer.muted=true;layer.loop=true;layer.playsInline=true}else layer.alt='';stack.append(layer)}
+  if(layer.getAttribute('src')!==url)layer.setAttribute('src',url);return layer;
+}
+function render(){
+  const settings=state.settings||{};const existing={};container.querySelectorAll('.user-card').forEach(card=>{existing[card.dataset.userId]=card});const seen=new Set();
+  for(const user of state.users||[]){
+    const silent=!user.speaking;if(settings.hideWhenSilent&&silent)continue;const id=String(user.id);seen.add(id);
+    const card=existing[id]||makeCard(id);const wrap=card.querySelector('.avatar-wrap');const profile=card.querySelector('.profile');const ring=card.querySelector('.ring');const name=card.querySelector('.user-name');
+    const size=Number(settings.avatarSize)||64;wrap.style.width=profile.style.width=size+'px';wrap.style.height=profile.style.height=size+'px';const radius=settings.squareIcons?'6px':'50%';profile.style.borderRadius=radius;ring.style.borderRadius=settings.squareIcons?'9px':'50%';
+    const profileUrl=String(user.avatarUrl||'');if(profile.getAttribute('src')!==profileUrl)profile.setAttribute('src',profileUrl);profile.alt=String(user.username||'');
+    const r=user.reactive;const reactive=r&&(r.idle||r.speaking||r.muted||r.deafened)?r:null;card.classList.toggle('reactive',!!reactive);card.classList.toggle('is-speaking',!!user.speaking);card.classList.toggle('motion-bounce',!!reactive&&r.motion==='bounce');card.classList.toggle('motion-pop',!!reactive&&r.motion==='pop');
+    let stack=card.querySelector('.reactive-stack');let hasStateArt=false;
+    if(reactive){profile.style.display='none';if(!stack){stack=document.createElement('div');stack.className='reactive-stack';wrap.prepend(stack)}const base=reactive.idle||profileUrl;const urls={idle:base,speaking:reactive.speaking||base,muted:reactive.muted||base,deafened:reactive.deafened||reactive.muted||base};const current=user.deafened?'deafened':user.muted?'muted':user.speaking?'speaking':'idle';for(const key of Object.keys(urls)){const layer=layerFor(stack,key,urls[key]);const active=key===current;layer.classList.toggle('active',active);if(layer.tagName==='VIDEO'){if(active&&layer.paused)layer.play().catch(()=>{});else if(!active&&!layer.paused)layer.pause()}}hasStateArt=user.deafened?!!(reactive.deafened||reactive.muted):!!reactive.muted;
+    }else{profile.style.display='';if(stack)stack.remove()}
+    profile.style.filter=!reactive&&settings.grayscaleWhenSilent&&silent?'grayscale(100%) brightness(.7)':'';ring.classList.toggle('speaking',!!user.speaking);
+    let badge=card.querySelector('.mute-badge');if((user.muted||user.deafened)&&!hasStateArt){if(!badge){badge=document.createElement('div');badge.className='mute-badge';badge.textContent='×';wrap.append(badge)}}else if(badge)badge.remove();
+    name.textContent=String(user.username||'');name.style.display=settings.showNames===false?'none':'';
+  }
+  for(const [id,card] of Object.entries(existing))if(!seen.has(id))card.remove();
+}
+function connect(){const events=new EventSource('/events');events.onmessage=event=>{try{state=JSON.parse(event.data);render()}catch{}};events.onerror=()=>{events.close();setTimeout(connect,3000)}}connect();
+</script></body></html>

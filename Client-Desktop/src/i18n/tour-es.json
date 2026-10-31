@@ -1,0 +1,123 @@
+{
+  "label": "recorrido por la aplicación",
+  "controls": {
+    "skip": "Saltar recorrido",
+    "back": "Atrás",
+    "later": "Lo haré más tarde",
+    "waiting": "Esperando…",
+    "done": "Listo",
+    "next": "Siguiente"
+  },
+  "offer": {
+    "title": "¿Nuevo dispositivo, recorrido rápido?",
+    "body": "Ya has realizado el recorrido CatRealm antes, pero no en este dispositivo. ¿Quieres echar un vistazo rápido?",
+    "skip": "Saltar",
+    "takeTour": "Haz el recorrido"
+  },
+  "steps": [
+    {
+      "title": "Bienvenido a CatRealm",
+      "body": "Un vistazo rápido a dónde vive todo. Puedes omitirlo en cualquier momento."
+    },
+    {
+      "title": "Hogar",
+      "body": "Tus amigos, mensajes directos y chats grupales viven aquí. Haga clic en él para regresar desde cualquier servidor."
+    },
+    {
+      "title": "amigos y notas",
+      "body": "Tus notificaciones y lista de amigos, agregar amigos y tus notas personales."
+    },
+    {
+      "title": "Descubrir servidores",
+      "body": "Explore los servidores públicos aquí y únase a cualquiera que parezca divertido."
+    },
+    {
+      "title": "Tus conversaciones",
+      "body": "Cambie entre chats directos y chats grupales."
+    },
+    {
+      "title": "Unirse a un servidor",
+      "body": "Únase a un reino con una invitación o conéctese a un servidor por su dirección."
+    },
+    {
+      "title": "Micrófono, sonido, privacidad y registro de cambios.",
+      "body": "Silencia o ensordece, abre tu panel de privacidad y mira las novedades."
+    },
+    {
+      "title": "Tu perfil",
+      "body": "Su nombre y estado. Haz clic en él en cualquier momento para editar tu perfil."
+    },
+    {
+      "title": "Abrir configuración",
+      "body": "Haga clic en el engranaje de configuración para continuar."
+    },
+    {
+      "title": "Perfil principal",
+      "body": "Cómo aparece en CatRealm: imagen, banner, nombre para mostrar, biografía y estado."
+    },
+    {
+      "title": "Añadir una foto de perfil",
+      "body": "Haz clic en tu avatar para cargar uno."
+    },
+    {
+      "title": "Añadir un banner",
+      "body": "Sube un banner en la parte superior de tu tarjeta de perfil."
+    },
+    {
+      "title": "Perfiles de servidor",
+      "body": "Utilice una imagen o banner diferente en servidores específicos. Su perfil principal es el alternativo."
+    },
+    {
+      "title": "Seguridad de la cuenta",
+      "body": "Sus dispositivos registrados, claves de acceso y claves de seguridad."
+    },
+    {
+      "title": "Voz",
+      "body": "Micrófono y parlantes, y actividad de voz o pulsar para hablar."
+    },
+    {
+      "title": "Notificaciones",
+      "body": "Notificaciones push móviles y sonidos para mensajes, llamadas y voz."
+    },
+    {
+      "title": "Apariencia",
+      "body": "Temas, temas personalizados y qué tan pesadas son las animaciones."
+    },
+    {
+      "title": "Emoticones",
+      "body": "Qué tan grandes aparecen los emoticones, además de tus emoticones personales."
+    },
+    {
+      "title": "De oficina",
+      "body": "Abrir al inicio, minimizar en la bandeja y abrir enlaces dentro de CatRealm."
+    },
+    {
+      "title": "Actualizaciones",
+      "body": "Busque actualizaciones y elija su canal de actualización."
+    },
+    {
+      "title": "Formato de hora",
+      "body": "Un reloj de 12 o 24 horas."
+    },
+    {
+      "title": "Idioma",
+      "body": "El idioma que utiliza CatRealm en este dispositivo."
+    },
+    {
+      "title": "Modo transmisor",
+      "body": "Oculta información personal y silencia los sonidos mientras transmites o grabas."
+    },
+    {
+      "title": "Contenido y redes sociales",
+      "body": "Filtros NSFW y los dominios de enlace en los que confía."
+    },
+    {
+      "title": "Laboratorio de gatos",
+      "body": "Características experimentales. Divertido, pero úsalos bajo tu propia responsabilidad."
+    },
+    {
+      "title": "Estás todo listo",
+      "body": "Puedes reproducir este recorrido desde Configuración cuando quieras. ¡Divertirse!"
+    }
+  ]
+}

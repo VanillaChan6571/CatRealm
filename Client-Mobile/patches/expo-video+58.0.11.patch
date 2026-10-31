@@ -1,0 +1,14 @@
+diff --git a/node_modules/expo-video/ios/AudioSessionPolicy.swift b/node_modules/expo-video/ios/AudioSessionPolicy.swift
+index 64339aa..bed58af 100644
+--- a/node_modules/expo-video/ios/AudioSessionPolicy.swift
++++ b/node_modules/expo-video/ios/AudioSessionPolicy.swift
+@@ -45,7 +45,8 @@ struct AudioSessionPolicy {
+         category: currentCategory,
+         mode: currentMode,
+         options: currentOptions,
+-        shouldActivate: isOutputtingAudio || doNotMixOverride
++        // CatRealm: LiveKit owns activation while mixing into its recording session.
++        shouldActivate: !shouldMixOverride && (isOutputtingAudio || doNotMixOverride)
+       )
+     }
+ 

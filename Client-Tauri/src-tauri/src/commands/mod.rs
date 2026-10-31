@@ -1,0 +1,11 @@
+pub mod app;
+pub mod auth_windows;
+pub mod capture;
+pub mod diagnostics;
+pub mod game_activity;
+pub mod notifications;
+pub mod overlay;
+pub mod reactive_avatar;
+pub mod settings;
+pub mod updates;
+pub mod voice;

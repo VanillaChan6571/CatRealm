@@ -1,0 +1,34 @@
+{
+  "label": "App tour",
+  "controls": {
+    "skip": "Skip tour",
+    "back": "Back",
+    "later": "Will do later",
+    "waiting": "Waiting for you…",
+    "done": "Done",
+    "next": "Next"
+  },
+  "steps": [
+    { "title": "Welcome to CatRealm", "body": "A quick look at where everything lives. You can skip it any time." },
+    { "title": "Home", "body": "Your friends, friend requests and recent chats." },
+    { "title": "Servers", "body": "Your realms. Double-tap to open the server list from anywhere." },
+    { "title": "Discover servers", "body": "Browse public servers here and join any that look fun." },
+    { "title": "Chats", "body": "Your direct messages and group chats." },
+    { "title": "Notifications", "body": "Mentions, replies and requests, all in one place." },
+    { "title": "Open your profile", "body": "Tap You to continue." },
+    { "title": "Edit your profile", "body": "Tap the pencil to set a profile picture and banner." },
+    { "title": "Add a profile picture", "body": "Tap your avatar to upload one." },
+    { "title": "Add a banner", "body": "Tap the banner to upload one." },
+    { "title": "Server Profiles", "body": "Use a different picture or banner on specific servers. Your main profile is the fallback." },
+    { "title": "Account Security", "body": "Your signed-in devices, passkeys and security keys." },
+    { "title": "Voice & Video", "body": "Microphone, speakers, and voice activity or push to talk." },
+    { "title": "Notifications", "body": "Push notifications, and the sounds for messages, calls and voice." },
+    { "title": "Appearance", "body": "Themes and how heavy the animations are." },
+    { "title": "Emotes & Settings", "body": "How large emotes appear, plus your personal emotes." },
+    { "title": "Content & Social", "body": "NSFW filters and the link domains you trust." },
+    { "title": "Cat Cache", "body": "How much space images, videos and emotes may use on this phone." },
+    { "title": "Language", "body": "The language CatRealm uses on this device." },
+    { "title": "Cat Lab", "body": "Experimental features. Fun, but use them at your own risk." },
+    { "title": "You're all set", "body": "You can replay this tour from the You tab whenever you like. Have fun!" }
+  ]
+}

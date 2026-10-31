@@ -1,0 +1,1417 @@
+@import "tailwindcss";
+
+/* Breakpoint variants stand down while the small-screen layout (MobileShell)
+   is mounted, so a narrow desktop window or "force mobile view" renders the
+   phone versions of every screen instead of a half-desktop tablet mix. */
+@custom-variant md {
+  @media (width >= 48rem) {
+    &:where(:root:not([data-mobile-layout]) *) { @slot; }
+  }
+}
+@custom-variant lg {
+  @media (width >= 64rem) {
+    &:where(:root:not([data-mobile-layout]) *) { @slot; }
+  }
+}
+@custom-variant xl {
+  @media (width >= 80rem) {
+    &:where(:root:not([data-mobile-layout]) *) { @slot; }
+  }
+}
+@custom-variant 2xl {
+  @media (width >= 96rem) {
+    &:where(:root:not([data-mobile-layout]) *) { @slot; }
+  }
+}
+
+@theme {
+  --color-bg-deepest: #1e1f22;
+  --color-bg-sidebar: #2b2d31;
+  --color-bg-chat: #313338;
+  --color-bg-hover: #383a40;
+  --color-bg-input: #1e1f22;
+  --color-bg-elevated: #232428;
+  --color-text-primary: #f2f3f5;
+  --color-text-secondary: #b5bac1;
+  --color-text-muted: #6d6f78;
+  --color-accent: #7c5cff;
+  --color-accent-hover: #6a4de0;
+  --color-danger: #f23f42;
+  --color-success: #23a559;
+  --color-warning: #f0b232;
+  --color-border: #3f4147;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  /* Prevent pull-to-refresh and overscroll bounce */
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg-deepest);
+  color: var(--color-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  /* Prevent touch gestures that cause bouncing */
+  touch-action: pan-x pan-y;
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* WebKitGTK otherwise paints native select controls with the light GTK
+   palette while inheriting CatRealm's light text, producing white-on-white
+   fields and menus in Sushi. */
+select {
+  color-scheme: dark;
+}
+
+select option {
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-input);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ff9bd6;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ff74c3;
+}
+
+/* Global reduced-motion guard. Belt-and-suspenders alongside Framer Motion's
+   <MotionConfig reducedMotion="user"> (which handles JS-driven transforms):
+   this neutralizes CSS transitions, keyframe animations (incl. the decorative
+   breath/sparkle/pulse effects), and smooth scrolling for users who ask the OS
+   to reduce motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Heavier decorative ambiance (starfield, sparkle shimmers, drifting orbs,
+   breathing glows, ambient particles) is opt-in via Settings → Appearance →
+   "Heavier animations". Default OFF for performance; <body> gets .heavy-fx when
+   enabled. These effects animate expensive properties (mix-blend-mode, filter,
+   box-shadow) every frame; when off we freeze them to their static state so the
+   layout/look is preserved without the per-frame paint. Functional indicators
+   (status/warning pulses) are intentionally left running. */
+body:not(.heavy-fx) .invite-stars,
+body:not(.heavy-fx) .invite-stars::before,
+body:not(.heavy-fx) .invite-stars::after,
+body:not(.heavy-fx) .invite-orb-a,
+body:not(.heavy-fx) .invite-orb-b,
+body:not(.heavy-fx) .invite-card-breathe,
+body:not(.heavy-fx) .discover-nav-button,
+body:not(.heavy-fx) .discover-nav-button::before,
+body:not(.heavy-fx) .discover-nav-button::after,
+body:not(.heavy-fx) .discover-add-server-button,
+body:not(.heavy-fx) .discover-add-server-button::before,
+body:not(.heavy-fx) .logout-shiny-button,
+body:not(.heavy-fx) .logout-shiny-button::before,
+body:not(.heavy-fx) .logout-shiny-button::after,
+body:not(.heavy-fx) .call-live-banner,
+body:not(.heavy-fx) .call-live-banner::before,
+body:not(.heavy-fx) .call-live-banner::after {
+  animation: none !important;
+}
+
+@keyframes sheetIn {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.slide-sheet {
+  animation: sheetIn 160ms ease-out;
+}
+
+@keyframes bottomDrawerIn {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.bottom-drawer {
+  animation: bottomDrawerIn 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes quickDrawerIn {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.quick-drawer {
+  animation: quickDrawerIn 140ms ease-out;
+}
+
+.drop-line {
+  height: 2px;
+  background: #ff5cb8;
+  border-radius: 999px;
+  margin: 2px 8px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Optimistic message ghost — gentle rise + fade as the just-sent message
+   appears. One-shot; the server copy replaces it in place with no re-animate.
+   Neutralized for reduced-motion users by the global guard above. */
+@keyframes messageGhostIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 0.5; transform: translateY(0); }
+}
+.message-ghost-in {
+  /* Resting dim of an unconfirmed (optimistic) message; the keyframe lands here,
+     so reduced-motion users still get the dim (just no movement). */
+  opacity: 0.5;
+  animation: messageGhostIn 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Bespoke modal entrance (one-shot, GPU-cheap) for modals not on the shared
+   <Modal>/Framer path. Neutralized by the reduced-motion guard above. */
+@keyframes modalBackdropIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalPanelIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.modal-backdrop-in { animation: modalBackdropIn 180ms ease-out; }
+.modal-panel-in { animation: modalPanelIn 200ms cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes sendPulse {
+  0% {
+    color: #8fd3ff;
+    filter: drop-shadow(0 0 0 rgba(143, 211, 255, 0.0));
+  }
+  50% {
+    color: #b77bff;
+    filter: drop-shadow(0 0 6px rgba(183, 123, 255, 0.35));
+  }
+  100% {
+    color: #8fd3ff;
+    filter: drop-shadow(0 0 0 rgba(143, 211, 255, 0.0));
+  }
+}
+
+.send-ready {
+  animation: sendPulse 1.6s ease-in-out infinite;
+}
+
+/* H.265/HEVC codec warning — slow red↔yellow glow. */
+@keyframes codecWarnGlow {
+  0% {
+    color: #f87171;
+    filter: drop-shadow(0 0 4px rgba(248, 113, 113, 0.55));
+  }
+  50% {
+    color: #facc15;
+    filter: drop-shadow(0 0 6px rgba(250, 204, 21, 0.55));
+  }
+  100% {
+    color: #f87171;
+    filter: drop-shadow(0 0 4px rgba(248, 113, 113, 0.55));
+  }
+}
+
+.codec-warn-glow {
+  animation: codecWarnGlow 2.4s ease-in-out infinite;
+}
+
+/* CatRealm Radio "now playing" strip: a slow-drifting night sky with twinkling
+   stars. Only transform/opacity animate (compositor-only), so it stays on without
+   .heavy-fx; the reduced-motion rule above still freezes it. */
+.radio-night {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background-color: #0b1026;
+  /* Soft static edge glow; static so it costs no per-frame paint. */
+  box-shadow:
+    inset 0 0 0 1px rgba(165, 180, 252, 0.18),
+    inset 0 0 14px rgba(139, 92, 246, 0.28);
+}
+.radio-night::before {
+  content: '';
+  position: absolute;
+  inset: 0 -100%;
+  z-index: -1;
+  background: linear-gradient(110deg, #0b1026 0%, #1c1f4f 18%, #3b2468 36%, #14395e 54%, #1c1f4f 72%, #2a1b55 86%, #0b1026 100%);
+  animation: radioNightDrift 28s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.radio-night::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1px 1px at 8% 28%, #fff 50%, transparent 51%),
+    radial-gradient(1px 1px at 23% 72%, #dfe6ff 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 41% 18%, #fff 50%, transparent 51%),
+    radial-gradient(1px 1px at 57% 64%, #cfd8ff 50%, transparent 51%),
+    radial-gradient(1px 1px at 72% 34%, #fff 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 88% 78%, #e8e0ff 50%, transparent 51%),
+    radial-gradient(1px 1px at 94% 14%, #fff 50%, transparent 51%);
+  animation: radioNightTwinkle 3.5s ease-in-out infinite alternate;
+}
+/* Equalizer bars beside "CatRealm Radio"; scaleY only, so compositor-cheap. */
+.radio-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  width: 16px;
+  height: 14px;
+}
+.radio-bars > span {
+  flex: 1;
+  height: 100%;
+  border-radius: 1px;
+  background-color: currentColor;
+  transform-origin: bottom;
+  animation: radioBarA 2.4s ease-in-out infinite alternate;
+}
+/* Uneven paths per bar; speed and phase are randomized inline per mount. */
+.radio-bars > span:nth-child(2) { animation-name: radioBarB; }
+.radio-bars > span:nth-child(3) { animation-name: radioBarC; }
+.radio-bars > span:nth-child(4) { animation-name: radioBarD; }
+@keyframes radioBarA {
+  0% { transform: scaleY(0.3); }
+  35% { transform: scaleY(0.75); }
+  60% { transform: scaleY(0.5); }
+  100% { transform: scaleY(0.85); }
+}
+@keyframes radioBarB {
+  0% { transform: scaleY(0.55); }
+  25% { transform: scaleY(0.35); }
+  70% { transform: scaleY(0.8); }
+  100% { transform: scaleY(0.4); }
+}
+@keyframes radioBarC {
+  0% { transform: scaleY(0.4); }
+  45% { transform: scaleY(0.9); }
+  80% { transform: scaleY(0.6); }
+  100% { transform: scaleY(0.7); }
+}
+@keyframes radioBarD {
+  0% { transform: scaleY(0.7); }
+  30% { transform: scaleY(0.45); }
+  55% { transform: scaleY(0.65); }
+  100% { transform: scaleY(0.3); }
+}
+@keyframes radioNightDrift {
+  from { transform: translateX(-30%); }
+  to { transform: translateX(30%); }
+}
+@keyframes radioNightTwinkle {
+  from { opacity: 0.3; }
+  to { opacity: 0.9; }
+}
+
+/* Gray dot with a yellow glowing layer that fades in and out. Only opacity
+   animates, so a member list full of sleeping users stays off the main thread
+   (pulsing background-color/box-shadow repainted every display frame). */
+@keyframes sleepPulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+.status-sleeping {
+  position: relative;
+  background-color: #6d6f78;
+}
+
+.status-sleeping::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: #ffd166;
+  box-shadow: 0 0 6px rgba(255, 209, 102, 0.6);
+  opacity: 0;
+  pointer-events: none;
+  animation: sleepPulse 2s ease-in-out infinite;
+}
+
+/* Voice call background — animated patterns (Appearance settings) */
+@keyframes voiceBgPan {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes voiceBgScroll {
+  from { background-position: 0 0; }
+  to { background-position: var(--voice-bg-scroll, 792px) var(--voice-bg-scroll, 792px); }
+}
+
+@keyframes voiceBgSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.voice-bg-animated-pan {
+  background-size: 300% 300% !important;
+  animation: voiceBgPan 28s ease-in-out infinite;
+}
+
+.voice-bg-animated-scroll {
+  animation: voiceBgScroll 18s linear infinite;
+}
+
+.voice-bg-animated-mesh {
+  /* Oversized so the slow rotation never exposes edges. */
+  inset: -35% !important;
+  animation: voiceBgSpin 90s linear infinite;
+}
+
+@keyframes voiceBgSpinRev {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+@keyframes voiceBgRise {
+  0% { top: 105%; opacity: 0; }
+  8% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: -8%; opacity: 0; }
+}
+
+@keyframes voiceBgPulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.95; transform: scale(1.12); }
+}
+
+@keyframes voiceBgSway {
+  0%, 100% { transform: rotate(-7deg); }
+  50% { transform: rotate(7deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-bg-animated-pan,
+  .voice-bg-animated-scroll,
+  .voice-bg-animated-mesh {
+    animation: none;
+  }
+  .voice-bg-scene * {
+    animation: none !important;
+  }
+}
+
+@keyframes devWarningBreath {
+  0% {
+    color: var(--color-warning);
+    text-shadow: 0 0 0 rgba(240, 178, 50, 0);
+  }
+  50% {
+    color: var(--color-danger);
+    text-shadow: 0 0 8px rgba(242, 63, 66, 0.45);
+  }
+  100% {
+    color: var(--color-warning);
+    text-shadow: 0 0 0 rgba(240, 178, 50, 0);
+  }
+}
+
+.dev-build-warning {
+  animation: devWarningBreath 2.2s ease-in-out infinite;
+}
+
+/* Breathing buttons animate only transform (the lift) and opacity (a glow layer
+   on ::before) so the effect runs on the compositor. Animating box-shadow
+   directly forced a main-thread style recalc + repaint on every display frame
+   (~165/s on high-refresh monitors) for as long as the button was mounted. */
+@keyframes breatheLift {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+
+@keyframes breatheGlow {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+@keyframes discoverSparkle {
+  0% {
+    opacity: 0.2;
+    transform: translateX(-10%) scale(0.9);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translateX(105%) scale(1.1);
+  }
+  100% {
+    opacity: 0.2;
+    transform: translateX(220%) scale(0.95);
+  }
+}
+
+.discover-nav-button,
+.discover-add-server-button,
+.logout-shiny-button {
+  position: relative;
+  animation: breatheLift 2.8s ease-in-out infinite;
+}
+
+.discover-nav-button::before,
+.discover-add-server-button::before,
+.logout-shiny-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  animation: breatheGlow 2.8s ease-in-out infinite;
+}
+
+/* The glow sits inside the button so it reads as moving with the lift. */
+.discover-nav-button {
+  overflow: hidden;
+}
+
+body.heavy-fx .discover-nav-button {
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.15);
+}
+
+.discover-nav-button::before {
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.35), inset 0 0 14px rgba(124, 92, 255, 0.32);
+}
+
+.discover-nav-button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 42%;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.18) 48%, transparent 100%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: discoverSparkle 3.3s linear infinite;
+}
+
+/* A short yellow glow and shimmer make the message found by a jump easy to spot. */
+.chat-jump-highlight {
+  position: relative;
+  isolation: isolate;
+}
+
+.chat-jump-highlight::before,
+.chat-jump-highlight::after {
+  content: '';
+  position: absolute;
+  inset: 2px 8px;
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.chat-jump-highlight::before {
+  background: linear-gradient(105deg, transparent 30%, rgba(253, 224, 71, 0.12) 45%, rgba(255, 255, 255, 0.28) 50%, rgba(253, 224, 71, 0.12) 55%, transparent 70%);
+  background-size: 220% 100%;
+  animation: chatJumpShimmer 2.5s ease-out both;
+}
+
+.chat-jump-highlight::after {
+  box-shadow: inset 0 0 0 2px rgba(253, 224, 71, 0.9), 0 0 16px rgba(253, 224, 71, 0.65);
+  background: rgba(253, 224, 71, 0.07);
+  animation: chatJumpGlow 2.5s ease-in-out both;
+}
+
+@keyframes chatJumpGlow {
+  0%, 100% { opacity: 0; }
+  12%, 72% { opacity: 1; }
+  88% { opacity: 0.4; }
+}
+
+@keyframes chatJumpShimmer {
+  0% { opacity: 0; background-position: 100% 0; }
+  12% { opacity: 1; }
+  76% { opacity: 1; background-position: 0 0; }
+  100% { opacity: 0; background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-jump-highlight::before {
+    animation: none;
+    opacity: 0;
+  }
+
+  .chat-jump-highlight::after {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Typing indicator: square avatars, a light sweep across the label, and trailing dots that pulse in turn. */
+.typing-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 2px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-accent) 45%, var(--color-bg-hover));
+  color: #fff;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 600;
+  box-shadow: 0 0 0 2px var(--color-bg-chat);
+}
+
+.typing-avatar:has(img) {
+  padding: 0;
+  width: 16px;
+}
+
+.typing-avatar-count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 8px;
+  letter-spacing: -0.02em;
+}
+
+.typing-shimmer {
+  background: linear-gradient(90deg, var(--color-text-muted) 0%, var(--color-text-muted) 40%, var(--color-text-primary) 50%, var(--color-text-muted) 60%, var(--color-text-muted) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: typingShimmer 2s linear infinite;
+}
+
+.typing-dots span {
+  animation: typingDot 1.2s ease-in-out infinite;
+}
+
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typingShimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@keyframes typingDot {
+  0%, 60%, 100% { opacity: 0.25; }
+  30% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-shimmer {
+    animation: none;
+    background: none;
+    color: var(--color-text-muted);
+  }
+
+  .typing-dots span {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+body.heavy-fx .discover-add-server-button {
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.15);
+}
+
+.discover-add-server-button::before {
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.35), inset 0 0 14px rgba(124, 92, 255, 0.32);
+}
+
+.logout-shiny-button {
+  overflow: hidden;
+}
+
+body.heavy-fx .logout-shiny-button {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.logout-shiny-button::before {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 0 14px rgba(239, 68, 68, 0.45);
+}
+
+.logout-shiny-button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 42%;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.28) 48%, transparent 100%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: discoverSparkle 3.3s linear infinite;
+}
+
+/* Cat Lab feature cards outside Cat Lab (e.g. My Reactive Avatar in Appearance)
+   breathe with the same purple glow as the Discover button to draw attention.
+   Without heavy-fx (or with reduced motion) the glow holds steady instead. */
+.catlab-feature-card {
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.25);
+}
+
+.catlab-feature-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.5), inset 0 0 32px rgba(124, 92, 255, 0.22);
+  animation: breatheGlow 2.8s ease-in-out infinite;
+}
+
+body:not(.heavy-fx) .catlab-feature-card::before {
+  animation: none;
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .catlab-feature-card::before {
+    animation: none !important;
+    opacity: 0.55;
+  }
+}
+
+.reactive-preview-bounce {
+  animation: reactivePreviewBounce 0.42s ease-in-out infinite;
+}
+
+@keyframes reactivePreviewBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8%); }
+}
+
+/* Unsaved changes floating bar */
+.unsaved-warning-text {
+  animation: devWarningBreath 1.8s ease-in-out infinite;
+}
+
+@keyframes unsavedBarBreath {
+  0%   { box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.20), 0 0 0 rgba(124, 92, 255, 0), 0 8px 32px rgba(0,0,0,0.5); }
+  50%  { box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.50), 0 0 22px rgba(124, 92, 255, 0.28), 0 8px 32px rgba(0,0,0,0.5); }
+  100% { box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.20), 0 0 0 rgba(124, 92, 255, 0), 0 8px 32px rgba(0,0,0,0.5); }
+}
+
+.unsaved-changes-bar {
+  animation: unsavedBarBreath 2.4s ease-in-out infinite;
+}
+
+@keyframes modalRejectShake {
+  0% { transform: translateX(0); }
+  18% { transform: translateX(-10px); }
+  36% { transform: translateX(9px); }
+  54% { transform: translateX(-7px); }
+  72% { transform: translateX(5px); }
+  100% { transform: translateX(0); }
+}
+
+.modal-reject-shake {
+  animation: modalRejectShake 0.34s ease-in-out;
+}
+
+/* Pinned taskbar enter/leave (per dock edge) + first-pin shake */
+@keyframes pinbarInBottom { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes pinbarOutBottom { from { transform: translateY(0); opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
+@keyframes pinbarInTop { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes pinbarOutTop { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-100%); opacity: 0; } }
+@keyframes pinbarInLeft { from { transform: translateX(-100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes pinbarOutLeft { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-100%); opacity: 0; } }
+@keyframes pinbarInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes pinbarOutRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+@keyframes pinbarShakeX {
+  0% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+@keyframes pinbarShakeY {
+  0% { transform: translateY(0); }
+  20% { transform: translateY(-6px); }
+  40% { transform: translateY(5px); }
+  60% { transform: translateY(-3px); }
+  80% { transform: translateY(2px); }
+  100% { transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pinbar-animated { animation: none !important; }
+}
+
+@keyframes callLiveSparkle {
+  0% {
+    opacity: 0.15;
+    transform: translateX(-15%) scale(0.9);
+  }
+  50% {
+    opacity: 0.85;
+    transform: translateX(110%) scale(1.08);
+  }
+  100% {
+    opacity: 0.15;
+    transform: translateX(220%) scale(0.95);
+  }
+}
+
+/* Breathes like the Discover button: transform lift + an opacity-faded glow
+   layer (breatheLift/breatheGlow), so it stays on the compositor. */
+.call-live-banner {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(120deg, rgba(14, 116, 144, 0.68), rgba(14, 165, 233, 0.58));
+  animation: breatheLift 2.8s ease-in-out infinite;
+}
+
+body.heavy-fx .call-live-banner {
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.18);
+}
+
+.call-live-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.5), inset 0 0 16px rgba(56, 189, 248, 0.35);
+  animation: breatheGlow 2.8s ease-in-out infinite;
+}
+
+.call-live-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.24) 48%, transparent 100%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: callLiveSparkle 3.2s linear infinite;
+}
+
+.avatar-bg {
+  background-color: var(--color-accent);
+}
+
+.avatar-bg-muted {
+  background-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
+}
+
+body.avatar-bg-disabled .avatar-bg,
+body.avatar-bg-disabled .avatar-bg-muted {
+  background-color: transparent;
+}
+
+[data-theme="dark-cat"] {
+  --color-bg-deepest:   #1e1133;
+  --color-bg-sidebar:   #302154;
+  --color-bg-chat:      #3a2864;
+  --color-bg-hover:     #44306e;
+  --color-bg-input:     #1e1133;
+  --color-bg-elevated:  #271748;
+  --color-text-primary:   #f2f3f5;
+  --color-text-secondary: #c8b5e0;
+  --color-text-muted:     #7a6890;
+  --color-accent:       #9b77ff;
+  --color-accent-hover: #8866ee;
+  --color-border:       #4a3578;
+}
+
+[data-theme="angel-cat"] {
+  --color-bg-deepest:   #f0e7ff;
+  --color-bg-sidebar:   #e0bcf4;
+  --color-bg-chat:      #ece2f8;
+  --color-bg-hover:     #d5b2ec;
+  --color-bg-input:     #f7f0ff;
+  --color-bg-elevated:  #f8f3ff;
+  --color-text-primary:   #1a0a2e;
+  --color-text-secondary: #4a3570;
+  --color-text-muted:     #8b6aaa;
+  --color-accent:       #6b44f0;
+  --color-accent-hover: #5a35d9;
+  --color-border:       #c9a5e8;
+}
+
+[data-theme="midnight-cat"] {
+  --color-bg-deepest:   #000000;
+  --color-bg-sidebar:   #090909;
+  --color-bg-chat:      #0f0f0f;
+  --color-bg-hover:     #1a1a1a;
+  --color-bg-input:     #000000;
+  --color-bg-elevated:  #0d0d0d;
+  --color-text-primary:   #ffffff;
+  --color-text-secondary: #a0a3a8;
+  --color-text-muted:     #4a4d54;
+  --color-accent:       #7c5cff;
+  --color-accent-hover: #6a4de0;
+  --color-border:       #1c1c1e;
+}
+
+.invite-backdrop {
+  background:
+    radial-gradient(1200px 560px at 12% -10%, rgba(124, 92, 255, 0.18), transparent 60%),
+    radial-gradient(900px 460px at 92% 8%, rgba(103, 232, 249, 0.08), transparent 60%),
+    #171225;
+}
+
+.invite-orb-a {
+  background: radial-gradient(circle at 35% 35%, rgba(124, 92, 255, 0.34), rgba(124, 92, 255, 0.08) 55%, transparent 72%);
+  animation: inviteDriftOrbA 20s ease-in-out infinite alternate;
+  filter: none;
+  height: 230px !important;
+  width: 230px !important;
+}
+
+.invite-orb-b {
+  background: radial-gradient(circle at 45% 45%, rgba(103, 232, 249, 0.2), rgba(103, 232, 249, 0.06) 54%, transparent 74%);
+  animation: inviteDriftOrbB 23s ease-in-out infinite alternate;
+  filter: none;
+  height: 195px !important;
+  width: 195px !important;
+}
+
+.invite-stars {
+  bottom: auto !important;
+  height: 50% !important;
+  opacity: 0.22;
+  mix-blend-mode: normal;
+  right: auto !important;
+  transform: scale(2);
+  transform-origin: top left;
+  width: 50% !important;
+  background-image:
+    radial-gradient(1.4px 1.4px at 14px 26px, rgba(255, 255, 255, 0.9), transparent 62%),
+    radial-gradient(1px 1px at 42px 82px, rgba(222, 229, 255, 0.84), transparent 60%),
+    radial-gradient(1.8px 1.8px at 88px 36px, rgba(214, 195, 255, 0.78), transparent 64%),
+    radial-gradient(2.8px 2.8px at 110px 18px, rgba(255, 255, 255, 0.78), transparent 68%),
+    radial-gradient(1.2px 1.2px at 124px 104px, rgba(197, 241, 255, 0.74), transparent 62%),
+    radial-gradient(1px 1px at 168px 60px, rgba(255, 255, 255, 0.84), transparent 60%),
+    radial-gradient(1.6px 1.6px at 202px 20px, rgba(215, 201, 255, 0.74), transparent 64%),
+    radial-gradient(2.4px 2.4px at 228px 72px, rgba(198, 239, 255, 0.76), transparent 67%),
+    radial-gradient(1px 1px at 236px 96px, rgba(186, 245, 255, 0.76), transparent 60%),
+    radial-gradient(1.4px 1.4px at 264px 52px, rgba(255, 255, 255, 0.8), transparent 62%);
+  background-size: 280px 140px;
+  animation: none;
+  filter: none;
+}
+
+.invite-stars::before,
+.invite-stars::after {
+  content: '';
+  display: none;
+}
+
+.invite-stars::before {
+  opacity: 0.84;
+  background-image:
+    radial-gradient(1.4px 1.4px at 22px 48px, rgba(255, 255, 255, 0.78), transparent 62%),
+    radial-gradient(1px 1px at 58px 20px, rgba(189, 168, 255, 0.72), transparent 60%),
+    radial-gradient(1.8px 1.8px at 102px 84px, rgba(194, 240, 255, 0.8), transparent 64%),
+    radial-gradient(2.6px 2.6px at 132px 26px, rgba(213, 198, 255, 0.76), transparent 68%),
+    radial-gradient(1px 1px at 144px 56px, rgba(255, 255, 255, 0.72), transparent 60%),
+    radial-gradient(1.6px 1.6px at 182px 10px, rgba(205, 188, 255, 0.72), transparent 64%),
+    radial-gradient(2.3px 2.3px at 214px 92px, rgba(189, 239, 255, 0.74), transparent 67%),
+    radial-gradient(1px 1px at 226px 72px, rgba(194, 240, 255, 0.7), transparent 60%),
+    radial-gradient(1.2px 1.2px at 268px 38px, rgba(255, 255, 255, 0.72), transparent 62%);
+  background-size: 300px 120px;
+  animation: inviteTwinkle2 6.1s ease-in-out infinite reverse;
+}
+
+.invite-stars::after {
+  opacity: 0.72;
+  background-image:
+    radial-gradient(1.2px 1.2px at 34px 18px, rgba(255, 255, 255, 0.74), transparent 62%),
+    radial-gradient(1.7px 1.7px at 74px 68px, rgba(179, 154, 255, 0.72), transparent 64%),
+    radial-gradient(2.5px 2.5px at 96px 42px, rgba(255, 255, 255, 0.72), transparent 67%),
+    radial-gradient(1px 1px at 114px 42px, rgba(197, 232, 255, 0.68), transparent 60%),
+    radial-gradient(1.4px 1.4px at 154px 90px, rgba(255, 255, 255, 0.7), transparent 62%),
+    radial-gradient(2.2px 2.2px at 176px 14px, rgba(198, 237, 255, 0.7), transparent 67%),
+    radial-gradient(1px 1px at 198px 28px, rgba(197, 232, 255, 0.66), transparent 60%),
+    radial-gradient(1.6px 1.6px at 234px 78px, rgba(179, 154, 255, 0.68), transparent 64%),
+    radial-gradient(2.4px 2.4px at 254px 96px, rgba(201, 186, 255, 0.68), transparent 68%),
+    radial-gradient(1px 1px at 272px 50px, rgba(255, 255, 255, 0.72), transparent 60%);
+  background-size: 290px 110px;
+  animation: inviteTwinkle3 8.9s ease-in-out infinite;
+}
+
+@keyframes inviteDriftOrbA {
+  0% { transform: translate3d(0, 0, 0) scale(2); }
+  100% { transform: translate3d(32px, -34px, 0) scale(2.16); }
+}
+
+@keyframes inviteDriftOrbB {
+  0% { transform: translate3d(0, 0, 0) scale(2); }
+  100% { transform: translate3d(-30px, 26px, 0) scale(2.12); }
+}
+
+@keyframes inviteTwinkle1 {
+  0%, 100% { opacity: 0.62; filter: none; transform: scale(2); }
+  26% { opacity: 0.82; filter: drop-shadow(0 0 4px rgba(212, 198, 255, 0.2)); }
+  34% { opacity: 0.98; filter: drop-shadow(0 0 7px rgba(186, 245, 255, 0.28)); transform: scale(2.02); }
+  64% { opacity: 0.76; }
+  81% { opacity: 0.92; filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.26)); transform: scale(2.01); }
+}
+
+@keyframes inviteTwinkle2 {
+  0%, 100% { opacity: 0.56; transform: scale(2); }
+  22% { opacity: 0.74; }
+  28% { opacity: 0.9; transform: scale(2.024); }
+  64% { opacity: 0.7; }
+  86% { opacity: 0.84; transform: scale(2.012); }
+}
+
+@keyframes inviteTwinkle3 {
+  0%, 100% { opacity: 0.5; transform: scale(2); }
+  18% { opacity: 0.62; }
+  45% { opacity: 0.84; transform: scale(2.02); }
+  70% { opacity: 0.64; }
+  91% { opacity: 0.78; transform: scale(2.008); }
+}
+
+@keyframes inviteRichDriftOrbA {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(32px, -34px, 0) scale(1.08); }
+}
+
+@keyframes inviteRichDriftOrbB {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(-30px, 26px, 0) scale(1.06); }
+}
+
+@keyframes inviteRichTwinkle1 {
+  0%, 100% { opacity: 0.62; filter: none; transform: scale(1); }
+  26% { opacity: 0.82; filter: drop-shadow(0 0 4px rgba(212, 198, 255, 0.2)); }
+  34% { opacity: 0.98; filter: drop-shadow(0 0 7px rgba(186, 245, 255, 0.28)); transform: scale(1.01); }
+  64% { opacity: 0.76; }
+  81% { opacity: 0.92; filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.26)); transform: scale(1.005); }
+}
+
+@keyframes inviteRichTwinkle2 {
+  0%, 100% { opacity: 0.56; transform: scale(1); }
+  22% { opacity: 0.74; }
+  28% { opacity: 0.9; transform: scale(1.012); }
+  64% { opacity: 0.7; }
+  86% { opacity: 0.84; transform: scale(1.006); }
+}
+
+@keyframes inviteRichTwinkle3 {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  18% { opacity: 0.62; }
+  45% { opacity: 0.84; transform: scale(1.01); }
+  70% { opacity: 0.64; }
+  91% { opacity: 0.78; transform: scale(1.004); }
+}
+
+body.heavy-fx.compositor-d3d11 .invite-orb-a,
+body.heavy-fx.compositor-browser .invite-orb-a {
+  animation: inviteRichDriftOrbA 20s ease-in-out infinite alternate;
+  filter: blur(8px);
+  height: 460px !important;
+  width: 460px !important;
+}
+
+body.heavy-fx.compositor-d3d11 .invite-orb-b,
+body.heavy-fx.compositor-browser .invite-orb-b {
+  animation: inviteRichDriftOrbB 23s ease-in-out infinite alternate;
+  filter: blur(7px);
+  height: 390px !important;
+  width: 390px !important;
+}
+
+body.heavy-fx.compositor-d3d11 .invite-stars,
+body.heavy-fx.compositor-browser .invite-stars {
+  animation: inviteRichTwinkle1 7.2s ease-in-out infinite;
+  bottom: 0 !important;
+  height: 100% !important;
+  left: 0 !important;
+  mix-blend-mode: screen;
+  opacity: 0.86;
+  right: 0 !important;
+  top: 0 !important;
+  transform: none;
+  width: 100% !important;
+}
+
+body.heavy-fx.compositor-d3d11 .invite-stars::before,
+body.heavy-fx.compositor-d3d11 .invite-stars::after,
+body.heavy-fx.compositor-browser .invite-stars::before,
+body.heavy-fx.compositor-browser .invite-stars::after {
+  content: '';
+  display: block;
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  background-repeat: repeat;
+}
+
+body.heavy-fx.compositor-d3d11 .invite-stars::before,
+body.heavy-fx.compositor-browser .invite-stars::before {
+  animation: inviteRichTwinkle2 6.1s ease-in-out infinite reverse;
+}
+
+body.heavy-fx.compositor-d3d11 .invite-stars::after,
+body.heavy-fx.compositor-browser .invite-stars::after {
+  animation: inviteRichTwinkle3 8.9s ease-in-out infinite;
+}
+
+body.heavy-fx.compositor-d3d11 .invite-card-breathe,
+body.heavy-fx.compositor-browser .invite-card-breathe {
+  animation: inviteCardBreathe 3.2s ease-in-out infinite;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invite-orb-a,
+  .invite-orb-b,
+  .invite-stars,
+  .invite-stars::before,
+  .invite-stars::after {
+    animation: none !important;
+  }
+}
+
+.invite-card-breathe {
+  animation: none;
+  border-color: rgba(255, 255, 255, 0.32);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 0 22px rgba(255, 255, 255, 0.18),
+    0 16px 34px rgba(0, 0, 0, 0.35);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@keyframes inviteCardBreathe {
+  0%, 100% {
+    border-color: rgba(255, 255, 255, 0.20);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 18px 38px rgba(0, 0, 0, 0.38);
+  }
+  50% {
+    border-color: rgba(255, 255, 255, 0.62);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.32),
+      0 0 24px rgba(255, 255, 255, 0.28),
+      0 20px 44px rgba(0, 0, 0, 0.42);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invite-card-breathe {
+    animation: none !important;
+  }
+}
+
+/* DMComposerCore — prevent selection handles on emote images */
+@keyframes socialProfileRichDrift {
+  0% {
+    transform: translate3d(-1.5%, -1%, 0) scale(1.02);
+    opacity: 0.34;
+  }
+  100% {
+    transform: translate3d(1.5%, 1%, 0) scale(1.06);
+    opacity: 0.52;
+  }
+}
+
+/* Keep long chat histories in the DOM for stable scrolling/search, while
+   letting Chromium/WebView2 skip layout and paint work for off-screen rows. */
+.chat-render-boundary {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 72px;
+}
+
+/* Loading placeholder for chat images, ported from mobile's ImagePlaceholder:
+   a still aurora wash in the logo colours with the cat mark. Drawn as the
+   <img>'s own background so it costs no extra DOM; the image paints over it
+   and data-loaded drops it (transparent images then show their usual bg). */
+.chat-image-placeholder:not([data-loaded]) {
+  background-color: var(--color-bg-elevated);
+  background-image:
+    url('./assets/image-placeholder-cat.png'),
+    linear-gradient(135deg, rgba(184, 156, 245, 0.36), transparent 80%),
+    linear-gradient(to bottom right, transparent 20%, rgba(244, 166, 192, 0.19)),
+    linear-gradient(to bottom, transparent 20%, rgba(111, 168, 255, 0.19));
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: auto min(64px, 60%), 100% 100%, 100% 100%, 100% 100%;
+}
+
+/* Ringing call indicators (incoming and outgoing). The avatar wiggles in
+   bursts like a ringing phone, then rests; rings pulse out from the avatar's
+   edge but stay small enough for the 72px server bar. */
+@keyframes call-avatar-wiggle {
+  0%, 40%, 100% { transform: rotate(0deg); }
+  5% { transform: rotate(-9deg); }
+  10% { transform: rotate(9deg); }
+  15% { transform: rotate(-7deg); }
+  20% { transform: rotate(7deg); }
+  25% { transform: rotate(-4deg); }
+  30% { transform: rotate(4deg); }
+}
+.call-avatar-wiggle {
+  animation: call-avatar-wiggle 1.6s ease-in-out infinite;
+}
+@keyframes call-ring-pulse {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+.call-ring {
+  animation: call-ring-pulse 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.call-ring-delayed {
+  animation-delay: 0.8s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .call-avatar-wiggle,
+  .call-ring {
+    animation: none;
+  }
+}
+
+/* Home nav "Group Chat" create button: green with a slow moving sheen. */
+.group-chat-create-button {
+  background-image: linear-gradient(110deg, #047857 0%, #10b981 40%, #6ee7b7 50%, #10b981 60%, #047857 100%);
+  background-size: 250% 100%;
+  animation: group-chat-create-sheen 4s linear infinite;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.45), 0 4px 14px rgba(16, 185, 129, 0.25);
+  transition: filter 150ms ease;
+}
+.group-chat-create-button:hover {
+  filter: brightness(1.1);
+}
+@keyframes group-chat-create-sheen {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .group-chat-create-button {
+    animation: none;
+    background-position: 50% 0;
+  }
+}
+
+/* A failed image falls back to the plain box instead of "loading" forever. */
+.chat-image-placeholder[data-failed]:not([data-loaded]) {
+  background-image: none;
+}
+
+/* These overlays are centred with Tailwind's -translate-x-1/2, which in v4
+   compiles to the standalone `translate` property — independent of, and
+   composed with, `transform`. Re-applying -50% here would shift them a full
+   width left instead of half, hanging them off the left edge of the view. */
+@keyframes socialProfileRichSparkle {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.40;
+  }
+  50% {
+    transform: translate3d(0, -10px, 0);
+    opacity: 0.64;
+  }
+}
+
+@keyframes socialProfileRichScanline {
+  0% {
+    transform: translate3d(0, -18px, 0);
+  }
+  100% {
+    transform: translate3d(0, 18px, 0);
+  }
+}
+
+@keyframes socialProfileRichHalo {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.38;
+  }
+  50% {
+    transform: translate3d(0, 0, 0) scale(1.035);
+    opacity: 0.62;
+  }
+}
+
+.social-profile-rich-drift {
+  animation: socialProfileRichDrift 18s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+.social-profile-rich-sparkle {
+  animation: socialProfileRichSparkle 7.5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.social-profile-rich-scanline {
+  animation: socialProfileRichScanline 12s linear infinite alternate;
+  will-change: transform;
+}
+
+.social-profile-rich-halo {
+  animation: socialProfileRichHalo 8s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .social-profile-rich-drift,
+  .social-profile-rich-sparkle,
+  .social-profile-rich-scanline,
+  .social-profile-rich-halo {
+    animation: none !important;
+  }
+}
+
+@keyframes badge-backdrop-bloom {
+  0% {
+    opacity: 0;
+    transform: scale(1.035);
+  }
+  100% {
+    opacity: 0.68;
+    transform: scale(1);
+  }
+}
+
+@keyframes badge-image-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.74);
+  }
+  68% {
+    opacity: 1;
+    transform: translateY(0) scale(1.035);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes badge-info-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes badge-backdrop-fade {
+  0% {
+    opacity: 0.68;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.015);
+  }
+}
+
+@keyframes badge-showcase-close {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+}
+
+@keyframes badge-info-close {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [class*="badge-backdrop-bloom"],
+  [class*="badge-backdrop-fade"],
+  [class*="badge-image-pop"],
+  [class*="badge-showcase-close"],
+  [class*="badge-info-in"],
+  [class*="badge-info-close"] {
+    animation: none !important;
+  }
+}
+
+[contenteditable] img[data-token] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* DMComposerCore — placeholder via ::before pseudo-element (same flow as cursor) */
+.dm-composer-empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-muted);
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: 1rem;
+  right: 1rem;
+  line-height: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}

@@ -1,0 +1,97 @@
+{
+  "label": "recorrido por la aplicación",
+  "controls": {
+    "skip": "Saltar recorrido",
+    "back": "Atrás",
+    "later": "Lo haré más tarde",
+    "waiting": "Esperando…",
+    "done": "Listo",
+    "next": "Siguiente"
+  },
+  "steps": [
+    {
+      "title": "Bienvenido a CatRealm",
+      "body": "Un vistazo rápido a dónde vive todo. Puedes omitirlo en cualquier momento."
+    },
+    {
+      "title": "Hogar",
+      "body": "Tus amigos, solicitudes de amistad y chats recientes."
+    },
+    {
+      "title": "Servidores",
+      "body": "Tus reinos. Toque dos veces para abrir la lista de servidores desde cualquier lugar."
+    },
+    {
+      "title": "Descubrir servidores",
+      "body": "Explore los servidores públicos aquí y únase a cualquiera que parezca divertido."
+    },
+    {
+      "title": "Charlas",
+      "body": "Tus mensajes directos y chats grupales."
+    },
+    {
+      "title": "Notificaciones",
+      "body": "Menciones, respuestas y solicitudes, todo en un solo lugar."
+    },
+    {
+      "title": "Abre tu perfil",
+      "body": "Toca Tú para continuar."
+    },
+    {
+      "title": "Edita tu perfil",
+      "body": "Toque el lápiz para configurar una imagen de perfil y un banner."
+    },
+    {
+      "title": "Añadir una foto de perfil",
+      "body": "Toca tu avatar para cargar uno."
+    },
+    {
+      "title": "Añadir un banner",
+      "body": "Toque el banner para cargar uno."
+    },
+    {
+      "title": "Perfiles de servidor",
+      "body": "Utilice una imagen o banner diferente en servidores específicos. Su perfil principal es el alternativo."
+    },
+    {
+      "title": "Seguridad de la cuenta",
+      "body": "Sus dispositivos registrados, claves de acceso y claves de seguridad."
+    },
+    {
+      "title": "Voz y vídeo",
+      "body": "Micrófono, parlantes y actividad de voz o pulsar para hablar."
+    },
+    {
+      "title": "Notificaciones",
+      "body": "Notificaciones push y sonidos para mensajes, llamadas y voz."
+    },
+    {
+      "title": "Apariencia",
+      "body": "Temas y qué tan pesadas son las animaciones."
+    },
+    {
+      "title": "Gestos y configuraciones",
+      "body": "Qué tan grandes aparecen los emoticones, además de tus emoticones personales."
+    },
+    {
+      "title": "Contenido y redes sociales",
+      "body": "Filtros NSFW y los dominios de enlace en los que confía."
+    },
+    {
+      "title": "Caché de gato",
+      "body": "Cuánto espacio pueden usar las imágenes, videos y emoticones en este teléfono."
+    },
+    {
+      "title": "Idioma",
+      "body": "El idioma que utiliza CatRealm en este dispositivo."
+    },
+    {
+      "title": "Laboratorio de gatos",
+      "body": "Características experimentales. Divertido, pero úsalos bajo tu propia responsabilidad."
+    },
+    {
+      "title": "Estás todo listo",
+      "body": "Puedes reproducir este recorrido desde la pestaña Tú cuando quieras. ¡Divertirse!"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CatRealm Sushi",
+  "version": "1.9.2",
+  "identifier": "app.catrealm.desktop",
+  "build": {
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../../CatRealm-Client/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "enableGTKAppId": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [],
+    "icon": ["icons/icon.png", "icons/icon.ico"]
+  }
+}

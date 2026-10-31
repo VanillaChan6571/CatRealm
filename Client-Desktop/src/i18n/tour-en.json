@@ -1,0 +1,45 @@
+{
+  "label": "App tour",
+  "controls": {
+    "skip": "Skip tour",
+    "back": "Back",
+    "later": "Will do later",
+    "waiting": "Waiting for you…",
+    "done": "Done",
+    "next": "Next"
+  },
+  "offer": {
+    "title": "New device, quick tour?",
+    "body": "You've had the CatRealm tour before, but not on this device. Want a quick look around?",
+    "skip": "Skip",
+    "takeTour": "Take the tour"
+  },
+  "steps": [
+    { "title": "Welcome to CatRealm", "body": "A quick look at where everything lives. You can skip it any time." },
+    { "title": "Home", "body": "Your friends, direct messages and group chats live here. Click it to come back from any server." },
+    { "title": "Friends and notes", "body": "Your notifications and friends list, adding friends, and your personal notes." },
+    { "title": "Discover servers", "body": "Browse public servers here and join any that look fun." },
+    { "title": "Your conversations", "body": "Switch between direct chats and group chats." },
+    { "title": "Join a server", "body": "Join a realm with an invite, or connect to a server by its address." },
+    { "title": "Mic, sound, privacy and changelog", "body": "Mute or deafen yourself, open your privacy dashboard, and see what's new." },
+    { "title": "Your profile", "body": "Your name and status. Click it any time to edit your profile." },
+    { "title": "Open Settings", "body": "Click the settings cog to continue." },
+    { "title": "Main Profile", "body": "How you appear across CatRealm: picture, banner, display name, bio and status." },
+    { "title": "Add a profile picture", "body": "Click your avatar to upload one." },
+    { "title": "Add a banner", "body": "Upload a banner for the top of your profile card." },
+    { "title": "Server Profiles", "body": "Use a different picture or banner on specific servers. Your main profile is the fallback." },
+    { "title": "Account Security", "body": "Your signed-in devices, passkeys and security keys." },
+    { "title": "Voice", "body": "Microphone and speakers, and voice activity or push to talk." },
+    { "title": "Notifications", "body": "Mobile push notifications, and the sounds for messages, calls and voice." },
+    { "title": "Appearance", "body": "Themes, custom themes, and how heavy the animations are." },
+    { "title": "Emotes", "body": "How large emotes appear, plus your personal emotes." },
+    { "title": "Desktop", "body": "Open on startup, minimise to tray, and opening links inside CatRealm." },
+    { "title": "Updates", "body": "Check for updates and pick your update channel." },
+    { "title": "Time Format", "body": "A 12 or 24 hour clock." },
+    { "title": "Language", "body": "The language CatRealm uses on this device." },
+    { "title": "Streamer Mode", "body": "Hide personal information and mute sounds while you stream or record." },
+    { "title": "Content & Social", "body": "NSFW filters and the link domains you trust." },
+    { "title": "Cat Lab", "body": "Experimental features. Fun, but use them at your own risk." },
+    { "title": "You're all set", "body": "You can replay this tour from Settings whenever you like. Have fun!" }
+  ]
+}

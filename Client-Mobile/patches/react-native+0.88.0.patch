@@ -1,0 +1,60 @@
+diff --git a/node_modules/react-native/Libraries/NativeAnimation/RCTNativeAnimatedNodesManager.mm b/node_modules/react-native/Libraries/NativeAnimation/RCTNativeAnimatedNodesManager.mm
+index 11146ca..37eb0b2 100644
+--- a/node_modules/react-native/Libraries/NativeAnimation/RCTNativeAnimatedNodesManager.mm
++++ b/node_modules/react-native/Libraries/NativeAnimation/RCTNativeAnimatedNodesManager.mm
+@@ -441,6 +441,9 @@ static NSString *RCTNormalizeAnimatedEventName(NSString *eventName)
+ {
+   if ((_displayLink == nullptr) && _activeAnimations.count > 0) {
+     _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(stepAnimations:)];
++    // CatRealm: request ProMotion cadence while this animation clock is active.
++    // iOS still controls the actual rate for power, thermal and display limits.
++    _displayLink.preferredFrameRateRange = CAFrameRateRangeMake(60, 120, 120);
+     [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+   }
+ }
+diff --git a/node_modules/react-native/React/Base/RCTDisplayLink.m b/node_modules/react-native/React/Base/RCTDisplayLink.m
+index de7c870..95fd9fa 100644
+--- a/node_modules/react-native/React/Base/RCTDisplayLink.m
++++ b/node_modules/react-native/React/Base/RCTDisplayLink.m
+@@ -30,6 +30,9 @@
+   if ((self = [super init])) {
+     _frameUpdateObservers = [NSMutableSet new];
+     _jsDisplayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(_jsThreadUpdate:)];
++    // CatRealm: request ProMotion cadence while this animation clock is active.
++    // iOS still controls the actual rate for power, thermal and display limits.
++    _jsDisplayLink.preferredFrameRateRange = CAFrameRateRangeMake(60, 120, 120);
+   }
+ 
+   return self;
+diff --git a/node_modules/react-native/React/Fabric/Mounting/ComponentViews/ScrollView/RCTScrollViewComponentView.mm b/node_modules/react-native/React/Fabric/Mounting/ComponentViews/ScrollView/RCTScrollViewComponentView.mm
+index 14a08b4..8db454d 100644
+--- a/node_modules/react-native/React/Fabric/Mounting/ComponentViews/ScrollView/RCTScrollViewComponentView.mm
++++ b/node_modules/react-native/React/Fabric/Mounting/ComponentViews/ScrollView/RCTScrollViewComponentView.mm
+@@ -1002,6 +1002,13 @@ static inline UIViewAnimationOptions animationOptionsWithCurve(UIViewAnimationCu
+     return;
+   }
+ 
++  // CatRealm: this walks every descendant with a convertRect per view, on every
++  // mounting transaction and every 44pt of scroll. Without clipping it does nothing
++  // useful and can hang the main thread past the scene-update watchdog (0x8BADF00D).
++  if (!_props->removeClippedSubviews) {
++    return;
++  }
++
+   [_scrollView updateClippedSubviewsWithClipRect:CGRectInset(_scrollView.bounds, -kClippingLeeway, -kClippingLeeway)
+                                   relativeToView:_scrollView];
+ }
+diff --git a/node_modules/react-native/React/Fabric/RCTScheduler.mm b/node_modules/react-native/React/Fabric/RCTScheduler.mm
+index 9519f18..d98b4cf 100644
+--- a/node_modules/react-native/React/Fabric/RCTScheduler.mm
++++ b/node_modules/react-native/React/Fabric/RCTScheduler.mm
+@@ -174,6 +174,9 @@ class RCTAnimationChoreographer : public AnimationChoreographer {
+     if (_animationDisplayLink == nil) {
+       _animationDisplayLink = [CADisplayLink displayLinkWithTarget:_displayLinkTarget
+                                                           selector:@selector(displayLinkTick:)];
++      // CatRealm: request ProMotion cadence while this animation clock is active.
++      // iOS still controls the actual rate for power, thermal and display limits.
++      _animationDisplayLink.preferredFrameRateRange = CAFrameRateRangeMake(60, 120, 120);
+       [_animationDisplayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+     }
+     [_animationDisplayLink setPaused:NO];

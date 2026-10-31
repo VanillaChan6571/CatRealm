@@ -1,0 +1,18 @@
+{
+  "name": "catrealm-client-tauri",
+  "version": "1.9.2",
+  "private": true,
+  "description": "CatRealm desktop client — Tauri 2 spike. Loads the existing CatRealm-Client renderer.",
+  "scripts": {
+    "prepare:app-audio": "cmd /c tools\\build-win-app-audio-helper.bat",
+    "prepare:gstreamer": "npm.cmd --prefix ..\\CatRealm-Client run prepare:gstreamer",
+    "prepare:gstreamer-stage": "node tools/stage-gstreamer-runtime.cjs",
+    "prepare:native": "node tools/prepare-native.cjs",
+    "dev": "npm run prepare:native && tauri dev",
+    "build": "npm run prepare:native && tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

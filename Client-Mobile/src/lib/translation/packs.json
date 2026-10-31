@@ -1,0 +1,172 @@
+{
+  "version": 1,
+  "baseUrl": "https://catrealm.app/lang",
+  "packs": [
+    {
+      "lang": "es",
+      "revision": 1,
+      "license": "CC-BY-SA-4.0",
+      "pairs": {
+        "es-en": [
+          {
+            "role": "model",
+            "name": "model.esen.intgemm.alphas.bin",
+            "sha256": "4b6b7f451094aaa447d012658af158ffc708fc8842dde2f871a58404f5457fe0",
+            "size": 17140755,
+            "source": "https://bergamot.s3.amazonaws.com/models/esen/model.esen.intgemm.alphas.bin"
+          },
+          {
+            "role": "lex",
+            "name": "lex.50.50.esen.s2t.bin",
+            "sha256": "f11a2c23ef85ab1fee1c412b908d69bc20d66fd59faa8f7da5a5f0347eddf969",
+            "size": 3860888,
+            "source": "https://bergamot.s3.amazonaws.com/models/esen/lex.50.50.esen.s2t.bin"
+          },
+          {
+            "role": "vocab",
+            "name": "vocab.esen.spm",
+            "sha256": "909b1eea1face0d7f90a474fe29a8c0fef8d104b6e41e65616f864c964ba8845",
+            "size": 825463,
+            "source": "https://bergamot.s3.amazonaws.com/models/esen/vocab.esen.spm"
+          }
+        ],
+        "en-es": [
+          {
+            "role": "model",
+            "name": "model.enes.intgemm.alphas.bin",
+            "sha256": "fa7460037a3163e03fe1d23602f964bff2331da6ee813637e092ddf37156ef53",
+            "size": 17140755,
+            "source": "https://bergamot.s3.amazonaws.com/models/enes/model.enes.intgemm.alphas.bin"
+          },
+          {
+            "role": "lex",
+            "name": "lex.50.50.enes.s2t.bin",
+            "sha256": "3a113d713dec3cf1d12bba5b138ae616e28bba4bbc7fe7fd39ba145e26b86d7f",
+            "size": 3347104,
+            "source": "https://bergamot.s3.amazonaws.com/models/enes/lex.50.50.enes.s2t.bin"
+          },
+          {
+            "role": "vocab",
+            "name": "vocab.esen.spm",
+            "sha256": "909b1eea1face0d7f90a474fe29a8c0fef8d104b6e41e65616f864c964ba8845",
+            "size": 825463,
+            "source": "https://bergamot.s3.amazonaws.com/models/esen/vocab.esen.spm"
+          }
+        ]
+      }
+    },
+    {
+      "lang": "ru",
+      "revision": 1,
+      "license": "MPL-2.0",
+      "pairs": {
+        "ru-en": [
+          {
+            "role": "model",
+            "name": "model.ruen.intgemm.alphas.bin",
+            "sha256": "aa0efa194b3dbd2da129ba0b8db8ef139126cb0914e57072f62061294746f1e2",
+            "size": 31561787,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/20260901210056--9781ee2a-d15e-4fe8-893d-687193373fff--37b65106-c6cd-4ed2-a28e-3acd72725429.bin"
+          },
+          {
+            "role": "lex",
+            "name": "lex.50.50.ruen.s2t.bin",
+            "sha256": "c944e753f298bbdf6506388de7257fb48cbd12c83e2807e2c284fc323771895b",
+            "size": 4397908,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/20260901210100--fd808a7b-0081-427d-83a5-7043bdd97a87--215ca362-0436-495d-b89d-542187b696cb.bin"
+          },
+          {
+            "role": "vocab",
+            "name": "vocab.ruen.spm",
+            "sha256": "de8af5f87e231ee4016cec4bb482e6b584cb1ca34dcb624fc7b8398f25bb35df",
+            "size": 952371,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/20260901210058--222363ca-4a98-48a9-9162-65acdffc2572--ba370dc8-709d-42cd-b68c-83b912bd3e38.spm"
+          }
+        ],
+        "en-ru": [
+          {
+            "role": "model",
+            "name": "model.enru.intgemm.alphas.bin",
+            "sha256": "0ef9a209c5edc46692750e7505b3695655b1c7c3ec73058b641201ef18c481ce",
+            "size": 42992955,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/a6257317-71eb-4ca0-83ce-279c77f7b613.bin"
+          },
+          {
+            "role": "lex",
+            "name": "lex.50.50.enru.s2t.bin",
+            "sha256": "3587f93c10c1d457f874c2ba7ff4d5e2686fdaf7f3fd179cfefeacab3c6990b9",
+            "size": 2768468,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/bec0fc43-6cb1-4e63-a37f-7f6653fdda77.bin"
+          },
+          {
+            "role": "vocab",
+            "name": "vocab.enru.spm",
+            "sha256": "56ee63e14e8cb926c394242adc3ed7cc602644c3d33058cff2ce2959d52a6258",
+            "size": 904455,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/fcd0f93e-defa-4990-9592-370fb368e81d.spm"
+          }
+        ]
+      }
+    },
+    {
+      "lang": "ja",
+      "revision": 1,
+      "license": "MPL-2.0",
+      "pairs": {
+        "ja-en": [
+          {
+            "role": "model",
+            "name": "model.jaen.intgemm.alphas.bin",
+            "sha256": "a9bf800679bba570520e1161d7b4fbfcb957add32ca35812134add85689752ad",
+            "size": 59504955,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/48d2ba29-c156-44b6-be26-d7ae1192a01b.bin"
+          },
+          {
+            "role": "lex",
+            "name": "lex.50.50.jaen.s2t.bin",
+            "sha256": "8f858a72fcbaa476c582577b04d6f5f89d645d2335b0b4a794c2706d4b1f75ff",
+            "size": 9346816,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/3531750e-147d-444f-b75f-dd077904aaa8.bin"
+          },
+          {
+            "role": "vocab",
+            "name": "vocab.jaen.spm",
+            "sha256": "5cb217758bae05877bb3f0c2f612e4e7c1e4cb03c10db11f4a47098d7ae62919",
+            "size": 1443222,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/ca178452-791a-489e-ba83-b90b9bfe6665.spm"
+          }
+        ],
+        "en-ja": [
+          {
+            "role": "model",
+            "name": "model.enja.intgemm.alphas.bin",
+            "sha256": "ab8ab5b81f3796fa13b536de4a30a936a6e66ff731d70059cef74cac622539de",
+            "size": 59376955,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/91b1ea28-75b9-429a-a748-5343775434bc.bin"
+          },
+          {
+            "role": "lex",
+            "name": "lex.50.50.enja.s2t.bin",
+            "sha256": "bb7983e62705813d26a081e7a6c13abd280b51ec75966b4587b434b0dac02938",
+            "size": 6513960,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/1ce8fe88-342a-4ecd-a14a-f81a8b47accb.bin"
+          },
+          {
+            "role": "srcvocab",
+            "name": "srcvocab.enja.spm",
+            "sha256": "970c98d174fc01e0339fbabbf45af36a4be3f26f819ec1a5ea1189f71e091889",
+            "size": 796275,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/a2fe7bcc-ca21-4f56-a888-a3d8260b8f5b.spm"
+          },
+          {
+            "role": "trgvocab",
+            "name": "trgvocab.enja.spm",
+            "sha256": "3b3d9f8f3a034d98d0a476f1794fa79c01e4e98a967ceb6777a66ba2d03ec1e1",
+            "size": 827144,
+            "source": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models/25812b6e-b3ac-4a7b-9e72-0626f6b65714.spm"
+          }
+        ]
+      }
+    }
+  ]
+}

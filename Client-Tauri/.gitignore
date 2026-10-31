@@ -1,0 +1,6 @@
+node_modules/
+.deps-lock.hash
+src-tauri/target/
+src-tauri/gen/
+# Trimmed GStreamer runtime copied here at build time for short-path NSIS bundling
+src-tauri/gstreamer/
