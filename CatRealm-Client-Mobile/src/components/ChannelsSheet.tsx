@@ -1,7 +1,7 @@
 /**
  * ChannelsDrawer — left-side sliding drawer that mirrors the desktop sidebar.
- * Shows server banner + name header, then categories + channels below.
- * Replaces the old bottom sheet.
+ * Includes the Unified Left Rail (Chats, Home, Server icons, All Servers, Add Server),
+ * Server banner + categories + channels, and the bottom You/Notifications footer.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -11,11 +11,12 @@ import {
   Image,
   Keyboard,
   Modal,
+  PanResponder,
   Pressable as RNPressable,
   StyleSheet,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeadphoneOff, MicOff, TriangleAlert } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
@@ -39,9 +40,10 @@ import { DOCK_HEIGHT, dockBottomInset } from '@/lib/dockLayout';
 import { debugLog, debugTap } from '@/lib/debugLog';
 import { VoiceChannelContent } from './VoiceChannelContent';
 import { useCachedUri, realmScope } from '@/lib/imageCache';
+import { DrawerLeftRail, DrawerHubFooter } from './BottomDock';
 
-const DRAWER_WIDTH = 320;
-const HEADER_HEIGHT = 140;
+const DRAWER_WIDTH = 356;
+const HEADER_HEIGHT = 126;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -115,6 +117,7 @@ export function ChannelsSheet() {
   const { t } = useTranslation();
   const { isTablet, isDesktopLike, width: viewportWidth } = useDeviceLayout();
   const router = useRouter();
+  const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const [voiceModal, setVoiceModal] = useState<{ channelId: string; serverId: string } | null>(null);
 
@@ -177,11 +180,59 @@ export function ChannelsSheet() {
     if (open) Keyboard.dismiss();
   }, [open]);
 
-  const drawerWidth = isTablet ? Math.min(420, Math.max(340, Math.floor(viewportWidth * 0.34))) : DRAWER_WIDTH;
+  const drawerWidth = isTablet ? Math.min(440, Math.max(360, Math.floor(viewportWidth * 0.38))) : DRAWER_WIDTH;
   const listRef = useRef<FlatList<ListItem>>(null);
   const restoredScrollRef = useRef(false);
 
-  const { slideAnim, fadeAnim, mounted } = useDrawerTransition(open, drawerWidth, () => finishDrawerClose('channels'), closeRequested);
+  const { slideAnim, fadeAnim, mounted } = useDrawerTransition(open, drawerWidth, () => finishDrawerClose('channels'), closeRequested, 'channels');
+  const inServerChannelOnTablet = isTablet && pathname.startsWith('/server/');
+
+  useEffect(() => {
+    if (inServerChannelOnTablet && open) {
+      setOpen(false);
+    }
+  }, [inServerChannelOnTablet, open, setOpen]);
+
+  const closePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_evt, g) =>
+          open && Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.25,
+        onPanResponderMove: (_evt, g) => {
+          if (g.dx >= 0) {
+            slideAnim.setValue(0);
+            fadeAnim.setValue(1);
+            return;
+          }
+          const clamped = Math.max(-drawerWidth, g.dx);
+          slideAnim.setValue(clamped);
+          fadeAnim.setValue(Math.max(0, 1 + clamped / Math.max(1, drawerWidth)));
+        },
+        onPanResponderRelease: (_evt, g) => {
+          if (g.dx <= -42 || (g.dx < -18 && g.vx < -0.3)) {
+            Animated.parallel([
+              Animated.timing(slideAnim, { toValue: -drawerWidth, duration: 160, useNativeDriver: true }),
+              Animated.timing(fadeAnim, { toValue: 0, duration: 160, useNativeDriver: true }),
+            ]).start(() => {
+              setOpen(false);
+            });
+          } else {
+            Animated.parallel([
+              Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }),
+              Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+            ]).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          Animated.parallel([
+            Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }),
+            Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+          ]).start();
+        },
+      }),
+    [open, drawerWidth, slideAnim, fadeAnim, setOpen],
+  );
   useEffect(() => {
     if (!mounted) restoredScrollRef.current = false;
   }, [mounted]);
@@ -222,7 +273,7 @@ export function ChannelsSheet() {
     : null;
   const cachedBannerUrl = useCachedUri(bannerUrl, realmScope(activeServer?.url ?? bannerUrl ?? ''));
 
-  if (!mounted || replaced) return voiceModalEl;
+  if (inServerChannelOnTablet || !mounted || replaced) return voiceModalEl;
 
   const scrollKey = activeServerId ?? '';
 
@@ -397,6 +448,7 @@ export function ChannelsSheet() {
 
       {/* Drawer */}
       <Animated.View
+        {...closePanResponder.panHandlers}
         style={[
           styles.drawer,
           {
@@ -407,53 +459,63 @@ export function ChannelsSheet() {
           },
         ]}
       >
-        {/* Server header with banner */}
-        <View style={[styles.header, { borderBottomColor: theme.colors.line }]}>
-          {cachedBannerUrl && (
-            <Image
-              source={{ uri: cachedBannerUrl }}
-              style={StyleSheet.absoluteFill}
-              resizeMode="cover"
+        <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
+          {/* Unified Left Rail (Chats, Home, Servers, Add Server) */}
+          <DrawerLeftRail onClose={() => setOpen(false)} />
+
+          {/* Right column: Server header + Channel list */}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            {/* Server header with banner */}
+            <View style={[styles.header, { borderBottomColor: theme.colors.line }]}>
+              {cachedBannerUrl && (
+                <Image
+                  source={{ uri: cachedBannerUrl }}
+                  style={StyleSheet.absoluteFill}
+                  resizeMode="cover"
+                />
+              )}
+              {cachedBannerUrl && <View style={styles.headerScrim} />}
+              <View style={styles.headerContent}>
+                <Text
+                  variant="subtitle"
+                  numberOfLines={1}
+                  style={[styles.serverName, cachedBannerUrl ? { color: '#fff' } : { color: theme.colors.text }]}
+                >
+                  {activeServer?.name ?? t('servers.defaultServerName')}
+                </Text>
+              </View>
+            </View>
+
+            {/* Channel list */}
+            <FlatList
+              ref={listRef}
+              data={items}
+              onScroll={(event) => scrollOffsetByServer.set(scrollKey, event.nativeEvent.contentOffset.y)}
+              scrollEventThrottle={32}
+              onContentSizeChange={() => {
+                // Restore once per opening, as soon as the rows exist to scroll through.
+                if (restoredScrollRef.current) return;
+                restoredScrollRef.current = true;
+                const offset = scrollOffsetByServer.get(scrollKey) ?? 0;
+                if (offset > 0) listRef.current?.scrollToOffset({ offset, animated: false });
+              }}
+              keyExtractor={keyExtractor}
+              renderItem={renderItem}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={[styles.list, { paddingBottom: 24 + DOCK_HEIGHT + dockBottomInset(insets.bottom) }]}
+              showsVerticalScrollIndicator={false}
+              windowSize={7}
+              ListEmptyComponent={
+                <View style={styles.empty}>
+                  <Text variant="bodySmall" color={theme.colors.text3}>{t('chat.noChannelsYet')}</Text>
+                </View>
+              }
             />
-          )}
-          {cachedBannerUrl && <View style={styles.headerScrim} />}
-          <View style={styles.headerContent}>
-            <Text
-              variant="subtitle"
-              numberOfLines={1}
-              style={[styles.serverName, cachedBannerUrl ? { color: '#fff' } : { color: theme.colors.text }]}
-            >
-              {activeServer?.name ?? t('servers.defaultServerName')}
-            </Text>
           </View>
         </View>
 
-        {/* Channel list */}
-        <FlatList
-          ref={listRef}
-          data={items}
-          onScroll={(event) => scrollOffsetByServer.set(scrollKey, event.nativeEvent.contentOffset.y)}
-          scrollEventThrottle={32}
-          onContentSizeChange={() => {
-            // Restore once per opening, as soon as the rows exist to scroll through.
-            if (restoredScrollRef.current) return;
-            restoredScrollRef.current = true;
-            const offset = scrollOffsetByServer.get(scrollKey) ?? 0;
-            if (offset > 0) listRef.current?.scrollToOffset({ offset, animated: false });
-          }}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          keyboardShouldPersistTaps="handled"
-          // The bottom dock overlays the drawer; keep the last channel scrollable above it.
-          contentContainerStyle={[styles.list, { paddingBottom: 32 + DOCK_HEIGHT + dockBottomInset(insets.bottom) }]}
-          showsVerticalScrollIndicator={false}
-          windowSize={7}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text variant="bodySmall" color={theme.colors.text3}>{t('chat.noChannelsYet')}</Text>
-            </View>
-          }
-        />
+        {/* Bottom Footer (You / Profile & Settings + Notifications) */}
+        <DrawerHubFooter onClose={() => setOpen(false)} />
       </Animated.View>
     </View>
     </>
@@ -463,7 +525,7 @@ export function ChannelsSheet() {
 const styles = StyleSheet.create({
   drawer: {
     width: DRAWER_WIDTH,
-    maxWidth: '86%',
+    maxWidth: '92%',
     height: '100%',
     borderRightWidth: 1,
     shadowColor: '#000',

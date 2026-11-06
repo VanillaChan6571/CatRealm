@@ -11,11 +11,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useComposerKeyboardInset } from '@/hooks/useComposerKeyboardInset';
 import { useFocusEffect } from "expo-router/react-navigation";
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { HeadphoneOff, Hash, MessageSquareText, MicOff, Monitor, Search, Smartphone, Users, X, CornerUpLeft, CornerUpRight, Pin } from 'lucide-react-native';
+import { HeadphoneOff, Hash, Menu, MessageSquareText, MicOff, Monitor, Search, Smartphone, Users, X, CornerUpLeft, CornerUpRight, Pin, ChevronDown } from 'lucide-react-native';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, Sheet, ChannelIcon, ServerRulesView, ServerListPanel } from '@/components';
+import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, MessageReactionsSheet, Sheet, ChannelIcon, ServerRulesView, ForumChannelView, ServerListPanel, DrawerLeftRail, DrawerHubFooter, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { VoiceChannelContent } from '@/components/VoiceChannelContent';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -32,7 +32,7 @@ import { getOrigin, resolveEmoteFromCache, useExpressionLookup, type ExpressionL
 import { RoleNameText, setRgbFlowScrolling } from '@/lib/roleStyles';
 import { fetchIconByTitle } from '@/lib/gameLibraryIcons';
 import { useListeningArt } from '@/lib/lastfmAlbumArt';
-import type { Category, Channel, Message, OnlineUser } from '@/types';
+import type { Category, Channel, Message, OnlineUser, Reaction } from '@/types';
 import type { ComposerSendOptions } from '@/components/MobileComposer';
 import { hasChannelPermission, PERMISSIONS } from '@/utils/permissions';
 import { formatMessageTimestamp } from '@/utils/formatTime';
@@ -304,6 +304,7 @@ interface MessageRowProps {
   onAvatarPress: (userId: string) => void;
   onMessageLongPress: (message: Message, isSelf: boolean) => void;
   onToggleReaction?: (messageId: string, emoji: string) => void;
+  onOpenReactions?: (message: Message, emoji?: string) => void;
 }
 
 // Matches compact emote tokens: :server:name:, :name:, :name:ownerId:, etc.
@@ -343,6 +344,7 @@ const MessageRow = memo(function MessageRow({
   onAvatarPress,
   onMessageLongPress,
   onToggleReaction,
+  onOpenReactions,
 }: MessageRowProps) {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -453,6 +455,7 @@ const MessageRow = memo(function MessageRow({
                   key={reaction.emoji}
                   disabled={!onToggleReaction}
                   onPress={() => onToggleReaction?.(message.id, reaction.emoji)}
+                  onLongPress={() => onOpenReactions?.(message, reaction.emoji)}
                   style={[
                     styles.reactionChip,
                     reacted
@@ -501,7 +504,8 @@ const MessageRow = memo(function MessageRow({
   prev.serverUrl === next.serverUrl &&
   prev.onAvatarPress === next.onAvatarPress &&
   prev.onMessageLongPress === next.onMessageLongPress &&
-  prev.onToggleReaction === next.onToggleReaction,
+  prev.onToggleReaction === next.onToggleReaction &&
+  prev.onOpenReactions === next.onOpenReactions,
 );
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -600,6 +604,7 @@ export default function ChannelScreen() {
   const typingSentAtRef = useRef(0);
   const [activeMessage, setActiveMessage] = useState<Message | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+  const [reactionsSheetState, setReactionsSheetState] = useState<{ open: boolean; reactions: ReadonlyArray<Reaction> | null; initialEmoji: string | null }>({ open: false, reactions: null, initialEmoji: null });
   const [pinsOpen, setPinsOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(false);
   const [threads, setThreads] = useState<Array<{ id: string; name: string; created_at: number }>>([]);
@@ -867,21 +872,27 @@ export default function ChannelScreen() {
     ({ item, index }: { item: Message; index: number }) => {
       const prev = displayMessages[index + 1] ?? null;
       return (
-        <MessageRow
-          message={item}
-          prevMessage={prev}
-          selfUserId={selfUserId}
-          avatarBaseUrl={channelServerUrl}
-          serverUrl={channelServerUrl}
-          expressionLookup={expressionLookup}
-          isPinned={pinnedMessageIds.has(item.id)}
-          onAvatarPress={handleAvatarPress}
-          onMessageLongPress={handleMessageLongPress}
-          onToggleReaction={canReact ? handleToggleReaction : undefined}
-        />
+        <SwipeableMessageRow
+          onReply={() => setReplyToMessage(item)}
+          onSwipeLeft={() => setChannelsSheetOpen(true)}
+        >
+          <MessageRow
+            message={item}
+            prevMessage={prev}
+            selfUserId={selfUserId}
+            avatarBaseUrl={channelServerUrl}
+            serverUrl={channelServerUrl}
+            expressionLookup={expressionLookup}
+            isPinned={pinnedMessageIds.has(item.id)}
+            onAvatarPress={handleAvatarPress}
+            onMessageLongPress={handleMessageLongPress}
+            onToggleReaction={canReact ? handleToggleReaction : undefined}
+            onOpenReactions={(msg, emoji) => setReactionsSheetState({ open: true, reactions: msg.reactions ?? null, initialEmoji: emoji ?? null })}
+          />
+        </SwipeableMessageRow>
       );
     },
-    [displayMessages, selfUserId, channelServerUrl, expressionLookup, pinnedMessageIds, handleAvatarPress, handleMessageLongPress, handleToggleReaction, canReact],
+    [displayMessages, selfUserId, channelServerUrl, expressionLookup, pinnedMessageIds, handleAvatarPress, handleMessageLongPress, handleToggleReaction, canReact, setChannelsSheetOpen],
   );
 
   const orderedChannels = useMemo(() => [...channels].sort((a, b) => a.position - b.position), [channels]);
@@ -1076,6 +1087,21 @@ export default function ChannelScreen() {
             onPress={() => setChannelsSheetOpen(true)}
             style={styles.channelTitle}
           >
+            <View
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 9,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: theme.colors.bgElev2,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.colors.lineSoft,
+                marginRight: 2,
+              }}
+            >
+              <Menu size={17} color={theme.colors.accentText} />
+            </View>
             <Hash size={18} color={theme.colors.text3} />
             <Text variant="subtitle" style={{ flex: 1 }} numberOfLines={1}>
               {channel?.name ?? channelId}
@@ -1124,9 +1150,13 @@ export default function ChannelScreen() {
             },
           ]}
         >
-          <View style={styles.tabletPaneStack}>
+          <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
+            <DrawerLeftRail onClose={() => setServerDrawerOpen(false)} navigateOnSelect embedded />
+            <View style={styles.tabletPaneStack}>
             <Animated.View style={[styles.tabletPaneLayer, channelsPaneStyle]} pointerEvents={serverDrawerOpen ? 'none' : 'auto'}>
-              <View
+              <Pressable
+                haptic
+                onPress={() => setServerDrawerOpen(true)}
                 style={[
                   styles.tabletServerHeader,
                   { borderBottomColor: theme.colors.lineSoft, backgroundColor: theme.colors.bgElev1 },
@@ -1136,10 +1166,13 @@ export default function ChannelScreen() {
                   <Image source={{ uri: serverBannerUrl }} style={styles.tabletServerBanner} resizeMode="cover" />
                 ) : null}
                 <View style={styles.tabletServerBannerScrim} />
-                <Text variant="subtitle" style={styles.tabletServerTitle} numberOfLines={1}>
-                  {server?.name ?? t('servers.defaultServerName')}
-                </Text>
-              </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 1 }}>
+                  <Text variant="subtitle" style={[styles.tabletServerTitle, { flex: 1 }]} numberOfLines={1}>
+                    {server?.name ?? t('servers.defaultServerName')}
+                  </Text>
+                  <ChevronDown size={16} color="#ffffff" />
+                </View>
+              </Pressable>
               <Text variant="subtitle" style={styles.tabletPaneTitle}>{t('chat.channelsTab')}</Text>
               <FlatList
                 data={groupedChannels}
@@ -1268,11 +1301,16 @@ export default function ChannelScreen() {
               />
             </Animated.View>
             <Animated.View style={[styles.tabletPaneLayer, serversPaneStyle]} pointerEvents={serverDrawerOpen ? 'auto' : 'none'}>
-              <Text variant="subtitle" style={styles.tabletPaneTitle}>{t('chat.serversTab')}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: 8 }}>
+                <Text variant="subtitle" style={styles.tabletPaneTitle}>{t('chat.serversTab')}</Text>
+                <IconBtn icon={X} onPress={() => setServerDrawerOpen(false)} accessibilityLabel={t('call.closeServers')} />
+              </View>
               {/* Same list as the phone drawer: folders, invites, realm re-approval, Add/Discover. */}
               <ServerListPanel onOpenServer={handleTabletServerPress} onLeave={() => setServerDrawerOpen(false)} />
             </Animated.View>
+            </View>
           </View>
+          <DrawerHubFooter onClose={() => setServerDrawerOpen(false)} />
         </View>
       )}
       <KeyboardAvoidingView
@@ -1356,9 +1394,22 @@ export default function ChannelScreen() {
                 serverName={server?.name ?? ''}
                 serverIcon={server?.iconUrl}
               />
+            ) : channel?.type === 'forum' ? (
+              <SwipeSidebarContainer onOpenSidebar={() => setChannelsSheetOpen(true)} disabled={isTablet}>
+                <ForumChannelView
+                  channel={channel}
+                  serverId={serverId ?? ''}
+                  serverUrl={channelServerUrl}
+                  serverToken={server?.token}
+                  expressionLookup={expressionLookup}
+                  canUseExternalEmotes={canUseExternalEmotes}
+                  canUseExternalStickers={canUseExternalStickers}
+                />
+              </SwipeSidebarContainer>
             ) : (
               <>
             {/* Message list (inverted so newest is at bottom) */}
+            <SwipeSidebarContainer onOpenSidebar={() => setChannelsSheetOpen(true)} disabled={isTablet}>
             <ServerMentionProvider serverId={serverId ?? ''} serverUrl={channelServerUrl} token={server?.token}>
             <FlatList
               ref={flatListRef}
@@ -1396,6 +1447,7 @@ export default function ChannelScreen() {
               onScrollEndDrag={() => setRgbFlowScrolling(false)}
             />
             </ServerMentionProvider>
+            </SwipeSidebarContainer>
             {/* Old messages banner */}
             {isScrollingOld && (
               <View style={[styles.oldMessagesBanner, { backgroundColor: theme.colors.bgElev1, borderTopColor: theme.colors.lineSoft }]}>
@@ -1589,6 +1641,13 @@ export default function ChannelScreen() {
         initialEditText={activeMessage?.content ?? ''}
         translationMessageId={activeMessage?.id}
         translationText={activeMessage?.content}
+        reactions={activeMessage?.reactions}
+        onViewReactions={() => {
+          if (!activeMessage) return;
+          const current = activeMessage;
+          setActiveMessage(null);
+          setReactionsSheetState({ open: true, reactions: current.reactions ?? null, initialEmoji: null });
+        }}
         canEdit={Boolean(
           activeMessage && (
             activeMessage.user_id === selfUser?.id ||
@@ -1643,6 +1702,14 @@ export default function ChannelScreen() {
           if (!activeMessage) return;
           requestDelete(activeMessage.id, activeMessage.channel_id);
         }}
+      />
+
+      <MessageReactionsSheet
+        open={reactionsSheetState.open}
+        onClose={() => setReactionsSheetState({ open: false, reactions: null, initialEmoji: null })}
+        reactions={reactionsSheetState.reactions}
+        serverUrl={channelServerUrl}
+        initialEmoji={reactionsSheetState.initialEmoji}
       />
 
       {/* Threads sheet */}
@@ -1897,18 +1964,20 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   tabletLeftPane: {
-    width: 280,
+    width: 346,
     borderRightWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
+    paddingHorizontal: 0,
     paddingTop: 0,
     overflow: 'hidden',
   },
   tabletPaneStack: {
     flex: 1,
     position: 'relative',
+    minWidth: 0,
   },
   tabletPaneLayer: {
     ...StyleSheet.absoluteFill,
+    paddingHorizontal: 12,
   },
   tabletRightPane: {
     width: 280,

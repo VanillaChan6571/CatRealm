@@ -13,7 +13,7 @@ import {
 import { Image as ExpoImage, type ImageLoadEventData } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { WebView } from 'react-native-webview';
-import { FileText, Play, Film, Mic, X } from 'lucide-react-native';
+import { FileText, Play, Film, Mic, Star, X } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { ImagePlaceholder } from './ImagePlaceholder';
@@ -27,13 +27,14 @@ import { useUIStore } from '@/stores/uiStore';
 import { formatMessageTimestamp } from '@/utils/formatTime';
 import { useContentSocialStore } from '@/stores/contentSocialStore';
 import { shouldBlurForNsfwTags, getNsfwSubtagLabels } from '@/utils/nsfw';
-import { useCachedUri, realmScope } from '@/lib/imageCache';
+import { useCachedUri, realmScope, evictCachedFile } from '@/lib/imageCache';
 import { CatRealmVideoControls } from './CatRealmVideoControls';
 import { LinkPreviewCard } from './LinkPreviewCard';
 import { useLinkPreview } from '@/lib/linkPreview';
 import { isAudioAttachment } from '@/lib/voiceMessages';
 import { MentionText } from './MentionText';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
+import { findFavoriteByUrl, isGifMediaUrl, useGifFavoritesStore } from '@/stores/gifFavoritesStore';
 
 // ─── Inline span types ─────────────────────────────────────────────────────
 // Formatting spans carry children (recursive) so nesting works correctly.
@@ -678,6 +679,47 @@ const SINGLE_IMAGE_MAX_WIDTH = 520;
 const KLIPY_IMAGE_MAX_WIDTH = 360;
 const KLIPY_IMAGE_MAX_HEIGHT = 300;
 
+
+function GifFavoriteStarOverlay({ url, mime }: { url: string; mime?: string | null }) {
+  const { t } = useTranslation();
+  const isGif = isGifMediaUrl(url, mime);
+  const starred = useGifFavoritesStore((s) => (isGif ? Boolean(findFavoriteByUrl(s.favorites, url)) : false));
+  const toggleUrl = useGifFavoritesStore((s) => s.toggleUrl);
+
+  useEffect(() => {
+    if (isGif) {
+      void useGifFavoritesStore.getState().ensureLoaded();
+    }
+  }, [isGif]);
+
+  if (!isGif) return null;
+
+  return (
+    <Pressable
+      onPress={(e) => {
+        e?.stopPropagation?.();
+        void toggleUrl(url);
+      }}
+      hitSlop={6}
+      accessibilityRole="button"
+      accessibilityLabel={starred ? t('gif.removeFavorite') : t('gif.favoriteGif')}
+      style={[
+        styles.gifStarBtn,
+        {
+          backgroundColor: starred ? 'rgba(20, 16, 10, 0.82)' : 'rgba(10, 12, 18, 0.64)',
+          borderColor: starred ? 'rgba(250, 204, 21, 0.58)' : 'rgba(255, 255, 255, 0.18)',
+        },
+      ]}
+    >
+      <Star
+        size={14}
+        color={starred ? '#facc15' : '#ffffff'}
+        fill={starred ? '#facc15' : 'transparent'}
+      />
+    </Pressable>
+  );
+}
+
 function isKlipyMediaUrl(url: string): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -695,12 +737,28 @@ function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, ser
   const [naturalDim, setNaturalDim] = useState<{ w: number; h: number } | null>(null);
   const displayUrl = block.thumbnailUrl ?? block.url;
   const cachedUri = useCachedUri(displayUrl, imageScope ?? realmScope(serverUrl ?? displayUrl));
-  const imageUri = cachedUri ?? displayUrl;
+  const [failedUris, setFailedUris] = useState<ReadonlySet<string>>(() => new Set());
+  const [lockedLoadedUri, setLockedLoadedUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFailedUris(new Set());
+    setLockedLoadedUri(null);
+  }, [displayUrl]);
+
+  const candidateUri = [cachedUri, displayUrl, block.url].find(
+    (u): u is string => typeof u === 'string' && u.length > 0 && !failedUris.has(u),
+  ) ?? displayUrl;
+  // Once an image has decoded and displayed in this mount, never swap its source
+  // mid-render when background disk caching completes (prevents Android Glide
+  // from clearing the already-visible bitmap mid-transition).
+  const imageUri = lockedLoadedUri && !failedUris.has(lockedLoadedUri) ? lockedLoadedUri : candidateUri;
+  const allFailed = Boolean(displayUrl) && failedUris.has(displayUrl) && (!block.url || failedUris.has(block.url));
+
   const klipyMedia = isKlipyMediaUrl(block.url);
   const maxWidth = klipyMedia ? KLIPY_IMAGE_MAX_WIDTH : SINGLE_IMAGE_MAX_WIDTH;
   const maxHeight = klipyMedia ? KLIPY_IMAGE_MAX_HEIGHT : 360;
 
-  let displayWidth = containerW > 0 ? Math.min(containerW, maxWidth) : 0;
+  let displayWidth = containerW > 0 ? Math.min(containerW, maxWidth) : Math.min(280, maxWidth);
   if (displayWidth > 0 && naturalDim) displayWidth = Math.min(displayWidth, naturalDim.w);
   const displayHeight =
     naturalDim && displayWidth > 0
@@ -708,24 +766,31 @@ function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, ser
       : 200;
 
   const handleLayout = useCallback((e: { nativeEvent: { layout: { width: number } } }) => {
-    setContainerW(e.nativeEvent.layout.width);
+    const w = e.nativeEvent.layout.width;
+    if (w > 0) setContainerW(w);
   }, []);
 
-  const { loaded, transition, markLoaded } = useImageReveal(imageUri);
-  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const { loaded, transition, markLoaded } = useImageReveal(displayUrl);
   const handleLoad = useCallback((e: ImageLoadEventData) => {
     const { width: w, height: h } = e.source;
     if (w > 0 && h > 0) setNaturalDim({ w, h });
+    setLockedLoadedUri((prev) => prev ?? imageUri);
     markLoaded();
-  }, [markLoaded]);
+  }, [imageUri, markLoaded]);
 
-  const imageStyle = { width: displayWidth > 0 ? displayWidth : ('100%' as const), height: displayHeight, borderRadius: 8 };
+  const handleError = useCallback(() => {
+    evictCachedFile(imageUri);
+    setLockedLoadedUri(null);
+    setFailedUris((prev) => new Set(prev).add(imageUri));
+  }, [imageUri]);
+
+  const imageStyle = { width: displayWidth, height: displayHeight, borderRadius: 8 };
 
   if (shouldBlur) {
     return (
       <View style={styles.imageWrap} onLayout={handleLayout}>
         <Pressable onPress={onReveal}>
-          <ExpoImage source={{ uri: imageUri }} style={[imageStyle, { opacity: 0.15 }]} contentFit="cover" cachePolicy="disk" recyclingKey={imageUri} blurRadius={20} onLoad={handleLoad} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
+          <ExpoImage source={{ uri: imageUri }} style={[imageStyle, { opacity: 0.15 }]} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} blurRadius={20} onLoad={handleLoad} onError={handleError} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
           <View style={styles.nsfwOverlay}>
             <Text style={[styles.nsfwLabel, { color: theme.colors.text }]}>{nsfwLabels.length > 0 ? nsfwLabels.join(' · ') : 'NSFW'}</Text>
             <Text style={[styles.nsfwReveal, { color: theme.colors.text3 }]}>{t('chat.tapToReveal')}</Text>
@@ -737,11 +802,14 @@ function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, ser
 
   return (
     <View style={styles.imageWrap} onLayout={handleLayout}>
-      <Pressable onPress={() => onPress(block)}>
-        {!loaded && failedUri !== imageUri && <ImagePlaceholder radius={8} mark style={{ width: imageStyle.width, height: imageStyle.height }} />}
-        {failedUri === imageUri && <ImageFailed width={imageStyle.width} height={imageStyle.height} />}
-        <ExpoImage source={{ uri: imageUri }} style={imageStyle} contentFit="cover" cachePolicy="disk" recyclingKey={imageUri} autoplay={autoplay} transition={transition} onLoad={handleLoad} onError={() => setFailedUri(imageUri)} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
-      </Pressable>
+      <View style={{ position: 'relative', alignSelf: 'flex-start', width: imageStyle.width, height: imageStyle.height }}>
+        <Pressable onPress={() => onPress(block)} style={{ width: imageStyle.width, height: imageStyle.height }}>
+          {!loaded && !allFailed && <ImagePlaceholder radius={8} mark style={{ width: imageStyle.width, height: imageStyle.height }} />}
+          {allFailed && <ImageFailed width={imageStyle.width} height={imageStyle.height} />}
+          <ExpoImage source={{ uri: imageUri }} style={imageStyle} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} autoplay={autoplay} transition={transition} onLoad={handleLoad} onError={handleError} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
+        </Pressable>
+        <GifFavoriteStarOverlay url={block.url} mime={block.mime} />
+      </View>
     </View>
   );
 }
@@ -773,14 +841,37 @@ function GalleryImage({ img, index, shouldBlur, nsfwLabels, onReveal, onPress, s
   const { t } = useTranslation();
   const displayUrl = img.thumbnailUrl ?? img.url;
   const cachedUri = useCachedUri(displayUrl, imageScope ?? realmScope(serverUrl ?? displayUrl));
-  const uri = cachedUri ?? displayUrl;
-  const { loaded, transition, markLoaded } = useImageReveal(uri);
-  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const [failedUris, setFailedUris] = useState<ReadonlySet<string>>(() => new Set());
+  const [lockedLoadedUri, setLockedLoadedUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFailedUris(new Set());
+    setLockedLoadedUri(null);
+  }, [displayUrl]);
+
+  const candidateUri = [cachedUri, displayUrl, img.url].find(
+    (u): u is string => typeof u === 'string' && u.length > 0 && !failedUris.has(u),
+  ) ?? displayUrl;
+  const uri = lockedLoadedUri && !failedUris.has(lockedLoadedUri) ? lockedLoadedUri : candidateUri;
+  const allFailed = Boolean(displayUrl) && failedUris.has(displayUrl) && (!img.url || failedUris.has(img.url));
+  const { loaded, transition, markLoaded } = useImageReveal(displayUrl);
+
+  const handleLoad = useCallback(() => {
+    setLockedLoadedUri((prev) => prev ?? uri);
+    markLoaded();
+  }, [uri, markLoaded]);
+
+  const handleError = useCallback(() => {
+    evictCachedFile(uri);
+    setLockedLoadedUri(null);
+    setFailedUris((prev) => new Set(prev).add(uri));
+  }, [uri]);
+
   return (
     <View style={{ width: GALLERY_THUMB, height: GALLERY_THUMB, borderRadius: 8, overflow: 'hidden' }}>
       {shouldBlur ? (
         <Pressable onPress={onReveal} style={{ flex: 1 }}>
-          <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB, opacity: 0.15 }} contentFit="cover" cachePolicy="disk" recyclingKey={uri} blurRadius={20} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
+          <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB, opacity: 0.15 }} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} blurRadius={20} onLoad={handleLoad} onError={handleError} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
           {index === 0 && (
             <View style={styles.nsfwOverlay}>
               <Text style={[styles.nsfwLabel, { color: theme.colors.text }]}>{nsfwLabels.length > 0 ? nsfwLabels.join(' · ') : 'NSFW'}</Text>
@@ -789,11 +880,14 @@ function GalleryImage({ img, index, shouldBlur, nsfwLabels, onReveal, onPress, s
           )}
         </Pressable>
       ) : (
-        <Pressable onPress={() => onPress(img)} style={{ flex: 1 }}>
-          {!loaded && failedUri !== uri && <ImagePlaceholder mark />}
-          {failedUri === uri && <ImageFailed width={GALLERY_THUMB} height={GALLERY_THUMB} />}
-          <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB }} contentFit="cover" cachePolicy="disk" recyclingKey={uri} transition={transition} onLoad={markLoaded} onError={() => setFailedUri(uri)} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
-        </Pressable>
+        <View style={{ flex: 1, position: 'relative' }}>
+          <Pressable onPress={() => onPress(img)} style={{ flex: 1 }}>
+            {!loaded && !allFailed && <ImagePlaceholder mark />}
+            {allFailed && <ImageFailed width={GALLERY_THUMB} height={GALLERY_THUMB} />}
+            <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB }} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} transition={transition} onLoad={handleLoad} onError={handleError} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
+          </Pressable>
+          <GifFavoriteStarOverlay url={img.url} mime={img.mime} />
+        </View>
       )}
     </View>
   );
@@ -909,30 +1003,32 @@ function ChatVideo({ url, name, serverUrl, imageScope, autoLoop = false }: { url
 
   return (
     <View style={[styles.videoWrap, { backgroundColor: '#000', borderColor: theme.colors.lineSoft }]}>
-      <VideoView
-        player={player}
-        style={styles.video}
-        contentFit="contain"
-        nativeControls={false}
-      />
-      {autoLoop ? (
-        // GIF-style loop: no controls (desktop parity). iOS fires playingChange on every
-        // loop restart, which would keep popping CatRealmVideoControls back up.
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => openMediaViewer(url, name, [{ url, name, kind: 'video' }], 0)} />
-      ) : (
-        <CatRealmVideoControls
+      <View style={{ position: 'relative', width: '100%', height: 240, overflow: 'hidden' }}>
+        <VideoView
           player={player}
-          compact
-          onFullscreen={() => {
-            try {
-              player.pause();
-            } catch {
-              // Ignore pause races while opening the fullscreen viewer.
-            }
-            openMediaViewer(url, name, [{ url, name, kind: 'video' }], 0);
-          }}
+          style={StyleSheet.absoluteFill}
+          contentFit="contain"
+          nativeControls={false}
         />
-      )}
+        {autoLoop ? (
+          // GIF-style loop: no controls (desktop parity). iOS fires playingChange on every
+          // loop restart, which would keep popping CatRealmVideoControls back up.
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => openMediaViewer(url, name, [{ url, name, kind: 'video' }], 0)} />
+        ) : (
+          <CatRealmVideoControls
+            player={player}
+            compact
+            onFullscreen={() => {
+              try {
+                player.pause();
+              } catch {
+                // Ignore pause races while opening the fullscreen viewer.
+              }
+              openMediaViewer(url, name, [{ url, name, kind: 'video' }], 0);
+            }}
+          />
+        )}
+      </View>
       {name ? (
         <View style={[styles.videoMeta, { backgroundColor: theme.colors.bgElev1 }]}>
           <Text style={{ color: theme.colors.text3, fontSize: 12 }} numberOfLines={1}>{name}</Text>
@@ -1345,9 +1441,22 @@ const styles = StyleSheet.create({
     width: 12,
   },
   imageWrap: {
+    width: '100%',
     borderRadius: 8,
     overflow: 'hidden',
     marginVertical: 2,
+  },
+  gifStarBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
   },
   nsfwOverlay: {
     ...StyleSheet.absoluteFill,

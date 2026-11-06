@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { Alert, Animated, ActivityIndicator, Pressable as RNPressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { Alert, Animated, ActivityIndicator, PanResponder, Pressable as RNPressable, ScrollView, StyleSheet, View } from 'react-native';
+import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Link2, ShieldAlert, SquarePlus, X } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
@@ -18,14 +18,16 @@ import { useUIStore } from '@/stores/uiStore';
 import { useDrawerTransition } from '@/hooks/useDrawerTransition';
 import { useDeviceLayout } from '@/hooks/useDeviceLayout';
 import { DOCK_HEIGHT, dockBottomInset } from '@/lib/dockLayout';
+import { DrawerLeftRail, DrawerHubFooter } from './BottomDock';
 
-const DRAWER_WIDTH = 300;
+const DRAWER_WIDTH = 356;
 
 export function ServerDrawer() {
   const theme = useTheme();
   const { t } = useTranslation();
   const { isTablet, width: viewportWidth } = useDeviceLayout();
   const router = useRouter();
+  const pathname = usePathname();
   const open = useUIStore((s) => s.serverDrawerOpen);
   const closeRequested = useUIStore((s) => s.closingDrawer === 'servers');
   const finishDrawerClose = useUIStore((s) => s.finishDrawerClose);
@@ -35,11 +37,52 @@ export function ServerDrawer() {
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const lastChannelByServer = useChannelStore((s) => s.lastChannelByServer);
 
-  const drawerWidth = isTablet ? Math.min(380, Math.max(320, Math.floor(viewportWidth * 0.32))) : DRAWER_WIDTH;
+  const drawerWidth = isTablet ? Math.min(440, Math.max(360, Math.floor(viewportWidth * 0.38))) : DRAWER_WIDTH;
 
-  const { slideAnim, fadeAnim, mounted } = useDrawerTransition(open, drawerWidth, () => finishDrawerClose('servers'), closeRequested);
+  const { slideAnim, fadeAnim, mounted } = useDrawerTransition(open, drawerWidth, () => finishDrawerClose('servers'), closeRequested, 'servers');
+  const closePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_evt, g) =>
+          open && Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.25,
+        onPanResponderMove: (_evt, g) => {
+          if (g.dx >= 0) {
+            slideAnim.setValue(0);
+            fadeAnim.setValue(1);
+            return;
+          }
+          const clamped = Math.max(-drawerWidth, g.dx);
+          slideAnim.setValue(clamped);
+          fadeAnim.setValue(Math.max(0, 1 + clamped / Math.max(1, drawerWidth)));
+        },
+        onPanResponderRelease: (_evt, g) => {
+          if (g.dx <= -42 || (g.dx < -18 && g.vx < -0.3)) {
+            Animated.parallel([
+              Animated.timing(slideAnim, { toValue: -drawerWidth, duration: 160, useNativeDriver: true }),
+              Animated.timing(fadeAnim, { toValue: 0, duration: 160, useNativeDriver: true }),
+            ]).start(() => {
+              setOpen(false);
+            });
+          } else {
+            Animated.parallel([
+              Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }),
+              Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+            ]).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          Animated.parallel([
+            Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }),
+            Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+          ]).start();
+        },
+      }),
+    [open, drawerWidth, slideAnim, fadeAnim, setOpen],
+  );
 
-  if (isTablet || !mounted || replaced) return null;
+  const inServerChannelOnTablet = isTablet && pathname.startsWith('/server/');
+  if (inServerChannelOnTablet || !mounted || replaced) return null;
 
   const openServer = (id: string) => {
     setActiveServer(id);
@@ -67,31 +110,38 @@ export function ServerDrawer() {
 
       {/* Sliding drawer */}
       <Animated.View
+        {...closePanResponder.panHandlers}
         style={[
           styles.drawer,
           {
             backgroundColor: theme.colors.bgSidebar,
             borderRightColor: theme.colors.line,
-            paddingTop: theme.spacing.xl,
             width: drawerWidth,
             transform: [{ translateX: slideAnim }],
           },
         ]}
       >
-        <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text variant="subtitle">{t('tabs.servers')}</Text>
-            <Text variant="caption" color={theme.colors.text3}>
-              {t('servers.selectSynced')}
-            </Text>
+        <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
+          <DrawerLeftRail onClose={() => setOpen(false)} navigateOnSelect />
+          <View style={{ flex: 1, minWidth: 0, paddingTop: theme.spacing.xl }}>
+            <View style={styles.header}>
+              <View style={{ flex: 1 }}>
+                <Text variant="subtitle">{t('tabs.servers')}</Text>
+                <Text variant="caption" color={theme.colors.text3}>
+                  {t('servers.selectSynced')}
+                </Text>
+              </View>
+              <IconBtn icon={X} onPress={() => setOpen(false)} accessibilityLabel={t('call.closeServers')} />
+            </View>
+
+            <ServerListPanel
+              onOpenServer={(server) => openServer(server.id)}
+              onLeave={() => setOpen(false)}
+            />
           </View>
-          <IconBtn icon={X} onPress={() => setOpen(false)} accessibilityLabel={t('call.closeServers')} />
         </View>
 
-        <ServerListPanel
-          onOpenServer={(server) => openServer(server.id)}
-          onLeave={() => setOpen(false)}
-        />
+        <DrawerHubFooter onClose={() => setOpen(false)} />
       </Animated.View>
 
     </View>
@@ -223,7 +273,7 @@ export function ServerListPanel({ onOpenServer, onLeave }: {
 
 const styles = StyleSheet.create({
   drawer: {
-    maxWidth: '86%',
+    maxWidth: '92%',
     height: '100%',
     borderRightWidth: 1,
     shadowColor: '#000',
