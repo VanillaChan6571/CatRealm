@@ -6,6 +6,7 @@ import { createAuthenticatedApi } from '@/lib/api';
 import { decryptGroupChatMessage, encryptGroupChatMessage } from '@/utils/groupChatCrypto';
 import type { GroupChatSummary, GroupChatMessage, GroupChatReaction, MessageAttachment } from '@/types';
 import { appendFormDataFile } from '@/lib/formData';
+import { buildSafetyMessageMetadata } from '@/lib/safetyMetadata';
 
 // ─── Key cache ──────────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ interface RawGroupMessage {
   created_at?: number;
   isOwner?: boolean | number;
   is_owner?: boolean | number;
+  safety_artifacts?: GroupChatMessage['safetyArtifacts'];
 }
 
 async function decryptRaw(raw: RawGroupMessage, keys: GroupKey[]): Promise<GroupChatMessage> {
@@ -146,6 +148,7 @@ async function decryptRaw(raw: RawGroupMessage, keys: GroupKey[]): Promise<Group
       reacted: r.reacted ?? r.selfReacted ?? false,
     })),
     createdAt,
+    safetyArtifacts: raw.safety_artifacts ?? [],
   };
 }
 
@@ -261,11 +264,13 @@ export const useGroupChatStore = create<GroupChatState>((set, get) => ({
     const keyMaterial = resolveKeyMaterial(keys, keyVersion);
     if (!keyMaterial) return false;
     const encryptedPayload = await encryptGroupChatMessage(trimmed, keyMaterial);
+    const safetyMetadata = buildSafetyMessageMetadata(trimmed);
     try {
       if (files.length > 0) {
         // Multipart straight to central; server stores/compresses the files.
         const formData = new FormData();
         formData.append('encryptedPayload', encryptedPayload);
+        formData.append('safetyMetadata', JSON.stringify(safetyMetadata));
         formData.append('keyVersion', String(keyVersion));
         for (const file of files) {
           await appendFormDataFile(formData, 'attachment', {
@@ -280,7 +285,7 @@ export const useGroupChatStore = create<GroupChatState>((set, get) => ({
           headers: { 'Content-Type': 'multipart/form-data' },
         });
       } else {
-        await createAuthenticatedApi().post(`/api/group-chats/${groupChatId}/messages`, { encryptedPayload, keyVersion });
+        await createAuthenticatedApi().post(`/api/group-chats/${groupChatId}/messages`, { encryptedPayload, keyVersion, safetyMetadata });
       }
       return true;
     } catch {

@@ -98,3 +98,11 @@ test('a drop while backgrounded waits for the foreground', async () => {
   expect(mockRoom.connect).toHaveBeenCalledTimes(1);
   spy.mockRestore();
 });
+
+describe('handleRoomsSnapshot', () => {
+  it('drops rooms missing from the snapshot instead of keeping stale users', () => {
+    useVoiceStore.setState({ voiceRoomUsers: { emptied: [{ userId: 'u1' } as never] } });
+    useVoiceStore.getState().handleRoomsSnapshot({ rooms: [] });
+    expect(useVoiceStore.getState().voiceRoomUsers.emptied).toBeUndefined();
+  });
+});

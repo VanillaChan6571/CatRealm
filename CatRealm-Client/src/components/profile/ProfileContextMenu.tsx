@@ -18,6 +18,7 @@ interface ProfileContextMenuProps {
   onBlock: () => void;
   onUnblock: () => void;
   onCopyUserId: () => void;
+  onReport: () => void;
 }
 
 export function ProfileContextMenu({
@@ -34,6 +35,7 @@ export function ProfileContextMenu({
   onBlock,
   onUnblock,
   onCopyUserId,
+  onReport,
 }: ProfileContextMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -133,6 +135,7 @@ export function ProfileContextMenu({
           {isBlocked ? t('profile.unblockUser') : t('profile.blockUser')}
         </button>
       )}
+      {!isOwnProfile && profile.accountType === 'central' && !profile.isBot && <button onClick={() => handleAction(onReport)} className="w-full px-4 py-2.5 text-left text-sm text-danger hover:bg-bg-hover transition-colors">Report child-safety concern</button>}
 
       <div className="border-t border-border" />
 

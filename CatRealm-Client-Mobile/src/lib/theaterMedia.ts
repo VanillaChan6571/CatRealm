@@ -2,7 +2,13 @@
 export function theaterMediaSource(
   uri: string,
   realms: { url: string; token: string | null }[],
+  activeRealmUrl?: string | null,
 ) {
+  // Realms send cached and uploaded videos as a path such as /ugc/temp-theater/...;
+  // without a host the native player would open it as a file on this device.
+  if (activeRealmUrl && uri.startsWith('/') && !uri.startsWith('//')) {
+    uri = `${activeRealmUrl.replace(/\/+$/, '')}${uri}`;
+  }
   let target: URL;
   try { target = new URL(uri); } catch { return uri; }
   if (!['http:', 'https:'].includes(target.protocol)) return uri;

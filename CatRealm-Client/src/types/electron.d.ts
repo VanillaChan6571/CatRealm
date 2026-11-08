@@ -109,6 +109,8 @@ declare global {
     platform: NodeJS.Platform | 'browser' | 'unknown';
     backend?: 'ffmpeg' | 'gstreamer';
     gstPath?: string;
+    // Set when the publisher only handles some capture modes (macOS: full displays).
+    captureModes?: string[];
     ffmpegPath?: string;
     reason?: string | null;
     features?: {
@@ -130,8 +132,8 @@ declare global {
   type ScreenShareGpu = {
     id: string;
     label: string;
-    vendor: 'nvidia' | 'amd' | 'intel' | 'other';
-    encoder: 'nvh264enc' | 'amfh264enc' | 'mfh264enc';
+    vendor: 'nvidia' | 'amd' | 'intel' | 'apple' | 'other';
+    encoder: 'nvh264enc' | 'amfh264enc' | 'mfh264enc' | 'vtenc_h264_hw';
     integrated: boolean;
   };
   type NativeVoiceSupport = {
@@ -186,7 +188,7 @@ declare global {
     h264Profile?: 'high' | 'main' | 'baseline' | 'constrained-baseline';
     // GStreamer H.264 encoder element to use (GPU chooser). Omit/undefined = auto
     // (best available). nvh264enc=NVIDIA, amfh264enc=AMD, mfh264enc=Media Foundation.
-    videoEncoder?: 'nvh264enc' | 'amfh264enc' | 'mfh264enc' | null;
+    videoEncoder?: 'nvh264enc' | 'amfh264enc' | 'mfh264enc' | 'vtenc_h264_hw' | null;
     includeAudio?: boolean;
     whip: {
       url: string;
@@ -242,6 +244,9 @@ declare global {
       >;
       stopAppAudioCapture: (captureId: string) => Promise<{ ok: true }>;
       getNativeWhipPublisherSupport?: (opts?: { forceRefresh?: boolean }) => Promise<NativeWhipPublisherSupport>;
+      getScreenCaptureAccess?: () => Promise<{ status: string }>;
+      resolveHttpRealmGateway?: (request: { realmOrigin: string; ticket: string }) => Promise<{ status: number; data: unknown }>;
+      openScreenCaptureSettings?: () => Promise<boolean>;
       listScreenShareGpus?: () => Promise<{ gpus: ScreenShareGpu[]; encoders: string[] }>;
       listVideoCaptureDevices?: () => Promise<NativeVideoCaptureDevice[]>;
       startNativeWhipPublisher?: (opts: NativeWhipPublisherStartOptions) => Promise<NativeWhipPublisherStartResult>;
@@ -269,6 +274,19 @@ declare global {
         audioDeviceLabel?: string;
       }) => Promise<{ ok: boolean; reason?: string; message?: string; trackSid?: string; width?: number; height?: number; fps?: number; audio?: boolean }>;
       stopNativeScreenPublish?: () => Promise<{ ok: boolean; stopped?: boolean }>;
+      // Cat Lab "Auto Compress Upload" (Sparky): GPU re-encode to H.264/AAC MP4.
+      compressVideoForUpload?: (opts: {
+        data: ArrayBuffer;
+        inputExtension: 'mp4' | 'webm';
+        width: number;
+        height: number;
+        videoKbps: number;
+        audioKbps: number;
+        hasAudio: boolean;
+        expectedBytes: number;
+      }) => Promise<{ ok: boolean; reason?: string; message?: string; encoder?: string; data?: Uint8Array }>;
+      cancelVideoForUploadCompression?: () => Promise<boolean>;
+      onVideoForUploadCompressionProgress?: (callback: (payload: { progress: number }) => void) => () => void;
       // Native voice fallback (Linux Sushi; WebKitGTK has no WebRTC).
       getNativeVoiceSupport?: () => Promise<NativeVoiceSupport>;
       nativeVoiceListDevices?: () => Promise<{

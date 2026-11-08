@@ -97,6 +97,9 @@ import { ChatLoadingSkeleton } from './ChatLoadingSkeleton';
 import { DMCallHeader } from '../calls/DMCallHeader';
 import { DMIncomingCallBanner } from '../calls/DMIncomingCallBanner';
 import { logDMKeyDebug } from '../../messaging/crypto/dmKeyDebug';
+import { UploadCompressionStatus } from './UploadCompressionStatus';
+import { SafetyReportModal, type SafetyReportTarget } from './SafetyReportModal';
+import { useUploadCompression } from '../../hooks/useUploadCompression';
 
 const EXTERNAL_EMOJI_DISCORD_BIT = 0x40000n;
 const EXTERNAL_STICKER_DISCORD_BIT = 0x2000000000n;
@@ -107,6 +110,7 @@ export function DMView() {
   const [selectedAttachments, setSelectedAttachments] = useState<File[]>([]);
   const [selectedAttachmentNsfwTags, setSelectedAttachmentNsfwTags] = useState<{ gore: boolean; blood: boolean; lewd: boolean; spoiler: boolean }>({ ...emptyNsfwTags });
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const { status: compressionStatus, summary: compressionSummary, fitToLimit, cancel: cancelCompression } = useUploadCompression();
   const [attachmentOverflowQueue, setAttachmentOverflowQueue] = useState<File[]>([]);
   const [overflowModalOpen, setOverflowModalOpen] = useState(false);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
@@ -164,6 +168,7 @@ export function DMView() {
   const [deleteConfirmMessageId, setDeleteConfirmMessageId] = useState<string | null>(null);
   const [pendingDMVoiceAttachment, setPendingDMVoiceAttachment] = useState<any>(null);
   const [dmVoiceAutoDeleteOpen, setDMVoiceAutoDeleteOpen] = useState(false);
+  const [safetyReportTarget, setSafetyReportTarget] = useState<SafetyReportTarget | null>(null);
 
   const user = useAuthStore((s) => s.user);
   const serverInfo = useAuthStore((s) => s.serverInfo);
@@ -210,6 +215,7 @@ export function DMView() {
   const lastMessagesScrollTopRef = useRef(0);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
+  const isOfficialSystemDM = activeConversation?.conversationKind === 'official_system';
   const dmMentionUsers = useMemo(() => [
     ...(user ? [{ id: user.id, username: user.username, displayName: user.displayName }] : []),
     ...(activeConversation ? [{ id: activeConversation.otherUserId, username: activeConversation.otherUsername, displayName: activeConversation.otherDisplayName }] : []),
@@ -238,8 +244,8 @@ export function DMView() {
   const dmPins = activeConversationId ? (dmPinsByConversation[activeConversationId] ?? EMPTY_DM_PINS) : EMPTY_DM_PINS;
   const pinnedDmMessageIds = useMemo(() => new Set(dmPins.map((p) => p.messageId)), [dmPins]);
   useEffect(() => {
-    if (activeConversationId) void fetchDmPins(activeConversationId);
-  }, [activeConversationId, fetchDmPins]);
+    if (activeConversationId && !isOfficialSystemDM) void fetchDmPins(activeConversationId);
+  }, [activeConversationId, fetchDmPins, isOfficialSystemDM]);
   const handleDmPinToggle = useCallback((msg: DMMessage) => {
     if (pinnedDmMessageIds.has(msg.id)) void unpinDmMessage(msg.id);
     else void pinDmMessage(msg.id);
@@ -836,7 +842,7 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
   // Load conversation's retention setting and check for pending requests
   const activeConversationRetentionDays = activeConversation?.retentionDays;
   useEffect(() => {
-    if (!activeConversationId) return;
+    if (!activeConversationId || isOfficialSystemDM) return;
 
     // Load conversation retention from the conversation object
     setRetentionDays(activeConversationRetentionDays || 365);
@@ -871,7 +877,7 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
 
     checkRetentionRequest();
     return () => { cancelled = true; };
-  }, [activeConversationId, activeConversationRetentionDays]);
+  }, [activeConversationId, activeConversationRetentionDays, isOfficialSystemDM]);
 
   // Reflect the conversation's E2EE state in the header badge. Reset to the
   // calm default on conversation switch so we never flash a stale warning from
@@ -883,7 +889,7 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
     setNeedsKeyShareProof(false);
   }, [activeConversationId]);
   useEffect(() => {
-    if (!activeConversationId) return;
+    if (!activeConversationId || isOfficialSystemDM) return;
     let cancelled = false;
     (async () => {
       try {
@@ -908,7 +914,7 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
       }
     })();
     return () => { cancelled = true; };
-  }, [activeConversationId, keyUpdateRevision]);
+  }, [activeConversationId, keyUpdateRevision, isOfficialSystemDM]);
 
   // A key-holder may be offline when this DM first opens. Keep requesting the
   // wrapped key while locked so a later reconnect can satisfy it without the
@@ -1478,12 +1484,14 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
   };
 
   const DM_MAX_FILES = 8;
-  const DM_MAX_PER_FILE = (serverInfo?.mediaMaxMb ?? 50) * 1024 * 1024;
+  // DMs upload to Central, which caps each attachment at 50 MB whatever the
+  // current realm's own media limit is (routes/dms.js DM_ATTACHMENT_MAX_BYTES).
+  const dmMaxMbLabel = 50;
+  const DM_MAX_PER_FILE = dmMaxMbLabel * 1024 * 1024;
   const DM_MAX_TOTAL = DM_MAX_FILES * DM_MAX_PER_FILE;
-  const dmMaxMbLabel = serverInfo?.mediaMaxMb ?? 50;
 
-  const setAttachmentsFromFiles = (files: File[]) => {
-    if (files.length === 0) {
+  const setAttachmentsFromFiles = async (selected: File[]) => {
+    if (selected.length === 0) {
       setSelectedAttachments([]);
       setSelectedAttachmentNsfwTags({ ...emptyNsfwTags });
       setAttachmentError(null);
@@ -1491,14 +1499,19 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
       return;
     }
 
-    const oversized = files.find((f) => f.size > DM_MAX_PER_FILE);
-    if (oversized) {
-      setAttachmentError(`Each attachment must be ${dmMaxMbLabel} MB or smaller.`);
+    const fit = await fitToLimit(selected, DM_MAX_PER_FILE);
+    if (fit.kind !== 'ok') {
+      setAttachmentError(fit.kind === 'failed'
+        ? fit.message
+        : fit.kind === 'rejected'
+          ? `Each attachment must be ${dmMaxMbLabel} MB or smaller.`
+          : null);
       setSelectedAttachments([]);
       setSelectedAttachmentNsfwTags({ ...emptyNsfwTags });
       if (attachmentInputRef.current) attachmentInputRef.current.value = '';
       return;
     }
+    const files = fit.files;
 
     // If more than 8 files, queue the overflow and warn the user
     if (files.length > DM_MAX_FILES) {
@@ -1906,9 +1919,25 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
           onPinToggle={handleDmPinToggle}
           highlightedMessageId={highlightedMessageId}
           activeCallId={activeCallForConversation?.callId ?? lastEndedDMCall?.callId ?? null}
+          onReport={(message) => setSafetyReportTarget({
+            scopeKind: 'dm',
+            scopeId: message.conversationId,
+            messageId: message.id,
+            senderLabel: activeConversation.otherDisplayName || activeConversation.otherUsername,
+            messageText: message.text,
+            attachments: message.attachments,
+          })}
         />
         </MentionProvider>
       )}
+
+      <SafetyReportModal
+        target={safetyReportTarget}
+        onClose={() => setSafetyReportTarget(null)}
+        onSubmitted={async () => {
+          if (activeConversationId) await useDMStore.getState().loadMessages(activeConversationId);
+        }}
+      />
 
       {overflowModalOpen && (
         <Modal open={overflowModalOpen} onClose={() => setOverflowModalOpen(false)} title="Too many files selected">
@@ -2008,7 +2037,11 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
           })}
         </div>
       )}
-      {requestNeedsResponse ? <DMRequestActions otherUserId={activeConversation.otherUserId} declined={activeConversation.requestState === 'declined'} /> : isMessagingBlocked ? (
+      {isOfficialSystemDM ? (
+        <div className="px-4 py-3 bg-accent/10 border-t border-accent/30 text-center text-text-secondary text-sm select-none">
+          Official CatRealm announcements are read-only. Staff publish once and everyone sees the same shared feed.
+        </div>
+      ) : requestNeedsResponse ? <DMRequestActions otherUserId={activeConversation.otherUserId} declined={activeConversation.requestState === 'declined'} /> : isMessagingBlocked ? (
         <div className="px-4 py-3 bg-surface-1 border-t border-border text-center text-text-muted text-sm select-none">
           {youBlockedThem
             ? 'This User is Blocked — You Cannot Send a Message'
@@ -2018,7 +2051,12 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
       <DMComposer
         otherUsername={activeConversation.otherUsername}
         onSubmit={(e) => void handleSend(e)}
-        previewSlot={!voiceMode ? <ComposerSelfPreview content={messageText} /> : null}
+        previewSlot={!voiceMode ? (
+          <>
+            <UploadCompressionStatus status={compressionStatus} summary={compressionSummary} onCancel={cancelCompression} />
+            <ComposerSelfPreview content={messageText} />
+          </>
+        ) : null}
         voiceMode={voiceMode}
         onVoiceToggle={handleVoiceToggle}
         voiceRecorderSlot={(
@@ -2161,13 +2199,13 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
           useDMStore.setState({ activeConversationId: null });
           useUIStore.getState().setMobileNavOpen(true);
         }}
-        onOpenProfile={() => openModal('profileView', { userId: activeConversation.otherUserId })}
-        onShowEncryptionInfo={() => setShowE2EInfo(true)}
-        onShowRetentionSettings={() => setShowRetentionSettings(true)}
-        encryptionState={dmEncryptionState}
-        onAudioCall={handleAudioCall}
+        onOpenProfile={() => { if (!isOfficialSystemDM) openModal('profileView', { userId: activeConversation.otherUserId }); }}
+        onShowEncryptionInfo={() => { if (!isOfficialSystemDM) setShowE2EInfo(true); }}
+        onShowRetentionSettings={() => { if (!isOfficialSystemDM) setShowRetentionSettings(true); }}
+        encryptionState={isOfficialSystemDM ? 'synced' : dmEncryptionState}
+        onAudioCall={isOfficialSystemDM ? undefined : handleAudioCall}
         onSearch={() => setSearchOpen(true)}
-        hideCallButtons={hasActiveCall || hasRingingCall}
+        hideCallButtons={isOfficialSystemDM || hasActiveCall || hasRingingCall}
         isInCall={hasActiveCall || hasRingingCall}
         isRinging={hasRingingCall}
         remoteCallState={activeCallForConversation ? {
@@ -2176,6 +2214,7 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
           videoEnabled: activeCallForConversation.otherVideoEnabled,
           sharingScreen: activeCallForConversation.otherSharingScreen,
         } : null}
+        isOfficialSystem={isOfficialSystemDM}
       />
 
       {/* Incoming Call Banner (if there's an incoming call for this conversation) */}

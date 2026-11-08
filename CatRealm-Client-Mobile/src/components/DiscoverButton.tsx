@@ -115,7 +115,98 @@ export function DiscoverButton({ onPress, label = 'Discover Servers' }: Discover
   );
 }
 
+/**
+ * Square icon-only Discover button for the drawer's icon rail, with the same
+ * breath glow and sparkle sweep as DiscoverButton.
+ */
+export function DiscoverRailButton({ onPress, label = 'Discover Servers' }: DiscoverButtonProps) {
+  const theme = useTheme();
+  const glowOpacity = useSharedValue(0.25);
+  const sparkleX = useSharedValue(-1);
+
+  useEffect(() => {
+    const easingBreath = Easing.inOut(Easing.ease);
+    glowOpacity.value = withRepeat(
+      withSequence(
+        withTiming(0.85, { duration: BREATH_DURATION / 2, easing: easingBreath }),
+        withTiming(0.25, { duration: BREATH_DURATION / 2, easing: easingBreath }),
+      ),
+      -1,
+      false,
+    );
+    sparkleX.value = withRepeat(
+      withTiming(1, { duration: SPARKLE_DURATION, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const glowAnimStyle = useAnimatedStyle(() => ({ opacity: glowOpacity.value }));
+  // -1..1 across a 46pt tile with a 30pt-wide streak: starts and ends fully outside.
+  const sparkleAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: sparkleX.value * 46 }],
+  }));
+
+  return (
+    <Pressable
+      haptic
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={styles.railWrapper}
+    >
+      <Animated.View pointerEvents="none" style={[styles.railGlow, glowAnimStyle]} />
+      <View style={[styles.railTile, { backgroundColor: theme.colors.bgElev2 }]}>
+        <Compass size={21} color={theme.colors.accentText} />
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <Animated.View style={[styles.railSparkle, sparkleAnimStyle]}>
+            <LinearGradient
+              colors={['transparent', 'rgba(255,255,255,0.22)', 'transparent']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.sparkleGradient}
+            />
+          </Animated.View>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+const RAIL_TILE = 46;
+
 const styles = StyleSheet.create({
+  railWrapper: {
+    width: RAIL_TILE,
+    height: RAIL_TILE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  railGlow: {
+    position: 'absolute',
+    width: RAIL_TILE,
+    height: RAIL_TILE,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(124,92,255,1)',
+    boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 12, color: 'rgba(124,92,255,0.8)' }],
+  },
+  railTile: {
+    width: RAIL_TILE,
+    height: RAIL_TILE,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  railSparkle: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: (RAIL_TILE - 30) / 2,
+    width: 30,
+  },
   wrapper: {
     position: 'relative',
   },

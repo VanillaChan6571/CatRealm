@@ -29,7 +29,8 @@ export function VoiceBar() {
   const leaveChannel = useVoiceStore((s) => s.leaveChannel);
   const activeServerId = useServerStore((s) => s.activeServerId);
 
-  if (!channelId) return null;
+  // Tablets carry the voice controls in the left column's profile bar.
+  if (!channelId || isTablet) return null;
 
   const effectiveServerId = serverId ?? activeServerId ?? '';
 

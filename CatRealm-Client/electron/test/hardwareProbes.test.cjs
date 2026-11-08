@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function fixture({ platform = 'win32', autoReply = true, missingFiles = false, bareGst = false } = {}) {
+function fixture({ platform = 'win32', autoReply = true, missingFiles = false, bareGst = false, spawnSync } = {}) {
   const calls = [];
   let now = 1000;
   const modules = new Map();
@@ -40,7 +40,7 @@ function fixture({ platform = 'win32', autoReply = true, missingFiles = false, b
       module, __dirname: 'C:\\app\\electron', Buffer, setTimeout, clearTimeout,
       Date: class extends Date { static now() { return now; } }, process: fakeProcess,
       require: dependency => {
-        if (dependency === 'child_process') return { spawn, spawnSync() { assert.fail('Settings discovery must never call spawnSync'); } };
+        if (dependency === 'child_process') return { spawn, spawnSync: spawnSync ?? (() => { assert.fail('Settings discovery must never call spawnSync'); }) };
         if (dependency === 'path') return path.win32;
         if (dependency === 'fs') return { existsSync: candidate => !missingFiles && /\\(?:runtime|ffmpeg)\\/.test(candidate) };
         if (dependency.startsWith('./')) return load(dependency.slice(2));
@@ -135,6 +135,151 @@ test('non-Windows clients do not spawn Windows probes', async () => {
   assert.equal((await bridge.getSupportAsync()).ok, false);
   assert.equal((await bridge.availableH264EncodersAsync()).length, 0);
   assert.equal(f.calls.length, 0);
+});
+
+test('macOS support and encoder discovery use asynchronous probes of the bundled runtime', async () => {
+  const f = fixture({ platform: 'darwin' });
+  const bridge = f.load('whipPublisherBridge.cjs');
+  const discover = f.load('screenShareGpuDiscovery.cjs').createScreenShareGpuDiscovery(bridge.availableH264EncodersAsync, 'darwin');
+  const support = await bridge.getSupportAsync();
+  assert.equal(support.ok, true);
+  assert.deepEqual([...support.captureModes], ['monitor-dxgi']);
+  assert.ok(f.calls.every(call => call.command.endsWith('gst-inspect-1.0')));
+  const { gpus } = await discover();
+  assert.equal(gpus.length, 1);
+  assert.equal(gpus[0].encoder, 'vtenc_h264_hw');
+});
+
+test('macOS reports a missing runtime and missing elements', async () => {
+  const missing = fixture({ platform: 'darwin', missingFiles: true });
+  const support = await missing.load('whipPublisherBridge.cjs').getSupportAsync();
+  assert.equal(support.ok, false);
+  assert.equal(missing.calls.length, 0);
+
+  const partial = fixture({ platform: 'darwin', autoReply: false });
+  const pending = partial.load('whipPublisherBridge.cjs').getSupportAsync();
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+  partial.reply(partial.calls[0].child);
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+  for (const call of partial.calls.slice(1)) partial.reply(call.child, '', call.args.at(-1) === 'vtenc_h264_hw' ? 1 : 0);
+  const result = await pending;
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /vtenc_h264_hw/);
+});
+
+function macScreens(screens) {
+  return () => ({ status: 0, stdout: JSON.stringify(screens), stderr: '' });
+}
+
+const macShare = { sourceId: 'screen:7:0', captureMode: 'monitor-dxgi', fps: 60, height: 1080, bitrate: 9_000_000, h264Profile: 'constrained-baseline', whip: { url: 'https://media.example/whip', streamKey: 'key' } };
+const macSender = () => {
+  const sent = [];
+  return { sent, isDestroyed: () => false, send: (channel, payload) => sent.push({ channel, payload }) };
+};
+const granted = { screenAccessStatus: 'granted' };
+
+test('macOS builds a CBR display pipeline for the requested display and keeps its aspect ratio', () => {
+  const f = fixture({ platform: 'darwin', spawnSync: macScreens([
+    { index: 0, displayId: 1, width: 2560, height: 1440 },
+    { index: 1, displayId: 7, width: 3456, height: 2234 },
+  ]) });
+  const bridge = f.load('whipPublisherBridge.cjs');
+  const sender = macSender();
+  const started = bridge.start(macShare, sender, granted);
+  assert.equal(started.ok, true);
+  const { args } = f.calls[0];
+  assert.ok(args.includes('device-index=1'));
+  assert.ok(args.includes('rate-control=cbr'));
+  assert.ok(args.includes('bitrate=9000'));
+  assert.ok(args.some(arg => arg.includes('width=(int)1670,height=(int)1080')));
+  assert.ok(args.some(arg => arg.includes('profile=(string)baseline')));
+  assert.ok(args.includes('whip-endpoint=https://media.example/whip/key'));
+  assert.ok(!args.includes('fdsrc'));
+  assert.ok(!sender.sent.some(({ payload }) => String(payload.message).includes('media.example')));
+  f.calls[0].child.emit('exit', 0, null);
+});
+
+test('macOS never upscales and never guesses between displays', () => {
+  const small = fixture({ platform: 'darwin', spawnSync: macScreens([{ index: 0, displayId: 7, width: 1280, height: 800 }]) });
+  assert.equal(small.load('whipPublisherBridge.cjs').start(macShare, macSender(), granted).ok, true);
+  assert.ok(small.calls[0].args.some(arg => arg.includes('width=(int)1280,height=(int)800')));
+  small.calls[0].child.emit('exit', 0, null);
+
+  const several = fixture({ platform: 'darwin', spawnSync: macScreens([
+    { index: 0, displayId: 1, width: 2560, height: 1440 },
+    { index: 1, displayId: 2, width: 2560, height: 1440 },
+  ]) });
+  const result = several.load('whipPublisherBridge.cjs').start(macShare, macSender(), granted);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'bad-options');
+  assert.equal(several.calls.length, 0);
+});
+
+test('macOS refuses windows and missing Screen Recording access without spawning', () => {
+  const f = fixture({ platform: 'darwin', spawnSync: macScreens([{ index: 0, displayId: 7, width: 2560, height: 1440 }]) });
+  const bridge = f.load('whipPublisherBridge.cjs');
+  assert.equal(bridge.start({ ...macShare, captureMode: 'window-wgc' }, macSender(), granted).reason, 'unsupported');
+  assert.equal(bridge.start({ ...macShare, captureMode: 'device-dshow' }, macSender(), granted).reason, 'unsupported');
+  assert.equal(bridge.start(macShare, macSender(), { screenAccessStatus: 'denied' }).reason, 'permission-denied');
+  assert.equal(bridge.start(macShare, macSender()).reason, 'permission-denied');
+  assert.equal(f.calls.length, 0);
+});
+
+test('macOS stops a share that never produces frames, but not one that does', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture({ platform: 'darwin', spawnSync: macScreens([{ index: 0, displayId: 7, width: 2560, height: 1440 }]) });
+  const bridge = f.load('whipPublisherBridge.cjs');
+  const kills = [];
+
+  const stuck = macSender();
+  bridge.start(macShare, stuck, granted);
+  f.calls[0].child.kill = signal => kills.push(signal);
+  t.mock.timers.tick(10_000);
+  assert.deepEqual(kills, ['SIGKILL']);
+  assert.ok(stuck.sent.some(({ payload }) => /No frames/.test(payload.message)));
+  f.calls[0].child.emit('exit', null, 'SIGKILL');
+  assert.ok(stuck.sent.some(({ channel }) => channel === 'native-whip-publisher-stopped'));
+
+  kills.length = 0;
+  bridge.start(macShare, macSender(), granted);
+  f.calls[1].child.kill = signal => kills.push(signal);
+  f.calls[1].child.stderr.emit('data', Buffer.from('whipsink ICE gathering started'));
+  t.mock.timers.tick(30_000);
+  assert.deepEqual(kills, []);
+  f.calls[1].child.emit('exit', 0, null);
+});
+
+test('macOS stop asks the publisher to stop cleanly and escalates if it hangs', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture({ platform: 'darwin', spawnSync: macScreens([{ index: 0, displayId: 7, width: 2560, height: 1440 }]) });
+  const bridge = f.load('whipPublisherBridge.cjs');
+  const started = bridge.start(macShare, macSender(), granted);
+  const { child } = f.calls[0];
+  child.stderr.emit('data', Buffer.from('ICE gathering'));
+  const kills = [];
+  child.kill = signal => kills.push(signal);
+  child.exitCode = null;
+  child.signalCode = null;
+  bridge.stop(started.publisherId);
+  assert.deepEqual(kills, ['SIGINT']);
+  t.mock.timers.tick(3_000);
+  assert.deepEqual(kills, ['SIGINT', 'SIGKILL']);
+});
+
+test('macOS asks the helper for Screen Recording access and reports what it says', () => {
+  const f = fixture({ platform: 'darwin' });
+  const messages = [];
+  assert.equal(f.load('whipPublisherBridge.cjs').requestMacScreenAccess(message => messages.push(message)), true);
+  assert.deepEqual([...f.calls[0].args], ['--request-screen-access']);
+  assert.match(f.calls[0].command, /CatRealmCaptureHelper$/);
+  f.calls[0].child.stderr.emit('data', Buffer.from('screen access not granted\n'));
+  assert.deepEqual(messages, ['screen access not granted']);
+
+  const missing = fixture({ platform: 'darwin', missingFiles: true });
+  assert.equal(missing.load('whipPublisherBridge.cjs').requestMacScreenAccess(), false);
+  assert.equal(missing.calls.length, 0);
 });
 
 test('hung driver probes time out without blocking timers and ignore late successful exits', async () => {

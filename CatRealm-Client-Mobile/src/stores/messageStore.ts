@@ -42,6 +42,7 @@ export interface MessageState {
   requestEdit: (messageId: string, content: string) => void;
   requestDelete: (messageId: string, channelId?: string) => void;
   applyReactionUpdate: (channelId: string, messageId: string, reactions: Reaction[], selfUserId?: string) => void;
+  applySafetyArtifactUpdate: (channelId: string, messageId: string, artifactKey: string, state: 'quarantined' | 'removed' | 'cleared') => void;
   reset: (channelId?: string) => void;
 }
 
@@ -177,6 +178,23 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       next[idx] = { ...next[idx], reactions: normalized };
       return { byChannel: { ...s.byChannel, [channelId]: next } };
     }),
+
+  applySafetyArtifactUpdate: (channelId, messageId, artifactKey, state) =>
+    set((current) => ({
+      byChannel: {
+        ...current.byChannel,
+        [channelId]: (current.byChannel[channelId] ?? []).map((message) => {
+          if (message.id !== messageId) return message;
+          const existing = (message.safety_artifacts ?? []).filter((artifact) => artifact.artifactKey !== artifactKey);
+          return {
+            ...message,
+            safety_artifacts: state === 'cleared'
+              ? existing
+              : [...existing, { artifactKey, state, hiddenForUser: true }],
+          };
+        }),
+      },
+    })),
 
   reset: (channelId) =>
     set((s) => {

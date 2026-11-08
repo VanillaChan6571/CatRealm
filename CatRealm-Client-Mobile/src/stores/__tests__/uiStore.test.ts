@@ -44,3 +44,20 @@ test('closeAll cancels the queued destination without skipping the exit', () => 
   ui.finishDrawerClose('channels');
   expect(useUIStore.getState()).toMatchObject({ serverDrawerOpen: false, channelsSheetOpen: false, closingDrawer: null });
 });
+
+test('handoff keeps the server drawer open until channels are ready', () => {
+  const ui = useUIStore.getState();
+  ui.setServerDrawerOpen(true);
+  ui.handoffToChannels();
+  expect(useUIStore.getState()).toMatchObject({ serverDrawerOpen: true, channelsSheetOpen: true, drawerHandoff: true });
+  ui.clearDrawerHandoff();
+  expect(useUIStore.getState()).toMatchObject({ serverDrawerOpen: false, channelsSheetOpen: true, drawerHandoff: false });
+});
+
+test('closing channels during a handoff releases both drawers', () => {
+  const ui = useUIStore.getState();
+  ui.setServerDrawerOpen(true);
+  ui.handoffToChannels();
+  ui.setChannelsSheetOpen(false);
+  expect(useUIStore.getState()).toMatchObject({ serverDrawerOpen: false, channelsSheetOpen: false, drawerHandoff: false });
+});

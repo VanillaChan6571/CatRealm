@@ -155,6 +155,7 @@ export function CentralRegisterForm({ onRegistered }: { onRegistered: () => void
       <div className="space-y-2 text-sm text-text-secondary">
         <label className="flex items-start gap-2"><input type="checkbox" checked={acceptPrivacy} onChange={(e) => setAcceptPrivacy(e.target.checked)} className="mt-1" /><span>I have read and agree to the <a href="https://catrealm.app/privacy/" target="_blank" rel="noopener noreferrer" className="text-accent underline">Privacy Policy</a>.</span></label>
         <label className="flex items-start gap-2"><input type="checkbox" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} className="mt-1" /><span>I have read and agree to the <a href="https://catrealm.app/terms/" target="_blank" rel="noopener noreferrer" className="text-accent underline">Terms of Service</a>.</span></label>
+        <a href="https://catrealm.app/child-safety/" target="_blank" rel="noopener noreferrer" className="text-accent underline">Read CatRealm's Child Safety Standards</a>
         <label className="flex items-start gap-2"><input type="checkbox" checked={confirmAge18} onChange={(e) => setConfirmAge18(e.target.checked)} className="mt-1" /><span>I confirm that I am 18 years of age or older.</span></label>
       </div>
 

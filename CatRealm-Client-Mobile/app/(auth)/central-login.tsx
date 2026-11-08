@@ -13,6 +13,7 @@ import {
 } from '@/components';
 import { useAuthStore } from '@/stores/authStore';
 import { PasteCodeButton } from '@/components/PasteCodeButton';
+import { oneTimeCodeKeyboardType } from '@/hooks/useDeviceLayout';
 
 export default function CentralLoginScreen() {
   const theme = useTheme();
@@ -82,7 +83,7 @@ export default function CentralLoginScreen() {
               onChangeText={setTotpCode}
               placeholder={t('auth.twoFACodePlaceholder')}
               placeholderTextColor={theme.colors.text3}
-              keyboardType="number-pad"
+              keyboardType={oneTimeCodeKeyboardType}
               maxLength={6}
               textContentType="oneTimeCode"
               autoComplete="one-time-code"

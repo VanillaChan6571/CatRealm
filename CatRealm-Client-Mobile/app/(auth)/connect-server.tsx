@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, TextInput, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -17,9 +17,13 @@ export default function ConnectServerScreen() {
   const loading = useAuthStore((s) => s.loading);
   const error = useAuthStore((s) => s.error);
   const clearError = useAuthStore((s) => s.clearError);
+  // Only advance for a lookup started here. serverInfo outlives this screen, so
+  // without this "Different server" would remount it and bounce straight back.
+  const awaitingServerInfo = useRef(false);
 
   useEffect(() => {
-    if (!serverInfo || loading || error) return;
+    if (!awaitingServerInfo.current || !serverInfo || loading || error) return;
+    awaitingServerInfo.current = false;
     switch (serverInfo.mode) {
       case 'central_only':
         router.push('/(auth)/central-login');
@@ -34,6 +38,7 @@ export default function ConnectServerScreen() {
   const handleConnect = () => {
     if (!urlDraft.trim()) return;
     clearError();
+    awaitingServerInfo.current = true;
     void fetchServerInfo(urlDraft.trim());
   };
 

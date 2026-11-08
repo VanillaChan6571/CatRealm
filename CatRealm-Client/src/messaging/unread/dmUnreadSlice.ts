@@ -64,7 +64,9 @@ export function createDMUnreadSlice(set: any, _get: any): DMUnreadSlice {
       set((s: any) => ({
         conversations: s.conversations.map((conversation: DMConversation) => ({
           ...conversation,
-          unreadCount: dmByConversation[conversation.id] ?? 0,
+          unreadCount: conversation.conversationKind === 'official_system'
+            ? conversation.unreadCount
+            : (dmByConversation[conversation.id] ?? 0),
         })),
       }));
     },

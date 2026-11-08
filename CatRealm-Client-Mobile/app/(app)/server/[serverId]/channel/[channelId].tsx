@@ -4,18 +4,19 @@
  * surface in CatRealm-Client/src/components/chat.
  */
 
-import { memo, useEffect, useRef, useCallback, useMemo, useState } from 'react';
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { View, FlatList, StyleSheet, ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, TouchableOpacity, Pressable as RNPressable, TextInput, Alert, Share, Image } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useComposerKeyboardInset } from '@/hooks/useComposerKeyboardInset';
+import { dismissKeyboard } from '@/lib/dismissKeyboard';
 import { useFocusEffect } from "expo-router/react-navigation";
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { HeadphoneOff, Hash, Menu, MessageSquareText, MicOff, Monitor, Search, Smartphone, Users, X, CornerUpLeft, CornerUpRight, Pin, ChevronDown } from 'lucide-react-native';
+import { EllipsisVertical, Hash, MessageSquareText, Monitor, Search, Smartphone, Users, X, CornerUpLeft, Pin } from 'lucide-react-native';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, MessageReactionsSheet, Sheet, ChannelIcon, ServerRulesView, ForumChannelView, ServerListPanel, DrawerLeftRail, DrawerHubFooter, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
+import { ActionMenuSheet, SecureServerInfoModal, Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, MessageActionSheet, MessageReactionsSheet, SafetyReportSheet, type SafetyReportTarget, Sheet, ServerRulesView, ForumChannelView, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { VoiceChannelContent } from '@/components/VoiceChannelContent';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -23,19 +24,16 @@ import { useChannelStore } from '@/stores/channelStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useUIStore } from '@/stores/uiStore';
 import { usePresenceStore } from '@/stores/presenceStore';
-import { useVoiceStore, type VoiceParticipant } from '@/stores/voiceStore';
-import { useTheaterStore, type TheaterParticipant } from '@/stores/theaterStore';
-import { useOpenTheater } from '@/components/theater/TheaterJoinModal';
-import { createApi, createAuthenticatedApi } from '@/lib/api';
+import { createAuthenticatedApi } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
-import { getOrigin, resolveEmoteFromCache, useExpressionLookup, type ExpressionLookup } from '@/lib/expressionCache';
+import { getOrigin, useExpressionLookup } from '@/lib/expressionCache';
 import { RoleNameText, setRgbFlowScrolling } from '@/lib/roleStyles';
 import { fetchIconByTitle } from '@/lib/gameLibraryIcons';
 import { useListeningArt } from '@/lib/lastfmAlbumArt';
-import type { Category, Channel, Message, OnlineUser, Reaction } from '@/types';
+import type { Channel, Message, OnlineUser, Reaction } from '@/types';
 import type { ComposerSendOptions } from '@/components/MobileComposer';
 import { hasChannelPermission, PERMISSIONS } from '@/utils/permissions';
-import { formatMessageTimestamp } from '@/utils/formatTime';
+import { ChannelMessageRow } from '@/components/ChannelMessageRow';
 import { useDeviceLayout } from '@/hooks/useDeviceLayout';
 import { DOCK_HEIGHT, dockBottomInset } from '@/lib/dockLayout';
 import { markRealmChannelRead } from '@/lib/realmReadState';
@@ -43,14 +41,13 @@ import { ServerMentionProvider } from '@/components/MentionText';
 import { useVisibleChannelMemberIds, filterMembersByVisibleIds } from '@/hooks/useVisibleChannelMemberIds';
 import { debugLog, debugTap } from '@/lib/debugLog';
 import { clearImageMemoryCache } from '@/lib/imageCache';
+import { hideReportedAttachments, hideReportedLinks, reportableSafetyArtifacts, safetyHiddenArtifactKeys } from '@/lib/safetyReporting';
 
 const EMPTY_CHANNELS: Channel[] = [];
 const EMPTY_CATEGORIES: { id: string; name: string; position: number }[] = [];
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_TYPING_USERS: string[] = [];
 const EMPTY_MEMBERS: OnlineUser[] = [];
-const EMPTY_VOICE_PARTICIPANTS: VoiceParticipant[] = [];
-const EMPTY_THEATER_PARTICIPANTS: TheaterParticipant[] = [];
 
 type MemberEntry = OnlineUser & {
   offline?: boolean;
@@ -117,15 +114,6 @@ function resolveRoleIconUrl(roleIcon: string | null | undefined, serverUrl: stri
   if (roleIcon.startsWith('http://') || roleIcon.startsWith('https://')) return roleIcon;
   if (!serverUrl) return null;
   return `${serverUrl}${roleIcon.startsWith('/') ? roleIcon : '/' + roleIcon}`;
-}
-
-function formatRoomElapsed(elapsedMs: number): string {
-  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function formatMemberSubtitle(member: MemberEntry, listeningLabel: string): string {
@@ -291,226 +279,19 @@ function groupMembersByRole(members: MemberEntry[]): RoleGroup[] {
   return groups;
 }
 
-// ─── MessageRow ───────────────────────────────────────────────────────────────
-
-interface MessageRowProps {
-  message: Message;
-  prevMessage: Message | null;
-  selfUserId: string | undefined;
-  avatarBaseUrl?: string | null;
-  serverUrl?: string | null;
-  expressionLookup?: ExpressionLookup | null;
-  isPinned?: boolean;
-  onAvatarPress: (userId: string) => void;
-  onMessageLongPress: (message: Message, isSelf: boolean) => void;
-  onToggleReaction?: (messageId: string, emoji: string) => void;
-  onOpenReactions?: (message: Message, emoji?: string) => void;
-}
-
-// Matches compact emote tokens: :server:name:, :name:, :name:ownerId:, etc.
-// (same renderer as the DM screen's reaction chips)
-const REACTION_TOKEN_RE = /^:(https?:\/\/[^\s:]+(?::\d{1,5})?):(?:sticker:)?([a-z0-9_-]{1,64})(?::([a-z0-9_-]{3,128}))?:|^:(?:sticker:)?([a-z0-9_-]{1,64})(?::([a-z0-9_-]{3,128}))?:/i;
-
-function ReactionEmoji({ emoji, serverUrl }: { emoji: string; serverUrl?: string | null }) {
-  const m = REACTION_TOKEN_RE.exec(emoji);
-  if (m) {
-    const tokenServerUrl = m[1] ?? null;
-    const name = m[2] || m[4] || '';
-    const ownerId = m[3] || m[5] || null;
-    const url = resolveEmoteFromCache(name, false, serverUrl, tokenServerUrl, ownerId);
-    if (url) {
-      return <Image source={{ uri: url }} style={{ width: 18, height: 18 }} resizeMode="contain" />;
-    }
-    return <Text style={{ fontSize: 11 }}>:{name}:</Text>;
-  }
-  return <Text style={{ fontSize: 14 }}>{emoji}</Text>;
-}
-
-const GROUP_THRESHOLD_MS = 5 * 60 * 1000;
-const PERF_ROW_WARN_MS = 8;
-
-function toTimestampMs(value: number): number {
-  return value < 10_000_000_000 ? value * 1000 : value;
-}
-
-const MessageRow = memo(function MessageRow({
-  message,
-  prevMessage,
-  selfUserId,
-  avatarBaseUrl,
-  serverUrl,
-  expressionLookup,
-  isPinned,
-  onAvatarPress,
-  onMessageLongPress,
-  onToggleReaction,
-  onOpenReactions,
-}: MessageRowProps) {
-  const theme = useTheme();
-  const { t } = useTranslation();
-
-  // System messages render as a centered notice row (no avatar, no long-press)
-  if (message.message_type === 'system') {
-    return (
-      <View style={styles.systemRow}>
-        <Text style={styles.systemIcon}>🛠</Text>
-        <Text variant="caption" color={theme.colors.text3} style={{ flex: 1 }}>
-          {message.content}
-        </Text>
-      </View>
-    );
-  }
-
-  const isGrouped =
-    prevMessage !== null &&
-    prevMessage.message_type !== 'system' &&
-    prevMessage.user_id === message.user_id &&
-    toTimestampMs(message.created_at) - toTimestampMs(prevMessage.created_at) < GROUP_THRESHOLD_MS;
-
-  const isSelf = message.user_id === selfUserId;
-  const timestamp = formatMessageTimestamp(toTimestampMs(message.created_at));
-
-  const renderStartMs = globalThis.performance?.now?.() ?? Date.now();
-
-  const rowNode = (
-    <Pressable minHit={0} onLongPress={() => onMessageLongPress(message, isSelf)} style={[styles.msgRow, { paddingTop: isGrouped ? 2 : 12 }]}>
-      {isGrouped ? (
-        <View style={styles.avatarPlaceholder} />
-      ) : (
-        <Pressable haptic onPress={() => onAvatarPress(message.user_id)}>
-          <Avatar
-            username={message.username}
-            uri={message.avatar}
-            baseUrl={avatarBaseUrl}
-            size={36}
-          />
-        </Pressable>
-      )}
-      <View style={{ flex: 1 }}>
-        {message.interaction ? (
-          <View style={styles.botInteraction}>
-            <CornerUpRight size={12} color={theme.colors.text3} />
-            <Text variant="caption" color={theme.colors.text3} numberOfLines={1} style={{ flex: 1 }}>
-              <Text variant="caption" color={theme.colors.text2}>{message.interaction.invokerName}</Text>
-              {' used '}
-              <Text variant="caption" color="#818CF8" style={{ fontWeight: '600' }}>
-                /{message.interaction.command}
-              </Text>
-            </Text>
-          </View>
-        ) : null}
-        {message.reply_to && (
-          <View style={[styles.replyQuote, { borderLeftColor: theme.colors.text3 }]}>
-            <Text variant="caption" color={theme.colors.accent} style={{ fontWeight: '600' }}>
-              {message.reply_to.username}
-            </Text>
-            <Text variant="caption" color={theme.colors.text3} numberOfLines={1} style={{ flex: 1 }}>
-              {'  '}{message.reply_to.content}
-            </Text>
-          </View>
-        )}
-        {!isGrouped && (
-          <View style={styles.msgMeta}>
-            <Pressable haptic onPress={() => onAvatarPress(message.user_id)}>
-              <RoleNameText
-                color={message.role_color}
-                styleType={message.role_style_type}
-                styleColors={message.role_style_colors}
-                numberOfLines={1}
-              >
-                {message.display_name ?? message.username}
-              </RoleNameText>
-            </Pressable>
-            {message.is_bot ? <BotBadge /> : null}
-            {message.ephemeral ? (
-              <Text variant="caption" color="#FACC15" style={{ marginLeft: 4, fontWeight: '600' }}>Only you can see this</Text>
-            ) : null}
-            {isPinned ? null : null}
-            <Text variant="caption" color={theme.colors.text3} style={{ marginLeft: 6 }}>
-              {timestamp}
-            </Text>
-          </View>
-        )}
-        <TranslatableMarkdownText
-          messageId={message.id}
-          text={message.content}
-          color={theme.colors.text}
-          attachments={message.attachments}
-          serverUrl={serverUrl}
-          expressionLookup={expressionLookup}
-          nsfwTags={message.nsfw_tags}
-          voiceExpiresAt={message.voice_expires_at}
-          allowEmbeds={message.embeds_enabled !== 0}
-          linkPreviews
-        />
-        {message.edited ? (
-          <Text variant="caption" color={theme.colors.text3}>{t('common.edited')}</Text>
-        ) : null}
-        {(message.reactions?.length ?? 0) > 0 && (
-          <View style={styles.reactionsRow}>
-            {message.reactions!.map((reaction) => {
-              const reacted = reaction.reacted || Boolean(selfUserId && reaction.users?.includes(selfUserId));
-              return (
-                <Pressable
-                  key={reaction.emoji}
-                  disabled={!onToggleReaction}
-                  onPress={() => onToggleReaction?.(message.id, reaction.emoji)}
-                  onLongPress={() => onOpenReactions?.(message, reaction.emoji)}
-                  style={[
-                    styles.reactionChip,
-                    reacted
-                      ? { backgroundColor: theme.colors.accent + '33', borderColor: theme.colors.accent }
-                      : { backgroundColor: theme.colors.bgElev2, borderColor: theme.colors.lineSoft },
-                  ]}
-                >
-                  <ReactionEmoji emoji={reaction.emoji} serverUrl={serverUrl} />
-                  <Text variant="caption" style={{ marginLeft: 4, color: reacted ? theme.colors.accent : theme.colors.text2 }}>
-                    {reaction.count}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
-      </View>
-    </Pressable>
-  );
-
-  const renderEndMs = globalThis.performance?.now?.() ?? Date.now();
-  const renderCostMs = renderEndMs - renderStartMs;
-  if (renderCostMs >= PERF_ROW_WARN_MS) {
-    debugLog('ChannelScreen', 'perf:message-row-expensive', {
-      messageId: message.id,
-      channelId: message.channel_id,
-      costMs: Math.round(renderCostMs * 100) / 100,
-      contentLength: message.content?.length ?? 0,
-      attachmentCount: message.attachments?.length ?? 0,
-      hasReply: Boolean(message.reply_to),
-      messageType: message.message_type ?? 'basic',
-      hasRoleStyle: Boolean(message.role_style_type),
-      edited: Boolean(message.edited),
-      grouped: isGrouped,
-    });
-  }
-
-  return rowNode;
-}, (prev, next) =>
-  prev.message === next.message &&
-  prev.prevMessage === next.prevMessage &&
-  prev.isPinned === next.isPinned &&
-  prev.expressionLookup === next.expressionLookup &&
-  prev.selfUserId === next.selfUserId &&
-  prev.avatarBaseUrl === next.avatarBaseUrl &&
-  prev.serverUrl === next.serverUrl &&
-  prev.onAvatarPress === next.onAvatarPress &&
-  prev.onMessageLongPress === next.onMessageLongPress &&
-  prev.onToggleReaction === next.onToggleReaction &&
-  prev.onOpenReactions === next.onOpenReactions,
-);
-
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-export default function ChannelScreen() {
+/**
+ * Keyed by realm and channel so switching mounts a fresh screen. Reusing the
+ * previous instance showed the old realm's messages and header until its
+ * effects caught up with the new params.
+ */
+export default function ChannelRoute() {
+  const { serverId, channelId } = useLocalSearchParams<{ serverId: string; channelId: string }>();
+  return <ChannelScreen key={`${String(serverId)}:${String(channelId)}`} />;
+}
+
+function ChannelScreen() {
   const theme = useTheme();
   const { t } = useTranslation();
   const { isTablet } = useDeviceLayout();
@@ -526,18 +307,10 @@ export default function ChannelScreen() {
   const channelId = Array.isArray(rawChannelId) ? rawChannelId[0] : rawChannelId;
 
   const servers = useServerStore((s) => s.servers);
-  const connectedChannels = useConnectedChannelIds(serverId);
-  const openTheater = useOpenTheater();
   const channelsByServer = useServerStore((s) => s.channels);
   const categoriesByServer = useServerStore((s) => s.categories);
   const presenceOnlineUsers = usePresenceStore((s) => s.onlineUsers);
   const presenceAllMembers = usePresenceStore((s) => s.allMembers);
-  const voiceRoomUsers = useVoiceStore((s) => s.voiceRoomUsers);
-  const voiceRoomStartedAt = useVoiceStore((s) => s.voiceRoomStartedAt);
-  const theaterRoomUsers = useTheaterStore((s) => s.roomUsersByChannel);
-  const theaterRoomStartedAt = useTheaterStore((s) => s.roomStartedAtByChannel);
-  const theaterChannelId = useTheaterStore((s) => s.channelId);
-  const theaterHostUserId = useTheaterStore((s) => s.hostUserId);
   const activeServerId = useServerStore((s) => s.activeServerId);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const server = useMemo(
@@ -596,15 +369,17 @@ export default function ChannelScreen() {
   const setMembersSheetOpen = useUIStore((s) => s.setMembersSheetOpen);
   const setSearchOpen = useUIStore((s) => s.setSearchOpen);
   const setActiveChannelId = useUIStore((s) => s.setActiveChannelId);
-  const serverDrawerOpen = useUIStore((s) => s.serverDrawerOpen);
-  const setServerDrawerOpen = useUIStore((s) => s.setServerDrawerOpen);
 
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const typingActiveRef = useRef(false);
   const typingSentAtRef = useRef(0);
   const [activeMessage, setActiveMessage] = useState<Message | null>(null);
+  const [safetyReportTarget, setSafetyReportTarget] = useState<SafetyReportTarget | null>(null);
+  const [locallyHiddenSafetyKeys, setLocallyHiddenSafetyKeys] = useState<Record<string, string[]>>({});
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
   const [reactionsSheetState, setReactionsSheetState] = useState<{ open: boolean; reactions: ReadonlyArray<Reaction> | null; initialEmoji: string | null }>({ open: false, reactions: null, initialEmoji: null });
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [secureInfoOpen, setSecureInfoOpen] = useState(false);
   const [pinsOpen, setPinsOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(false);
   const [threads, setThreads] = useState<Array<{ id: string; name: string; created_at: number }>>([]);
@@ -616,7 +391,6 @@ export default function ChannelScreen() {
   const [tabletMembersVisible, setTabletMembersVisible] = useState(true);
   const [tabletRightPaneMode, setTabletRightPaneMode] = useState<'members' | 'threads' | 'pins'>('members');
   const [secureModeLockedFallback, setSecureModeLockedFallback] = useState(false);
-  const [roomNowMs, setRoomNowMs] = useState(() => Date.now());
   const createThreadMessageRef = useRef<Message | null>(null);
   const flatListRef = useRef<FlatList<Message>>(null);
   const lastSnapshotLogAtRef = useRef(0);
@@ -626,15 +400,6 @@ export default function ChannelScreen() {
     // iOS phones only. Android lifts just the composer (edge-to-edge keeps the
     // window full height); translating there moved the header off-screen.
     transform: [{ translateY: Platform.OS === 'ios' && !isTablet ? translateY.value : 0 }],
-  }));
-  const leftPaneProgress = useSharedValue(serverDrawerOpen ? 1 : 0);
-  const channelsPaneStyle = useAnimatedStyle(() => ({
-    opacity: 1 - leftPaneProgress.value,
-    transform: [{ translateX: -16 * leftPaneProgress.value }],
-  }));
-  const serversPaneStyle = useAnimatedStyle(() => ({
-    opacity: leftPaneProgress.value,
-    transform: [{ translateX: 16 * (1 - leftPaneProgress.value) }],
   }));
 
   const fetchChannelMessages = useCallback((before?: string) => {
@@ -678,18 +443,6 @@ export default function ChannelScreen() {
     setTabletMembersVisible(true);
     setTabletRightPaneMode('members');
   }, [isTablet, channelId, serverId]);
-
-  useEffect(() => {
-    leftPaneProgress.value = withTiming(serverDrawerOpen ? 1 : 0, { duration: 240 });
-  }, [leftPaneProgress, serverDrawerOpen]);
-
-  useEffect(() => {
-    const hasVoiceRooms = Object.keys(voiceRoomStartedAt).length > 0;
-    const hasTheaterRooms = Object.values(theaterRoomStartedAt).some((startedAt) => startedAt != null);
-    if (!hasVoiceRooms && !hasTheaterRooms) return;
-    const timer = globalThis.setInterval(() => setRoomNowMs(Date.now()), 1000);
-    return () => globalThis.clearInterval(timer);
-  }, [voiceRoomStartedAt, theaterRoomStartedAt]);
 
   // Join channel + load initial messages on mount
   useEffect(() => {
@@ -818,6 +571,10 @@ export default function ChannelScreen() {
     setActiveMessage((current) => current?.id === msg.id ? current : msg);
   }, []);
 
+  const handleOpenReactions = useCallback((msg: Message, emoji?: string) => {
+    setReactionsSheetState({ open: true, reactions: msg.reactions ?? null, initialEmoji: emoji ?? null });
+  }, []);
+
   const handleToggleReaction = useCallback((messageId: string, emoji: string) => {
     if (!canReact) return;
     const socket = getSocket();
@@ -871,13 +628,19 @@ export default function ChannelScreen() {
   const renderItem = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
       const prev = displayMessages[index + 1] ?? null;
+      const hiddenKeys = new Set([...(locallyHiddenSafetyKeys[item.id] ?? []), ...safetyHiddenArtifactKeys(item.safety_artifacts)]);
+      const visibleItem = hiddenKeys.size ? {
+        ...item,
+        content: hideReportedLinks(item.content, hiddenKeys),
+        attachments: hideReportedAttachments(item.attachments, hiddenKeys),
+      } : item;
       return (
         <SwipeableMessageRow
           onReply={() => setReplyToMessage(item)}
           onSwipeLeft={() => setChannelsSheetOpen(true)}
         >
-          <MessageRow
-            message={item}
+          <ChannelMessageRow
+            message={visibleItem}
             prevMessage={prev}
             selfUserId={selfUserId}
             avatarBaseUrl={channelServerUrl}
@@ -887,44 +650,18 @@ export default function ChannelScreen() {
             onAvatarPress={handleAvatarPress}
             onMessageLongPress={handleMessageLongPress}
             onToggleReaction={canReact ? handleToggleReaction : undefined}
-            onOpenReactions={(msg, emoji) => setReactionsSheetState({ open: true, reactions: msg.reactions ?? null, initialEmoji: emoji ?? null })}
+          onOpenReactions={handleOpenReactions}
           />
         </SwipeableMessageRow>
       );
     },
-    [displayMessages, selfUserId, channelServerUrl, expressionLookup, pinnedMessageIds, handleAvatarPress, handleMessageLongPress, handleToggleReaction, canReact, setChannelsSheetOpen],
+    [displayMessages, selfUserId, channelServerUrl, expressionLookup, pinnedMessageIds, handleAvatarPress, handleMessageLongPress, handleToggleReaction, canReact, setChannelsSheetOpen, locallyHiddenSafetyKeys],
   );
 
-  const orderedChannels = useMemo(() => [...channels].sort((a, b) => a.position - b.position), [channels]);
-  const groupedChannels = useMemo(() => {
-    const groups: Array<{ key: string; label: string; channels: Channel[] }> = [];
-    const uncategorized = orderedChannels.filter((c) => !c.category_id);
-    if (uncategorized.length > 0) {
-      groups.push({ key: '__uncat__', label: 'Channels', channels: uncategorized });
-    }
-    const orderedCategories = categories.slice().sort((a, b) => a.position - b.position);
-    for (const cat of orderedCategories) {
-      const catChannels = orderedChannels.filter((c) => c.category_id === cat.id);
-      if (catChannels.length > 0) groups.push({ key: cat.id, label: cat.name, channels: catChannels });
-    }
-    debugLog('ChannelScreen', 'compute:groupedChannels', {
-      serverId,
-      groups: groups.length,
-      channels: orderedChannels.length,
-      categories: categories.length,
-    });
-    return groups;
-  }, [orderedChannels, categories, serverId]);
 
   const showEncryptedBadge =
     Boolean(serverInfo?.secureMode?.enabled && serverInfo?.secureMode?.locked) ||
     secureModeLockedFallback;
-  const serverBannerUrl = useMemo(() => {
-    if (!server?.bannerUrl) return null;
-    if (/^https?:\/\//i.test(server.bannerUrl)) return server.bannerUrl;
-    const base = server.url?.replace(/\/$/, '');
-    return base ? `${base}${server.bannerUrl}` : null;
-  }, [server?.bannerUrl, server?.url]);
   const serverUrlForRoleIcons = useMemo(() => {
     const base = (server?.url ?? channelServerUrl ?? null);
     return base ? base.replace(/\/$/, '') : null;
@@ -999,48 +736,6 @@ export default function ChannelScreen() {
     }
   }, [channelId, fetchPins, isTablet]);
 
-  const handleTabletServerPress = useCallback((srv: typeof servers[number]) => {
-    debugTap('ChannelScreen', 'tablet-server-press', {
-      fromServerId: activeServerId,
-      nextServerId: srv.id,
-    });
-    void (async () => {
-      let srvChannels = useServerStore.getState().channels[srv.id] ?? [];
-      if (srvChannels.length === 0) {
-        try {
-          const api = createApi(srv.url, srv.token || undefined);
-          const [channelsRes, categoriesRes] = await Promise.all([
-            api.get<Channel[]>('/api/channels'),
-            api.get<Category[]>('/api/categories'),
-          ]);
-          srvChannels = channelsRes.data ?? [];
-          useServerStore.getState().setChannels(srv.id, srvChannels);
-          useServerStore.getState().setCategories(srv.id, categoriesRes.data ?? []);
-        } catch {
-          srvChannels = [];
-        }
-      }
-
-      await setActiveServer(srv.id);
-      const rememberedChannelId = useChannelStore.getState().lastChannelByServer[srv.id] ?? null;
-      const firstChannelId =
-        srvChannels
-          .slice()
-          .sort((a, b) => a.position - b.position)
-          .find((c) => c.type !== 'voice')?.id ??
-        srvChannels[0]?.id ??
-        null;
-      const targetChannelId = rememberedChannelId || firstChannelId;
-      if (targetChannelId) {
-        router.replace({
-          pathname: '/server/[serverId]/channel/[channelId]',
-          params: { serverId: srv.id, channelId: targetChannelId },
-        });
-      }
-      setServerDrawerOpen(false);
-    })();
-  }, [activeServerId, router, setActiveServer, setServerDrawerOpen]);
-
   useEffect(() => {
     let cancelled = false;
     const base = channelServerUrl?.replace(/\/+$/, '');
@@ -1085,234 +780,54 @@ export default function ChannelScreen() {
           <Pressable
             haptic
             onPress={() => setChannelsSheetOpen(true)}
-            style={styles.channelTitle}
+            style={[styles.channelTitle, { paddingLeft: theme.spacing.xs }]}
           >
-            <View
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 9,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: theme.colors.bgElev2,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: theme.colors.lineSoft,
-                marginRight: 2,
-              }}
-            >
-              <Menu size={17} color={theme.colors.accentText} />
-            </View>
+            {/* No hamburger: the title itself opens the channel list. */}
             <Hash size={18} color={theme.colors.text3} />
             <Text variant="subtitle" style={{ flex: 1 }} numberOfLines={1}>
               {channel?.name ?? channelId}
             </Text>
-            {showEncryptedBadge && (
+          </Pressable>
+          {showEncryptedBadge && (
+            <Pressable
+              haptic
+              accessibilityRole="button"
+              accessibilityLabel={t('secureServer.title')}
+              onPress={() => setSecureInfoOpen(true)}
+              style={styles.encryptedBadgeHit}
+            >
+              {/* Pressable keeps the 44pt hit area; the pill inside stays badge-sized. */}
               <View style={[styles.encryptedBadge, { backgroundColor: theme.colors.accent + '22', borderColor: theme.colors.accent + '66' }]}>
                 <Text variant="caption" style={{ color: theme.colors.accent, fontWeight: '700' }}>
                   🔒 {t('common.encrypted')}
                 </Text>
               </View>
-            )}
-          </Pressable>
+            </Pressable>
+          )}
           <View style={styles.headerActions}>
             <IconBtn
-              icon={Search}
-              accessibilityLabel={t('server.searchAccessibility')}
-              onPress={() => setSearchOpen(true)}
-            />
-            <IconBtn
-              icon={MessageSquareText}
-              accessibilityLabel={t('server.threadsAccessibility')}
-              onPress={openThreadsPanel}
-            />
-            <IconBtn
-              icon={Pin}
-              accessibilityLabel={t('server.pinnedAccessibility')}
-              onPress={openPinsPanel}
-            />
-            <IconBtn
-              icon={Users}
-              accessibilityLabel={t('server.membersAccessibility')}
-              onPress={() => setMembersSheetOpen(true)}
+              icon={EllipsisVertical}
+              accessibilityLabel={t('common.moreOptions', { defaultValue: 'More options' })}
+              onPress={() => setHeaderMenuOpen(true)}
             />
           </View>
         </View>
+      )}
+      <SecureServerInfoModal open={secureInfoOpen} onClose={() => setSecureInfoOpen(false)} />
+      {!isTablet && (
+        <ActionMenuSheet
+          open={headerMenuOpen}
+          onClose={() => setHeaderMenuOpen(false)}
+          items={[
+            { key: 'search', label: t('server.searchAccessibility'), icon: Search, onPress: () => setSearchOpen(true) },
+            { key: 'threads', label: t('server.threadsAccessibility'), icon: MessageSquareText, onPress: openThreadsPanel },
+            { key: 'pins', label: t('server.pinnedAccessibility'), icon: Pin, onPress: openPinsPanel },
+            { key: 'members', label: t('server.membersAccessibility'), icon: Users, onPress: () => setMembersSheetOpen(true) },
+          ]}
+        />
       )}
 
       <View style={{ flex: 1, overflow: 'hidden', flexDirection: isTablet ? 'row' : 'column' }}>
-      {isTablet && (
-        <View
-          style={[
-            styles.tabletLeftPane,
-            {
-              backgroundColor: theme.colors.bgSidebar,
-              borderRightColor: theme.colors.lineSoft,
-            },
-          ]}
-        >
-          <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
-            <DrawerLeftRail onClose={() => setServerDrawerOpen(false)} navigateOnSelect embedded />
-            <View style={styles.tabletPaneStack}>
-            <Animated.View style={[styles.tabletPaneLayer, channelsPaneStyle]} pointerEvents={serverDrawerOpen ? 'none' : 'auto'}>
-              <Pressable
-                haptic
-                onPress={() => setServerDrawerOpen(true)}
-                style={[
-                  styles.tabletServerHeader,
-                  { borderBottomColor: theme.colors.lineSoft, backgroundColor: theme.colors.bgElev1 },
-                ]}
-              >
-                {serverBannerUrl ? (
-                  <Image source={{ uri: serverBannerUrl }} style={styles.tabletServerBanner} resizeMode="cover" />
-                ) : null}
-                <View style={styles.tabletServerBannerScrim} />
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 1 }}>
-                  <Text variant="subtitle" style={[styles.tabletServerTitle, { flex: 1 }]} numberOfLines={1}>
-                    {server?.name ?? t('servers.defaultServerName')}
-                  </Text>
-                  <ChevronDown size={16} color="#ffffff" />
-                </View>
-              </Pressable>
-              <Text variant="subtitle" style={styles.tabletPaneTitle}>{t('chat.channelsTab')}</Text>
-              <FlatList
-                data={groupedChannels}
-                keyExtractor={(g) => g.key}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={paneListStyle}
-                renderItem={({ item: group }) => (
-                  <View style={{ marginBottom: 10 }}>
-                    <Text
-                      variant="caption"
-                      color={theme.colors.text3}
-                      style={{ textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 4 }}
-                    >
-                      {group.label}
-                    </Text>
-                    {group.channels.map((ch) => {
-                      const active = ch.id === channelId;
-                      // Still in this call/theater while viewing another channel.
-                      const connectedElsewhere = !active
-                        && (ch.id === connectedChannels.voiceChannelId || ch.id === connectedChannels.theaterChannelId);
-                      const voiceMembers = ch.type === 'voice'
-                        ? (voiceRoomUsers[ch.id] ?? EMPTY_VOICE_PARTICIPANTS)
-                        : EMPTY_VOICE_PARTICIPANTS;
-                      const theaterMembers = ch.type === 'theater'
-                        ? (theaterRoomUsers[ch.id] ?? EMPTY_THEATER_PARTICIPANTS)
-                        : EMPTY_THEATER_PARTICIPANTS;
-                      const voiceStartedAt = ch.type === 'voice' ? voiceRoomStartedAt[ch.id] : null;
-                      const theaterStartedAt = ch.type === 'theater' ? theaterRoomStartedAt[ch.id] : null;
-                      const elapsedStartedAt = typeof voiceStartedAt === 'number'
-                        ? voiceStartedAt
-                        : (typeof theaterStartedAt === 'number' ? theaterStartedAt : null);
-                      return (
-                        <View key={ch.id}>
-                          <Pressable
-                            haptic
-                            onPress={() => {
-                              debugTap('ChannelScreen', 'tablet-channel-press', {
-                                fromChannelId: channelId,
-                                nextChannelId: ch.id,
-                                type: ch.type,
-                                serverId,
-                              });
-                              if (ch.type === 'voice') {
-                                router.replace({
-                                  pathname: '/server/[serverId]/channel/[channelId]',
-                                  params: { serverId, channelId: ch.id },
-                                });
-                              } else if (ch.type === 'theater') {
-                                openTheater(serverId, ch.id, ch.name);
-                              } else {
-                                router.replace({
-                                  pathname: '/server/[serverId]/channel/[channelId]',
-                                  params: { serverId, channelId: ch.id },
-                                });
-                              }
-                              setServerDrawerOpen(false);
-                            }}
-                            style={[
-                              styles.tabletChannelRow,
-                              {
-                                backgroundColor: active ? theme.colors.accent + '22' : 'transparent',
-                                borderRadius: theme.radius.md,
-                              },
-                            ]}
-                          >
-                            {connectedElsewhere && <ConnectedChannelPulse radius={theme.radius.md} />}
-                            <ChannelIcon type={ch.type} size={14} color={active ? theme.colors.accent : connectedElsewhere ? theme.colors.statusColor.online : theme.colors.text3} />
-                            <Text
-                              variant="bodySmall"
-                              numberOfLines={1}
-                              style={{ flex: 1, color: active ? theme.colors.accent : connectedElsewhere ? theme.colors.statusColor.online : theme.colors.text2 }}
-                            >
-                              {ch.name}
-                            </Text>
-                            {elapsedStartedAt != null ? (
-                              <Text variant="caption" style={[styles.tabletRoomElapsed, { color: theme.colors.accent }]}>
-                                {formatRoomElapsed(Math.max(0, roomNowMs - elapsedStartedAt))}
-                              </Text>
-                            ) : null}
-                          </Pressable>
-                          {voiceMembers.map((member) => (
-                            <View key={`${ch.id}:${member.userId}`} style={styles.tabletVoiceMemberRow}>
-                              <Avatar
-                                username={member.username}
-                                uri={member.avatar ?? null}
-                                baseUrl={channelServerUrl ?? undefined}
-                                size={20}
-                                showStatus={false}
-                              />
-                              <Text
-                                variant="caption"
-                                numberOfLines={1}
-                                style={[styles.tabletVoiceMemberName, { color: theme.colors.text3 }]}
-                              >
-                                {member.username}
-                              </Text>
-                              {member.muted ? <MicOff size={13} color={theme.colors.danger} /> : null}
-                              {member.deafened ? <HeadphoneOff size={13} color={theme.colors.warning} /> : null}
-                            </View>
-                          ))}
-                          {theaterMembers.map((member) => (
-                            <View key={`theater:${ch.id}:${member.userId}`} style={styles.tabletVoiceMemberRow}>
-                              <Avatar
-                                username={member.username}
-                                uri={member.avatar ?? null}
-                                baseUrl={member.accountType === 'local' ? (channelServerUrl ?? undefined) : undefined}
-                                size={20}
-                                showStatus={false}
-                              />
-                              <Text
-                                variant="caption"
-                                numberOfLines={1}
-                                style={[styles.tabletVoiceMemberName, { color: theme.colors.text3 }]}
-                              >
-                                {theaterChannelId === ch.id && theaterHostUserId === member.userId ? '🎤 ' : ''}{member.username}
-                              </Text>
-                              {!member.micEnabled ? <MicOff size={13} color={theme.colors.danger} /> : null}
-                              {member.deafened ? <HeadphoneOff size={13} color={theme.colors.warning} /> : null}
-                            </View>
-                          ))}
-                        </View>
-                      );
-                    })}
-                  </View>
-                )}
-              />
-            </Animated.View>
-            <Animated.View style={[styles.tabletPaneLayer, serversPaneStyle]} pointerEvents={serverDrawerOpen ? 'auto' : 'none'}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: 8 }}>
-                <Text variant="subtitle" style={styles.tabletPaneTitle}>{t('chat.serversTab')}</Text>
-                <IconBtn icon={X} onPress={() => setServerDrawerOpen(false)} accessibilityLabel={t('call.closeServers')} />
-              </View>
-              {/* Same list as the phone drawer: folders, invites, realm re-approval, Add/Discover. */}
-              <ServerListPanel onOpenServer={handleTabletServerPress} onLeave={() => setServerDrawerOpen(false)} />
-            </Animated.View>
-            </View>
-          </View>
-          <DrawerHubFooter onClose={() => setServerDrawerOpen(false)} />
-        </View>
-      )}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -1343,17 +858,25 @@ export default function ChannelScreen() {
                 ]}
               >
                 <View style={styles.headerSideSpacer} />
-                <View style={styles.headerCenterTitle} pointerEvents="none">
+                <View style={styles.headerCenterTitle} pointerEvents="box-none">
                   <Hash size={18} color={theme.colors.text3} />
                   <Text variant="subtitle" numberOfLines={1} style={{ textAlign: 'center' }}>
                     {channel?.name ?? channelId}
                   </Text>
                   {showEncryptedBadge && (
-                    <View style={[styles.encryptedBadge, { backgroundColor: theme.colors.accent + '22', borderColor: theme.colors.accent + '66' }]}>
-                      <Text variant="caption" style={{ color: theme.colors.accent, fontWeight: '700' }}>
-                        🔒 {t('common.encrypted')}
-                      </Text>
-                    </View>
+                    <Pressable
+                      haptic
+                      accessibilityRole="button"
+                      accessibilityLabel={t('secureServer.title')}
+                      onPress={() => setSecureInfoOpen(true)}
+                      style={styles.encryptedBadgeHit}
+                    >
+                      <View style={[styles.encryptedBadge, { backgroundColor: theme.colors.accent + '22', borderColor: theme.colors.accent + '66' }]}>
+                        <Text variant="caption" style={{ color: theme.colors.accent, fontWeight: '700' }}>
+                          🔒 {t('common.encrypted')}
+                        </Text>
+                      </View>
+                    </Pressable>
                   )}
                 </View>
                 <View style={styles.headerActions}>
@@ -1400,10 +923,9 @@ export default function ChannelScreen() {
                   channel={channel}
                   serverId={serverId ?? ''}
                   serverUrl={channelServerUrl}
-                  serverToken={server?.token}
-                  expressionLookup={expressionLookup}
-                  canUseExternalEmotes={canUseExternalEmotes}
-                  canUseExternalStickers={canUseExternalStickers}
+                  selfId={selfUser?.id}
+                  canCreatePost={Boolean(isRealmOwner || hasChannelPermission(selfUser?.permissions, channel.effective_permissions, PERMISSIONS.CREATE_POST_IN_FORUMS))}
+                  canManage={Boolean(isRealmOwner || hasChannelPermission(selfUser?.permissions, channel.effective_permissions, PERMISSIONS.MANAGE_POSTS))}
                 />
               </SwipeSidebarContainer>
             ) : (
@@ -1441,7 +963,9 @@ export default function ChannelScreen() {
               contentContainerStyle={{ paddingHorizontal: theme.spacing.md, paddingTop: 6, paddingBottom: 10 }}
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               keyboardShouldPersistTaps="handled"
-              onScrollBeginDrag={() => { Keyboard.dismiss(); setRgbFlowScrolling(true); }}
+              onScrollBeginDrag={() => { dismissKeyboard(); setRgbFlowScrolling(true); }}
+              // Tapping the conversation closes the keyboard, as in other chat apps.
+              onTouchStart={dismissKeyboard}
               onMomentumScrollBegin={() => setRgbFlowScrolling(true)}
               onMomentumScrollEnd={() => setRgbFlowScrolling(false)}
               onScrollEndDrag={() => setRgbFlowScrolling(false)}
@@ -1593,7 +1117,7 @@ export default function ChannelScreen() {
                     onPress={() => {
                       router.push({
                         pathname: '/server/[serverId]/threads/[channelId]',
-                        params: { serverId, channelId: item.id },
+                        params: { serverId, channelId: item.id, parentChannelId: channelId, title: item.name },
                       });
                     }}
                     style={{ paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.lineSoft }}
@@ -1702,6 +1226,28 @@ export default function ChannelScreen() {
           if (!activeMessage) return;
           requestDelete(activeMessage.id, activeMessage.channel_id);
         }}
+        onReport={activeMessage && activeMessage.user_id !== selfUser?.id && reportableSafetyArtifacts(activeMessage.content, activeMessage.attachments).length ? () => {
+          const message = activeMessage;
+          setActiveMessage(null);
+          setSafetyReportTarget({
+            scopeKind: 'realm',
+            scopeId: message.channel_id,
+            messageId: message.id,
+            senderLabel: message.display_name || message.username,
+            messageText: message.content,
+            attachments: message.attachments,
+          });
+        } : undefined}
+      />
+
+      <SafetyReportSheet
+        realm
+        target={safetyReportTarget}
+        onClose={() => setSafetyReportTarget(null)}
+        onSubmitted={(messageId, artifactKey) => {
+          setLocallyHiddenSafetyKeys((current) => ({ ...current, [messageId]: [...new Set([...(current[messageId] ?? []), artifactKey])] }));
+          void fetchMessages(channelId);
+        }}
       />
 
       <MessageReactionsSheet
@@ -1737,7 +1283,7 @@ export default function ChannelScreen() {
                   setThreadsOpen(false);
                   router.push({
                     pathname: '/server/[serverId]/threads/[channelId]',
-                    params: { serverId, channelId: item.id },
+                    params: { serverId, channelId: item.id, parentChannelId: channelId, title: item.name },
                   });
                 }}
                 style={{ paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.lineSoft }}
@@ -1804,7 +1350,7 @@ export default function ChannelScreen() {
               setCreateThreadLoading(true);
               void import('@/lib/api').then(({ createApi }) =>
                 createApi()
-                  .post<{ id: string }>('/api/threads', {
+                  .post<{ id: string; name: string }>('/api/threads', {
                     channelId,
                     messageId: msg.id,
                     name: createThreadName.trim(),
@@ -1813,7 +1359,7 @@ export default function ChannelScreen() {
                     setCreateThreadOpen(false);
                     router.push({
                       pathname: '/server/[serverId]/threads/[channelId]',
-                      params: { serverId, channelId: res.data.id },
+                      params: { serverId, channelId: res.data.id, parentChannelId: channelId, title: res.data.name },
                     });
                   })
                   .catch(() => Alert.alert(t('common.error'), t('chat.threadCreateFailed')))
@@ -1867,6 +1413,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
+  encryptedBadgeHit: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   encryptedBadge: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 999,
@@ -1874,65 +1424,8 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     marginLeft: 4,
   },
-  msgRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingHorizontal: 12,
-    paddingBottom: 2,
-    gap: 10,
-  },
-  avatarPlaceholder: {
-    width: 36,
-  },
-  systemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    gap: 8,
-    opacity: 0.7,
-  },
-  systemIcon: {
-    fontSize: 13,
-  },
-  msgMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 2,
-    flexWrap: 'wrap',
-  },
-  botInteraction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 2,
-    overflow: 'hidden',
-  },
   roleIconWrap: {
     marginRight: 4,
-  },
-  replyQuote: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderLeftWidth: 2,
-    paddingLeft: 6,
-    marginBottom: 2,
-    opacity: 0.75,
-    overflow: 'hidden',
-  },
-  reactionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    marginTop: 4,
-  },
-  reactionChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
   },
   oldMessagesBanner: {
     flexDirection: 'row',
@@ -1963,22 +1456,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  tabletLeftPane: {
-    width: 346,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 0,
-    paddingTop: 0,
-    overflow: 'hidden',
-  },
-  tabletPaneStack: {
-    flex: 1,
-    position: 'relative',
-    minWidth: 0,
-  },
-  tabletPaneLayer: {
-    ...StyleSheet.absoluteFill,
-    paddingHorizontal: 12,
-  },
   tabletRightPane: {
     width: 280,
     borderLeftWidth: StyleSheet.hairlineWidth,
@@ -1988,50 +1465,6 @@ const styles = StyleSheet.create({
   tabletPaneTitle: {
     marginBottom: 8,
     marginTop: 10,
-  },
-  tabletServerHeader: {
-    height: 120,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    marginHorizontal: -12,
-    marginBottom: 2,
-    overflow: 'hidden',
-    justifyContent: 'flex-end',
-    padding: 10,
-  },
-  tabletServerBanner: {
-    ...StyleSheet.absoluteFill,
-  },
-  tabletServerBannerScrim: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(0,0,0,0.38)',
-  },
-  tabletServerTitle: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-  tabletChannelRow: {
-    minHeight: 34,
-    paddingHorizontal: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  tabletVoiceMemberRow: {
-    minHeight: 28,
-    paddingLeft: 30,
-    paddingRight: 8,
-    paddingVertical: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  tabletVoiceMemberName: {
-    flex: 1,
-    fontSize: 13,
-  },
-  tabletRoomElapsed: {
-    fontSize: 10,
-    fontVariant: ['tabular-nums'],
   },
   tabletMemberRow: {
     minHeight: 40,

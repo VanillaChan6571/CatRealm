@@ -306,6 +306,7 @@ export interface Message {
   attachment_type?: string | null;
   attachment_size?: number | null;
   attachments?: MessageAttachment[] | null;
+  safety_artifacts?: SafetyArtifactVisibility[];
   nsfw_tags?: string[];
   message_type?: 'user' | 'system';
   system_type?: string | null;
@@ -499,6 +500,9 @@ export interface DMConversation {
   requestState?: 'pending' | 'accepted' | 'declined';
   outgoingRequestState?: 'pending' | 'accepted' | 'declined' | null;
   canSend?: boolean;
+  conversationKind?: 'direct' | 'official_system';
+  readOnly?: boolean;
+  verified?: boolean;
 }
 
 export interface DMReaction {
@@ -506,6 +510,16 @@ export interface DMReaction {
   count: number;
   users: string[];
   reacted: boolean;
+}
+
+export interface SafetyArtifactVisibility {
+  scopeKind?: 'dm' | 'group_dm';
+  scopeId?: string;
+  messageId?: string;
+  artifactKey: string;
+  state: 'visible' | 'reported' | 'quarantined' | 'removed' | 'cleared';
+  distinctReporters?: number;
+  hiddenForUser: boolean;
 }
 
 export interface DMMessage {
@@ -531,6 +545,7 @@ export interface DMMessage {
   scheduledAt?: number | null;
   /** Milliseconds; set when the sender edits the message. */
   editedAt?: number | null;
+  safetyArtifacts?: SafetyArtifactVisibility[];
 }
 
 export interface GroupChatSummary {
@@ -604,4 +619,5 @@ export interface GroupChatMessage {
   reactions?: GroupChatReaction[];
   createdAt: number;
   scheduledAt?: number | null;
+  safetyArtifacts?: SafetyArtifactVisibility[];
 }

@@ -20,6 +20,7 @@ import { getConversationSecretForSend } from '@/lib/dmKeyStore';
 import { createDMKeyBatchLoader, decodeDMPayload } from '@/lib/decodeDMPayload';
 import { debugLog } from '@/lib/debugLog';
 import { appendFormDataFile } from '@/lib/formData';
+import { buildSafetyMessageMetadata } from '@/lib/safetyMetadata';
 import { captureAccountSession } from '@/lib/accountSession';
 import { canSendDM } from '@/lib/dmRequests';
 import { mergeDMMessagePage } from '@/lib/dmMessageCache';
@@ -77,6 +78,7 @@ interface ServerDMMessage {
   scheduled_at?: number | null;
   edited_at?: number | null;
   editedAt?: number | null;
+  safety_artifacts?: DMMessage['safetyArtifacts'];
 }
 
 function normalizeDmReactions(reactions: unknown, userId: string | undefined): DMReaction[] {
@@ -212,6 +214,7 @@ async function mapServerMessage(
     voiceExpiresAt: message.voice_expires_at ?? null,
     scheduledAt: message.scheduled_at ?? null,
     editedAt: (message.edited_at ?? message.editedAt) ? Number(message.edited_at ?? message.editedAt) * 1000 : null,
+    safetyArtifacts: message.safety_artifacts ?? [],
   };
 }
 
@@ -387,7 +390,12 @@ export const useDMStore = create<DMState>((set, get) => ({
             const local = localMap.get(serverConvo.id);
             // Central notification summary will hydrate unread counts separately;
             // never resurrect stale server/local DM counters during list refresh.
-            return { ...serverConvo, unreadCount: local?.unreadCount ?? 0 };
+            return {
+              ...serverConvo,
+              unreadCount: serverConvo.conversationKind === 'official_system'
+                ? (serverConvo.unreadCount ?? 0)
+                : (local?.unreadCount ?? 0),
+            };
           }),
         };
       });
@@ -411,13 +419,15 @@ export const useDMStore = create<DMState>((set, get) => ({
     try {
       const conversation = get().conversations.find((c) => c.id === conversationId);
       if (!conversation) return;
-      void (async () => {
-        const manifest = await fetchDMKeyManifest(conversationId);
-        if (manifest.activeKeyVersion != null) {
-          const secret = await getLocalConversationSecret(conversationId, manifest.activeKeyVersion);
-          if (secret) scheduleTrustedDeviceKeySync(conversationId, manifest.activeKeyVersion, secret);
-        }
-      })().catch(() => {});
+      if (conversation.conversationKind !== 'official_system') {
+        void (async () => {
+          const manifest = await fetchDMKeyManifest(conversationId);
+          if (manifest.activeKeyVersion != null) {
+            const secret = await getLocalConversationSecret(conversationId, manifest.activeKeyVersion);
+            if (secret) scheduleTrustedDeviceKeySync(conversationId, manifest.activeKeyVersion, secret);
+          }
+        })().catch(() => {});
+      }
       const limit = 50;
       const params: Record<string, unknown> = { limit };
       if (before) params.before = before;
@@ -544,7 +554,9 @@ export const useDMStore = create<DMState>((set, get) => ({
     set((s) => ({
       conversations: s.conversations.map((conversation) => ({
         ...conversation,
-        unreadCount: dmByConversation[conversation.id] ?? 0,
+        unreadCount: conversation.conversationKind === 'official_system'
+          ? conversation.unreadCount
+          : (dmByConversation[conversation.id] ?? 0),
       })),
     })),
 
@@ -554,6 +566,7 @@ export const useDMStore = create<DMState>((set, get) => ({
       debugLog('dmStore', 'send-failed', { conversationId, reason: 'conversation-not-loaded' });
       return false;
     }
+    if (convo.readOnly || convo.conversationKind === 'official_system') return false;
     const auth = captureAccountSession();
     const api = createAuthenticatedApi();
     if (!canSendDM(convo, useBlockedUsersStore.getState().isBlocked(convo.otherUserId))) return false;
@@ -573,6 +586,7 @@ export const useDMStore = create<DMState>((set, get) => ({
       );
       // Replies carry a [[crdmctx:…]] envelope; previews show only the reply's own text.
       const previewText = dmContextPreviewText(text);
+      const safetyMetadata = buildSafetyMessageMetadata(text);
       const notificationPreviewEnvelopes = (await Promise.all(previewTargets.map((device) =>
         encryptNotificationPreviewForDevice(device, {
           type: 'dm_message',
@@ -590,6 +604,7 @@ export const useDMStore = create<DMState>((set, get) => ({
         // endpoint; central stores/compresses the file itself.
         const formData = new FormData();
         formData.append('encryptedPayload', encryptedPayload);
+        formData.append('safetyMetadata', JSON.stringify(safetyMetadata));
         formData.append('notificationPreviewEnvelopes', JSON.stringify(notificationPreviewEnvelopes));
         for (const file of files) {
           await appendFormDataFile(formData, 'attachment', {
@@ -612,6 +627,7 @@ export const useDMStore = create<DMState>((set, get) => ({
         res = await api.post<ServerDMMessage>(`/api/dms/${convo.otherUserId}/send`, {
           encryptedPayload,
           notificationPreviewEnvelopes,
+          safetyMetadata,
         });
       }
       const dmMessage = await mapServerMessage(res.data, convo.id, auth.syncKey, auth.user?.id);

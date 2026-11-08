@@ -58,6 +58,8 @@ import { ComposerUploadPreviewStrip } from './ComposerAttachments';
 import { ComposerFileButton, ComposerSendButton, ComposerIconButton } from './ComposerActionButtons';
 import { ComposerActionStripLeft } from './ComposerActionStrip';
 import { VoiceMessageRecorder } from './VoiceMessageRecorder';
+import { UploadCompressionStatus } from './UploadCompressionStatus';
+import { useUploadCompression } from '../../hooks/useUploadCompression';
 import { VoiceAutoDeleteModal } from './VoiceAutoDeleteModal';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { ComposerSelfPreview } from './ComposerSelfPreview';
@@ -181,6 +183,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const { status: compressionStatus, summary: compressionSummary, fitToLimit, cancel: cancelCompression } = useUploadCompression();
   const [dragActive, setDragActive] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionItems, setMentionItems] = useState<MentionSuggestion[]>([]);
@@ -1496,14 +1499,18 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
         return;
       }
       const maxBytes = (serverInfo?.mediaMaxMb ?? 50) * 1024 * 1024;
-      const oversized = filtered.find((f) => f.size > maxBytes);
-      if (oversized) {
-        const msg = `File too large. Max upload size is ${serverInfo?.mediaMaxMb ?? 50} MB per file.`;
+      const fit = await fitToLimit(filtered, maxBytes);
+      if (fit.kind !== 'ok') {
+        const msg = fit.kind === 'failed'
+          ? fit.message
+          : fit.kind === 'rejected'
+            ? `File too large. Max upload size is ${serverInfo?.mediaMaxMb ?? 50} MB per file.`
+            : null;
         if (draftKey) applyAttachmentDraftPatch(draftKey, { uploadError: msg });
         else setUploadError(msg);
         return;
       }
-      const items = filtered.map((file) => ({
+      const items = fit.files.map((file) => ({
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
         previewUrl: URL.createObjectURL(file),
@@ -1536,6 +1543,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
       uploadFile,
       allowedTypes,
       serverInfo?.mediaMaxMb,
+      fitToLimit,
     ]
   );
 
@@ -1963,6 +1971,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
           composerCoreRef.current?.focus();
         }}
       />
+      <UploadCompressionStatus status={compressionStatus} summary={compressionSummary} onCancel={cancelCompression} />
       {uploadError && (
         <div className="mt-1 text-xs text-danger">{uploadError}</div>
       )}

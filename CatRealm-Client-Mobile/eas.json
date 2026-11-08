@@ -29,6 +29,10 @@
       "ios": {
         "bundleIdentifier": "com.nwya.catrealm.mobile",
         "ascAppId": "6824700297"
+      },
+      "android": {
+        "serviceAccountKeyPath": "/root/.secrets/catrealm/play-service-account.json",
+        "track": "internal"
       }
     }
   }

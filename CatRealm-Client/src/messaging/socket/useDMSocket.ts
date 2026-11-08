@@ -476,7 +476,14 @@ export function useDMSocket() {
 
     // Set up event listeners
     const onRequestsChanged = () => { void useDMStore.getState().loadConversations(); };
+    const onOfficialAnnouncement = () => {
+      const store = useDMStore.getState();
+      void store.loadConversations();
+      if (store.activeConversationId === 'official-system') void store.loadMessages('official-system');
+    };
     socket.on('dm:requests:changed', onRequestsChanged);
+    socket.on('official:announcement:new', onOfficialAnnouncement);
+    socket.on('official:announcement:changed', onOfficialAnnouncement);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('reconnect', onReconnect);
@@ -536,6 +543,8 @@ export function useDMSocket() {
       socket.off('connect_error', onConnectError);
       socket.off('dm:message', onDMMessage);
       socket.off('dm:requests:changed', onRequestsChanged);
+      socket.off('official:announcement:new', onOfficialAnnouncement);
+      socket.off('official:announcement:changed', onOfficialAnnouncement);
       socket.off('dm:delivery-ack', onDeliveryAck);
       socket.off('dm:sent', onDMSent);
       socket.off('dm:reaction:update', onReactionUpdate);

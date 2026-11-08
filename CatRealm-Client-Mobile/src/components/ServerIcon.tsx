@@ -23,12 +23,26 @@ export interface ServerIconProps {
   badge?: number;
   /** Unread messages without a mention: a small dot instead of a count. */
   unread?: boolean;
+  /** Keep realm tiles square in the compact navigation rail. */
+  square?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
-export function ServerIcon({ server, size = 50, active = false, badge = 0, unread = false, style }: ServerIconProps) {
+export function ServerIcon({
+  server,
+  size = 50,
+  active = false,
+  badge = 0,
+  unread = false,
+  square = false,
+  style,
+}: ServerIconProps) {
   const theme = useTheme();
-  const radius = active ? Math.round(size * 0.32) : Math.round(size * 0.5);
+  const radius = square
+    ? Math.round(size * 0.2)
+    : active
+      ? Math.round(size * 0.32)
+      : Math.round(size * 0.5);
   const iconUri = useMemo(
     () => resolveMediaUrl(server.iconUrl, server.url),
     [server.iconUrl, server.url],
@@ -89,7 +103,13 @@ export function ServerIcon({ server, size = 50, active = false, badge = 0, unrea
         )}
       </View>
       {badge === 0 && unread && (
-        <View testID="server-icon-unread" style={[styles.unreadDot, { backgroundColor: theme.colors.text, borderColor: theme.colors.bgApp }]} />
+        <View
+          testID="server-icon-unread"
+          style={[
+            styles.unreadDot,
+            { backgroundColor: theme.colors.text, borderColor: theme.colors.bgApp },
+          ]}
+        />
       )}
       {badge > 0 && (
         <View
@@ -101,11 +121,7 @@ export function ServerIcon({ server, size = 50, active = false, badge = 0, unrea
             },
           ]}
         >
-          <Text
-            variant="caption"
-            color={'#fff'}
-            style={{ fontSize: 10, lineHeight: 14 }}
-          >
+          <Text variant="caption" color={'#fff'} style={{ fontSize: 10, lineHeight: 14 }}>
             {badge > 99 ? '99+' : badge}
           </Text>
         </View>

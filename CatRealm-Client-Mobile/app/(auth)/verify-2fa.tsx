@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { View, TextInput, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, TextInput, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { AuthCard, AuthScreenHeader, AuthScreenShell, Text, Pressable } from '@/components';
 import { useAuthStore } from '@/stores/authStore';
 import { PasteCodeButton } from '@/components/PasteCodeButton';
+import { oneTimeCodeKeyboardType } from '@/hooks/useDeviceLayout';
 
 export default function Verify2FAScreen() {
   const theme = useTheme();
@@ -20,8 +21,6 @@ export default function Verify2FAScreen() {
   const loading = useAuthStore((s) => s.loading);
   const error = useAuthStore((s) => s.error);
   const clearError = useAuthStore((s) => s.clearError);
-  const { width } = useWindowDimensions();
-  const isTablet = width >= 768;
 
   useEffect(() => {
     if (token && user) router.replace('/(app)/(tabs)/home');
@@ -49,7 +48,7 @@ export default function Verify2FAScreen() {
               onChangeText={setTotpCode}
               placeholder={t('auth.sixDigitCodePlaceholder')}
               placeholderTextColor={theme.colors.text3}
-              keyboardType={isTablet ? 'default' : 'number-pad'}
+              keyboardType={oneTimeCodeKeyboardType}
               maxLength={6}
               textContentType="oneTimeCode"
               autoComplete="one-time-code"

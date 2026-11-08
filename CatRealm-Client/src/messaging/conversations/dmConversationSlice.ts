@@ -72,7 +72,9 @@ export function createDMConversationSlice(set: any, get: any): DMConversationSli
           const previousCounts = new Map(get().conversations.map((conversation: DMConversation) => [conversation.id, conversation.unreadCount]));
           set({ conversations: serverConversations.map((conversation) => ({
             ...conversation,
-            unreadCount: previousCounts.get(conversation.id) ?? conversation.unreadCount ?? 0,
+            unreadCount: conversation.conversationKind === 'official_system'
+              ? (conversation.unreadCount ?? 0)
+              : (previousCounts.get(conversation.id) ?? conversation.unreadCount ?? 0),
           })) });
           const { dmViewOpen, activeConversationId } = get();
           if (dmViewOpen && activeConversationId && !isAppInBackground()) {

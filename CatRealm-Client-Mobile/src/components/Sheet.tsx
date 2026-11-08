@@ -1,5 +1,5 @@
 /**
- * Sheet — bottom sheet or left drawer. Lightweight slide-in + scrim, not a full
+ * Sheet — bottom sheet, left drawer, or centred dialog. Lightweight slide-in + scrim, not a full
  * gesture-driven sheet. For production-grade sheets with snap points and
  * pan-to-dismiss, swap in @gorhom/bottom-sheet later.
  *
@@ -34,8 +34,11 @@ export interface SheetProps {
   maxWidth?: number;
   /** iOS: sit above the keyboard, shrinking to fit. Android resizes the window itself. */
   avoidKeyboard?: boolean;
-  /** Left-edge drawer for tablet editing flows; bottom remains the default. */
-  presentation?: 'bottom' | 'left';
+  /**
+   * Left-edge drawer for tablet editing flows, or a centred dialog (tablets, as
+   * desktop shows its modals); bottom remains the default.
+   */
+  presentation?: 'bottom' | 'left' | 'center';
   /** Window-coordinate edge of the source pane; drawers expand right from here. */
   anchorRight?: number;
 }
@@ -45,9 +48,11 @@ export function Sheet({ open, onClose, children, maxHeightFraction = 0.85, maxWi
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const isDrawer = presentation === 'left';
+  const isCenter = presentation === 'center';
   const drawerLeft = Math.max(0, Math.min(anchorRight, windowWidth - Math.min(280, windowWidth)));
   const drawerWidth = Math.min(maxWidth ?? 420, windowWidth - drawerLeft);
-  const hiddenOffset = isDrawer ? -drawerWidth : windowHeight;
+  // A dialog rises a little as it fades in rather than travelling across the screen.
+  const hiddenOffset = isDrawer ? -drawerWidth : isCenter ? 16 : windowHeight;
   const [mounted, setMounted] = useState(open);
   const lastChildren = useRef<ReactNode>(null);
   useLayoutEffect(() => {
@@ -98,21 +103,39 @@ export function Sheet({ open, onClose, children, maxHeightFraction = 0.85, maxWi
   }, [open, opacity, translation, hiddenOffset, avoidKeyboard]);
 
   const maxHeight = isDrawer ? windowHeight : windowHeight * maxHeightFraction;
+  const dialogWidth = Math.min(maxWidth ?? 480, windowWidth - 48);
+  const dialogMaxHeight = Math.max(0, Math.min(maxHeight, windowHeight - keyboardHeight - insets.top - insets.bottom - 48));
   const height = keyboardHeight > 0
     ? Math.max(0, Math.min(maxHeight, windowHeight - keyboardHeight - (isDrawer ? 0 : insets.top + 12)))
     : maxHeight;
 
   const content = (
-      <View pointerEvents={!open ? 'none' : isDrawer ? 'box-none' : 'auto'} style={[styles.root, isDrawer && styles.drawerRoot]}>
+      <View
+        pointerEvents={!open ? 'none' : isDrawer ? 'box-none' : 'auto'}
+        style={[styles.root, isDrawer && styles.drawerRoot, isCenter && [styles.centerRoot, { paddingBottom: keyboardHeight }]]}
+      >
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { left: isDrawer ? drawerLeft : 0, backgroundColor: theme.colors.scrim, opacity }]} />
         <RNPressable testID="sheet-backdrop" style={[StyleSheet.absoluteFill, { left: isDrawer ? drawerLeft : 0 }]} onPress={onClose} />
         {/* Clip the entering panel at its source edge so it never slides over the list. */}
         <View testID="sheet-viewport" pointerEvents="box-none" style={isDrawer
           ? { position: 'absolute', top: 0, bottom: 0, left: drawerLeft, right: 0, overflow: 'hidden' }
-          : styles.root}>
+          : isCenter ? [styles.root, styles.centerRoot, { paddingBottom: keyboardHeight }] : styles.root}>
         <Animated.View
           testID="sheet-panel"
-          style={[
+          style={isCenter ? [
+            {
+              width: dialogWidth,
+              maxHeight: dialogMaxHeight,
+              paddingTop: 8,
+              paddingBottom: 16,
+              backgroundColor: theme.colors.bgElev1,
+              borderRadius: theme.radius.xl,
+              overflow: 'hidden',
+              opacity,
+              transform: [{ translateY: translation }],
+            },
+            theme.shadow.sheet,
+          ] : [
             styles.sheet,
             !isDrawer && maxWidth ? { width: '100%', maxWidth, alignSelf: 'center' } : null,
             // Edge-to-edge modals draw under the system nav bar (Android 3-button bar ~48dp).
@@ -137,7 +160,7 @@ export function Sheet({ open, onClose, children, maxHeightFraction = 0.85, maxWi
             theme.shadow.sheet,
           ]}
         >
-          {!isDrawer ? <View testID="sheet-handle" style={styles.handleWrap}>
+          {!isDrawer && !isCenter ? <View testID="sheet-handle" style={styles.handleWrap}>
             <View style={[styles.handle, { backgroundColor: theme.colors.line }]} />
           </View> : null}
           {open ? children : lastChildren.current}
@@ -157,6 +180,7 @@ export function Sheet({ open, onClose, children, maxHeightFraction = 0.85, maxWi
 const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
   drawerRoot: { justifyContent: 'flex-start', alignItems: 'flex-start' },
+  centerRoot: { justifyContent: 'center', alignItems: 'center' },
   sheet: { paddingBottom: 24 },
   handleWrap: { alignItems: 'center', paddingTop: 10, paddingBottom: 6 },
   handle: { width: 36, height: 4, borderRadius: 2 },

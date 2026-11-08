@@ -3,9 +3,10 @@
  * Backed by notificationStore (AsyncStorage); new events are fed in via useSocket.
  */
 
+import { useCallback } from 'react';
 import { SectionList, View, StyleSheet } from 'react-native';
 import { SafeAreaView } from '@/components/SafeAreaView';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Bell, UserPlus, MessageCircle, AtSign } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
@@ -14,7 +15,7 @@ import { useFriendStore } from '@/stores/friendStore';
 import { useNotificationStore } from '@/stores/notificationStore';
 import type { FriendRequestNotification, DMNotification, ServerMentionNotification, NotificationItem } from '@/stores/notificationStore';
 import { AUTH_BASE } from '@/lib/api';
-import { dmContextPreviewText } from '@/lib/dmContext';
+import { compactExpressionTokens, dmContextPreviewText } from '@/lib/dmContext';
 
 function resolveUrl(path?: string | null): string | null {
   if (!path) return null;
@@ -119,7 +120,7 @@ function DMNotifRow({ notif, onPress }: { notif: DMNotification; onPress: () => 
           {notif.otherDisplayName ?? notif.otherUsername}
         </Text>
         <Text variant="bodySmall" color={theme.colors.text3}>
-          {(notif.localPreviewText ? dmContextPreviewText(notif.localPreviewText) : null) ?? (notif.count > 1 ? t('notifications.newMessages', { count: notif.count }) : t('notifications.sentMessage'))}
+          {(notif.localPreviewText ? compactExpressionTokens(dmContextPreviewText(notif.localPreviewText)) : null) ?? (notif.count > 1 ? t('notifications.newMessages', { count: notif.count }) : t('notifications.sentMessage'))}
           {'  ·  '}{timeAgo(notif.timestamp)}
         </Text>
       </View>
@@ -194,13 +195,21 @@ export default function NotificationsTab() {
 
   const acceptRequest = useFriendStore((s) => s.acceptRequest);
   const rejectRequest = useFriendStore((s) => s.rejectRequest);
+  const friends = useFriendStore((s) => s.friends);
+  const fetchFriends = useFriendStore((s) => s.fetchFriends);
+  useFocusEffect(useCallback(() => { void fetchFriends(); }, [fetchFriends]));
 
   const items = useNotificationStore((s) => s.items);
   const resolveFriendRequest = useNotificationStore((s) => s.resolveFriendRequest);
   const markDMRead = useNotificationStore((s) => s.markDMRead);
   const clear = useNotificationStore((s) => s.clear);
 
-  const friendRequests = items.filter((n): n is FriendRequestNotification => n.type === 'friend_request');
+  // The outcome is only stored on this device and is lost on refresh, so a
+  // request accepted earlier (or elsewhere) is shown as accepted if the sender is a friend.
+  const friendIds = new Set(friends.map((f) => f.id));
+  const friendRequests = items
+    .filter((n): n is FriendRequestNotification => n.type === 'friend_request')
+    .map((n) => (!n.outcome && friendIds.has(n.fromUserId) ? { ...n, outcome: 'accepted' as const } : n));
   const dmNotifs = items.filter((n): n is DMNotification => n.type === 'dm_message');
   const mentionNotifs = items.filter((n): n is ServerMentionNotification => n.type === 'server_mention');
 

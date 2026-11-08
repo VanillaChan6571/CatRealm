@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, View, StyleSheet } from 'react-native';
 import { SafeAreaView } from '@/components/SafeAreaView';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { RefreshCw, SquarePlus } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
@@ -18,6 +19,7 @@ import { useDeviceLayout } from '@/hooks/useDeviceLayout';
 
 export default function ServersTab() {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const router = useRouter();
   const { isTablet } = useDeviceLayout();
@@ -77,11 +79,12 @@ export default function ServersTab() {
       <ScrollView
         keyboardShouldPersistTaps="handled"
         style={isTablet ? { maxWidth: 760, width: '100%', alignSelf: 'center' } : undefined}
-        contentContainerStyle={{ padding: theme.spacing.lg, paddingBottom: theme.spacing.xl }}
+        // Edge-to-edge: leave room for the system nav bar under Add Server / Discover.
+        contentContainerStyle={{ padding: theme.spacing.lg, paddingBottom: theme.spacing.xl + insets.bottom }}
       >
         <View style={styles.header}>
           <View style={{ flex: 1, gap: 6 }}>
-            <Text variant="display">{t('tabs.servers')}</Text>
+            <Text variant="display">{t('tabs.managingServers')}</Text>
             <Text variant="bodySmall" color={theme.colors.text3}>{t('servers.organizeHint')}</Text>
           </View>
           {user?.accountType === 'central' ? (
@@ -141,7 +144,7 @@ export default function ServersTab() {
             <SquarePlus size={20} color={theme.colors.online} style={styles.actionIcon} />
             <Text variant="body" color={theme.colors.online}>{t('server.addServer')}</Text>
           </Pressable>
-          <DiscoverButton onPress={() => router.push('/(app)/discover-servers')} />
+          <DiscoverButton label={t('joinServers.discoverTitle')} onPress={() => router.push('/(app)/discover-servers')} />
         </View>
       </ScrollView>
     </SafeAreaView>

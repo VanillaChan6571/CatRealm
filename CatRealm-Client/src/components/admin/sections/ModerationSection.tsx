@@ -9,6 +9,62 @@ interface ModerationSettings {
   timeout_defaults: Record<string, any>;
 }
 
+type RealmSafetyCase = {
+  id: string; subjectUserId: string; reporterUserId: string; channelId: string; messageId: string;
+  artifactKind: string; artifactKey: string; reason: string; status: string; createdAt: number;
+  evidence?: Record<string, unknown> | null;
+};
+
+function RealmSafetyQueue() {
+  const [reports, setReports] = useState<RealmSafetyCase[]>([]);
+  const [selected, setSelected] = useState<RealmSafetyCase | null>(null);
+  const [note, setNote] = useState('');
+  const [queueError, setQueueError] = useState<string | null>(null);
+  const [queueLoading, setQueueLoading] = useState(false);
+
+  const load = async () => {
+    setQueueLoading(true);
+    setQueueError(null);
+    try {
+      const data = await api.get('/api/safety/reports?status=pending') as { reports?: RealmSafetyCase[] };
+      setReports(data.reports ?? []);
+      setSelected(null);
+    } catch (err: any) {
+      setQueueError(err?.response?.data?.error || 'Failed to load child-safety reports');
+    } finally { setQueueLoading(false); }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const open = async (id: string) => {
+    setQueueLoading(true);
+    try {
+      const data = await api.get(`/api/safety/reports/${id}`) as { report: RealmSafetyCase };
+      setSelected(data.report);
+      setNote('');
+    } catch (err: any) { setQueueError(err?.response?.data?.error || 'Failed to open report'); }
+    finally { setQueueLoading(false); }
+  };
+
+  const review = async (status: 'confirmed' | 'dismissed' | 'escalated') => {
+    if (!selected) return;
+    setQueueLoading(true);
+    try {
+      await api.patch(`/api/safety/reports/${selected.id}`, { status, note });
+      await load();
+    } catch (err: any) { setQueueError(err?.response?.data?.error || 'Failed to review report'); setQueueLoading(false); }
+  };
+
+  return <div className="p-6 rounded-lg bg-gray-800/50 border border-gray-700 space-y-4">
+    <div className="flex items-start gap-3"><AlertTriangle className="w-5 h-5 text-red-400 mt-0.5" /><div><h3 className="text-lg font-semibold text-gray-200">Child-safety report queue</h3><p className="text-sm text-gray-400 mt-1">Realm-local reports and evidence. Do not download or redistribute suspected CSAM; follow applicable preservation and reporting law.</p></div></div>
+    {queueError && <div className="p-3 rounded bg-red-900/20 text-red-400">{queueError}</div>}
+    <div className="grid gap-3 md:grid-cols-2">
+      <div className="max-h-80 space-y-2 overflow-y-auto">{reports.length === 0 && !queueLoading ? <p className="text-sm text-gray-400">No pending reports.</p> : reports.map((report) => <button key={report.id} onClick={() => void open(report.id)} className="w-full rounded border border-gray-700 bg-gray-900/50 p-3 text-left"><span className="block text-sm text-gray-100">{report.artifactKind} · {report.reason.replaceAll('_', ' ')}</span><span className="text-xs text-gray-500">Channel {report.channelId}</span></button>)}</div>
+      <div className="rounded border border-gray-700 bg-gray-900/50 p-3">{selected ? <div className="space-y-3"><p className="text-sm font-semibold text-gray-100">Case {selected.id}</p><p className="text-xs text-gray-400">Subject {selected.subjectUserId} · reporter {selected.reporterUserId}</p><pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all text-xs text-gray-300">{JSON.stringify(selected.evidence ?? {}, null, 2)}</pre><textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Reviewer note" className="w-full rounded border border-gray-700 bg-gray-950 p-2 text-sm text-gray-100"/><div className="flex flex-wrap gap-2"><button onClick={() => void review('confirmed')} className="rounded bg-red-600 px-3 py-2 text-xs text-white">Confirm & remove</button><button onClick={() => void review('escalated')} className="rounded bg-amber-600 px-3 py-2 text-xs text-white">Escalate</button><button onClick={() => void review('dismissed')} className="rounded border border-gray-600 px-3 py-2 text-xs text-gray-200">Dismiss</button></div></div> : <p className="text-sm text-gray-400">Open a case to reveal its submitted evidence.</p>}</div>
+    </div>
+  </div>;
+}
+
 export function ModerationSection() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<ModerationSettings>({
@@ -89,6 +145,7 @@ export function ModerationSection() {
       </div>
 
       <div className="space-y-6">
+        <RealmSafetyQueue />
         {/* Banned Words */}
         <div className="p-6 rounded-lg bg-gray-800/50 border border-gray-700">
           <div className="flex items-start gap-3 mb-4">

@@ -16,6 +16,7 @@ export const isTheaterYouTubeUrl = (url: string) => theaterYouTubeId(url) !== nu
 
 type Props = {
   videoUrl: string;
+  serverId?: string | null;
   playing: boolean;
   positionMs: number;
   width: number;
@@ -83,13 +84,19 @@ function YouTubeSurface({ videoId, playing, positionMs, width, height, muted = f
   /></View>;
 }
 
-function NativeVideoSurface({ videoUrl, playing, positionMs, width, height, muted = false, volume = 1, pictureInPictureTop = 8, controlsVisible = true, controlsOpacity, onControlsInteraction }: Props) {
+function NativeVideoSurface({ videoUrl, serverId, playing, positionMs, width, height, muted = false, volume = 1, pictureInPictureTop = 8, controlsVisible = true, controlsOpacity, onControlsInteraction }: Props) {
   const token = useAuthStore((s) => s.token);
   const accountType = useAuthStore((s) => s.user?.accountType);
   const serverUrl = useAuthStore((s) => s.serverUrl);
   const servers = useServerStore((s) => s.servers);
-  const source = useMemo(() => theaterMediaSource(videoUrl, accountType === 'central'
-    ? servers : serverUrl ? [{ url: serverUrl, token }] : []), [accountType, serverUrl, servers, token, videoUrl]);
+  const source = useMemo(() => {
+    const central = accountType === 'central';
+    return theaterMediaSource(
+      videoUrl,
+      central ? servers : serverUrl ? [{ url: serverUrl, token }] : [],
+      central ? servers.find((server) => server.id === serverId)?.url : serverUrl,
+    );
+  }, [accountType, serverId, serverUrl, servers, token, videoUrl]);
   const view = useRef<VideoView>(null);
   const player = useVideoPlayer(source, (instance) => {
     instance.loop = false;

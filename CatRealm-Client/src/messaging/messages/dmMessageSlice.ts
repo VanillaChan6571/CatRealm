@@ -76,13 +76,6 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
         }));
         try {
           const localMessages = await getMessagesByConversation(conversationId, 50);
-          void (async () => {
-            const manifest = await fetchDMKeyManifest(conversationId);
-            if (manifest.activeKeyVersion != null) {
-              const secret = getLocalConversationSecret(conversationId, manifest.activeKeyVersion);
-              if (secret) await syncTrustedDeviceKeysForConversation(conversationId, manifest.activeKeyVersion, secret);
-            }
-          })().catch(() => {});
           set((s: any) => ({
             messagesByConversation: { ...s.messagesByConversation, [conversationId]: localMessages },
             hasOlderByConversation: { ...s.hasOlderByConversation, [conversationId]: true },
@@ -90,12 +83,21 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
 
           const conversation = get().conversations.find((c: DMConversation) => c.id === conversationId);
           if (!conversation) return;
+          if (conversation.conversationKind !== 'official_system') {
+            void (async () => {
+              const manifest = await fetchDMKeyManifest(conversationId);
+              if (manifest.activeKeyVersion != null) {
+                const secret = getLocalConversationSecret(conversationId, manifest.activeKeyVersion);
+                if (secret) await syncTrustedDeviceKeysForConversation(conversationId, manifest.activeKeyVersion, secret);
+              }
+            })().catch(() => {});
+          }
 
           const res = await authApi.get(`/api/dms/${conversation.otherUserId}/messages`, { headers: getAuthHeader() });
           const { messages, conversationId: serverConvId } = res.data;
           const currentUserId = useAuthStore.getState().user?.id;
           const syncKey = getSyncKey();
-          if (!syncKey) { console.error('[DM Store] No sync key available'); return; }
+          if (!syncKey && conversation.conversationKind !== 'official_system') { console.error('[DM Store] No sync key available'); return; }
 
           const decryptedMessages: DMMessage[] = [];
           const unavailableKeyVersions = new Set<number>();
@@ -124,6 +126,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
                 attachments: normalizeServerAttachments(msg),
                 nsfwTags: normalizeNsfwTags(msg),
                 reactions: normalizeDmReactions(msg.reactions, currentUserId),
+                safetyArtifacts: Array.isArray(msg.safety_artifacts) ? msg.safety_artifacts : [],
                 createdAt: msg.created_at * 1000,
                 delivered: msg.delivered,
                 read: false,
@@ -208,7 +211,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
         const { messages, conversationId: serverConvId } = res.data;
         const currentUserId = useAuthStore.getState().user?.id;
         const syncKey = getSyncKey();
-        if (!syncKey) { console.error('[DM Store] No sync key available'); return; }
+        if (!syncKey && conversation.conversationKind !== 'official_system') { console.error('[DM Store] No sync key available'); return; }
 
         const olderMessages: DMMessage[] = [];
         const unavailableKeyVersions = new Set<number>();
@@ -230,6 +233,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
               attachmentSize: msg.attachment_size ?? null, attachmentName: msg.attachment_name ?? null,
               attachments: normalizeServerAttachments(msg), nsfwTags: normalizeNsfwTags(msg),
               reactions: normalizeDmReactions(msg.reactions, currentUserId),
+              safetyArtifacts: Array.isArray(msg.safety_artifacts) ? msg.safety_artifacts : [],
               createdAt: msg.created_at * 1000, delivered: msg.delivered,
               read: false, voiceExpiresAt: msg.voice_expires_at ?? null,
               editedAt: msg.edited_at ? msg.edited_at * 1000 : null,

@@ -29,6 +29,7 @@ import { ProfileRoles } from '../profile/ProfileRoles';
 import { ProfileNotes } from '../profile/ProfileNotes';
 import { BotProfileSettings } from '../bots/BotProfileSettings';
 import { ProfileNickname } from '../profile/ProfileNickname';
+import { ProfileSafetyReportModal } from '../profile/ProfileSafetyReportModal';
 
 type RawProfile = Partial<Profile> & {
   display_name?: string | null;
@@ -193,6 +194,7 @@ export function ProfileViewerModal() {
   const [bannerFailed, setBannerFailed] = useState(false);
   const [viewContext, setViewContext] = useState<'server' | 'central'>('server');
   const [isFriend, setIsFriend] = useState(false);
+  const [profileReportOpen, setProfileReportOpen] = useState(false);
   const [hasPendingRequest, setHasPendingRequest] = useState(false);
   const [invitePanelOpen, setInvitePanelOpen] = useState(false);
   const [inviteServerUrl, setInviteServerUrl] = useState('');
@@ -738,7 +740,10 @@ export function ProfileViewerModal() {
               onViewServerProfile={handleViewServerProfile}
               onInviteToServer={handleInviteToServer}
               onCopyUserId={handleCopyUserId}
+              onReport={() => setProfileReportOpen(true)}
             />
+
+            <ProfileSafetyReportModal open={profileReportOpen} subjectUserId={centralActionUserId || profile.id} subjectLabel={profile.displayName || profile.username} onClose={() => setProfileReportOpen(false)} />
 
             {gameActivity && (
               <ProfileGameActivityCard

@@ -120,3 +120,13 @@ test('bottom sheets keep their last row clear of the system navigation bar', asy
   // Edge-to-edge modals draw under the nav bar; the mocked bottom inset is 20.
   expect(StyleSheet.flatten(screen.getByTestId('sheet-panel').props.style).paddingBottom).toBe(28);
 });
+
+test('centred dialogs fade in mid-screen at a capped width without a handle', async () => {
+  const screen = await render(<Sheet open presentation="center" onClose={jest.fn()}><Text>Editor</Text></Sheet>);
+  const style = StyleSheet.flatten(screen.getByTestId('sheet-panel').props.style);
+  expect(style.width).toBe(480);
+  expect(style.borderRadius).toBe(24);
+  expect(style.transform[0]).toHaveProperty('translateY');
+  expect(screen.getByTestId('sheet-modal')).toBeTruthy();
+  expect(screen.queryByTestId('sheet-handle')).toBeNull();
+});

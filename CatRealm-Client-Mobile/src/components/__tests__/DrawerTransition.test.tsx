@@ -56,3 +56,16 @@ test('keeps the outgoing drawer visible until it closes, then opens the queued d
   expect(screen.queryByText('channels')).toBeNull();
   expect(screen.getByText('servers')).toBeTruthy();
 });
+
+test('finishes closing if native animation never reports completion', async () => {
+  jest.spyOn(Animated, 'parallel').mockImplementation(() => ({
+    start: jest.fn(), stop: jest.fn(), reset: jest.fn(),
+  }));
+  const screen = await render(<Drawer open />);
+  await screen.rerender(<Drawer open={false} />);
+  expect(screen.getByText('Drawer')).toBeTruthy();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  });
+  expect(screen.queryByText('Drawer')).toBeNull();
+});

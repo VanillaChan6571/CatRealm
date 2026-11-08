@@ -141,6 +141,7 @@ export async function decryptServerMessage(
     attachments: normalizeGCServerAttachments(raw),
     nsfwTags: normalizeGCNsfwTags(raw),
     reactions: normalizeGCReactions(raw.reactions),
+    safetyArtifacts: Array.isArray(raw.safety_artifacts) ? raw.safety_artifacts : (Array.isArray(raw.safetyArtifacts) ? raw.safetyArtifacts : []),
     createdAt: Number(raw.created_at ?? raw.createdAt ?? 0) * (Number(raw.created_at ?? raw.createdAt ?? 0) < 10_000_000_000 ? 1000 : 1),
   };
 }

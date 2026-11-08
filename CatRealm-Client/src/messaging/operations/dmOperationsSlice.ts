@@ -13,6 +13,8 @@ import {
   normalizeDmNsfwTags as normalizeNsfwTags,
 } from '../normalizers/dmNormalizers';
 import { getAuthHeader, getSyncKey } from '../dm/dmHelpers';
+import { showUploadQuotaModal, uploadBytesHeader } from '../../lib/uploadQuota';
+import { buildSafetyMessageMetadata } from '../../lib/safetyMetadata';
 
 function formatNotificationSenderName(user: { username?: string | null; displayName?: string | null }) {
   const username = (user.username ?? '').trim();
@@ -60,6 +62,7 @@ export function createDMOperationsSlice(set: any, get: any): DMOperationsSlice {
         );
         // Replies carry a [[crdmctx:…]] envelope; previews show only the reply's own text.
         const previewText = dmContextPreviewText(hasText ? text : '');
+        const safetyMetadata = buildSafetyMessageMetadata(hasText ? text : '');
         const previewSenderName = formatNotificationSenderName(user);
         const notificationPreviewEnvelopes = (await Promise.all(previewTargets.map((device) =>
           encryptNotificationPreviewForDevice(device, {
@@ -78,6 +81,7 @@ export function createDMOperationsSlice(set: any, get: any): DMOperationsSlice {
               (() => {
                 const formData = new FormData();
                 formData.append('encryptedPayload', encryptedPayload);
+                formData.append('safetyMetadata', JSON.stringify(safetyMetadata));
                 formData.append('notificationPreviewEnvelopes', JSON.stringify(notificationPreviewEnvelopes));
                 for (const f of filesArray) formData.append('attachment', f);
                 if (Array.isArray(nsfwTags) && nsfwTags.length > 0) formData.append('nsfwTags', JSON.stringify(nsfwTags));
@@ -85,11 +89,11 @@ export function createDMOperationsSlice(set: any, get: any): DMOperationsSlice {
                 if (scheduledAt != null) formData.append('scheduledAt', String(scheduledAt));
                 return formData;
               })(),
-              { headers: getAuthHeader() }
+              { headers: { ...getAuthHeader(), ...uploadBytesHeader(filesArray) } }
             )
           : await authApi.post(
               `/api/dms/${otherUserId}/send`,
-              { encryptedPayload, notificationPreviewEnvelopes, nsfwTags: Array.isArray(nsfwTags) ? nsfwTags : [], voiceExpiresAt: voiceExpiresAt ?? null, scheduledAt: scheduledAt ?? null },
+              { encryptedPayload, notificationPreviewEnvelopes, safetyMetadata, nsfwTags: Array.isArray(nsfwTags) ? nsfwTags : [], voiceExpiresAt: voiceExpiresAt ?? null, scheduledAt: scheduledAt ?? null },
               { headers: getAuthHeader() }
             );
 
@@ -168,6 +172,7 @@ export function createDMOperationsSlice(set: any, get: any): DMOperationsSlice {
       } catch (err: unknown) {
         set({ loading: false });
         if (axios.isAxiosError(err)) {
+          if (showUploadQuotaModal(err)) throw new Error(String(err.response?.data?.error || 'Upload limit reached'));
           if (err.response?.status === 413) throw new Error('Attachment too large. Maximum is 50 MB per file.');
           throw new Error(err.response?.data?.error || 'Failed to send message');
         }

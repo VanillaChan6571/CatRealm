@@ -74,6 +74,7 @@ import {
   useExpressionLookup,
 } from '@/lib/expressionCache';
 import type { UserStatus } from '@/types';
+import { oneTimeCodeKeyboardType } from '@/hooks/useDeviceLayout';
 
 type SettingsSection =
   | 'profile'
@@ -1305,6 +1306,19 @@ function ContentSocialSection() {
     <>
       <SectionHeader title={t('settings.sectionContentSocial')} />
 
+      <View style={[styles.card, { backgroundColor: theme.colors.bgElev1, borderRadius: theme.radius.lg, marginHorizontal: theme.spacing.lg, marginBottom: theme.spacing.lg }]}>
+        <View style={styles.infoBlock}>
+          <Text variant="subtitle">Safety Center</Text>
+          <Text variant="bodySmall" color={theme.colors.text3}>Report an image or link from its message actions. The selected item is hidden immediately while it is reviewed.</Text>
+        </View>
+        <Pressable onPress={() => void Linking.openURL('https://catrealm.app/child-safety/')} style={styles.row}>
+          <Text color={theme.colors.accent}>Read Child Safety Standards</Text>
+        </Pressable>
+        <Pressable onPress={() => void Linking.openURL('mailto:safety@catrealm.app')} style={styles.row}>
+          <Text color={theme.colors.accent}>Contact safety@catrealm.app</Text>
+        </Pressable>
+      </View>
+
       {/* NSFW Filters */}
       <View
         style={[
@@ -2522,7 +2536,7 @@ function AccountDevicesSection() {
                   </Text>
                   <TextInput
                     accessibilityLabel="2FA code to verify this device"
-                    keyboardType="number-pad"
+                    keyboardType={oneTimeCodeKeyboardType}
                     textContentType="oneTimeCode"
                     value={selfApprovalCode}
                     onChangeText={setSelfApprovalCode}

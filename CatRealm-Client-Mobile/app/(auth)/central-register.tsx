@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { View, TextInput, Image, StyleSheet, ActivityIndicator, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Check } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import {
@@ -13,6 +14,70 @@ import {
 } from '@/components';
 import { HCaptchaModal } from '@/components/HCaptchaModal';
 import { useAuthStore, fetchRegisterCaptchaConfig } from '@/stores/authStore';
+import { oneTimeCodeKeyboardType } from '@/hooks/useDeviceLayout';
+
+const PRIVACY_URL = 'https://catrealm.app/privacy/';
+const TERMS_URL = 'https://catrealm.app/terms/';
+const CHILD_SAFETY_URL = 'https://catrealm.app/child-safety/';
+
+/** Checkbox row whose label may end in an inline policy link, as on desktop. */
+function ConsentCheckbox({
+  checked,
+  onToggle,
+  link,
+  children,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+  link?: { label: string; url: string };
+  children: ReactNode;
+}) {
+  const theme = useTheme();
+  const openLink = link ? () => void Linking.openURL(link.url) : undefined;
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+      // The row is one accessibility element, so expose the inline link as an action.
+      accessibilityActions={link ? [{ name: 'openLink', label: `Read ${link.label}` }] : undefined}
+      onAccessibilityAction={(e) => {
+        if (e.nativeEvent.actionName === 'openLink') openLink?.();
+      }}
+      onPress={onToggle}
+      style={styles.checkRow}
+    >
+      <View
+        style={[
+          styles.checkBox,
+          {
+            borderRadius: theme.radius.sm,
+            borderColor: checked ? theme.colors.accent : theme.colors.text3,
+            backgroundColor: checked ? theme.colors.accent : 'transparent',
+          },
+        ]}
+      >
+        {checked ? <Check size={14} strokeWidth={3} color={theme.colors.textOnAccent} /> : null}
+      </View>
+      <Text variant="bodySmall" color={theme.colors.text2} style={styles.checkLabel}>
+        {children}
+        {link ? (
+          <>
+            <Text
+              variant="bodySmall"
+              color={theme.colors.accentText}
+              weight="600"
+              suppressHighlighting
+              onPress={openLink}
+            >
+              {link.label}
+            </Text>
+            .
+          </>
+        ) : null}
+      </Text>
+    </Pressable>
+  );
+}
 
 export default function CentralRegisterScreen() {
   const theme = useTheme();
@@ -128,20 +193,33 @@ export default function CentralRegisterScreen() {
                 ) : null}
               </View>
 
-              <View style={{ gap: 10 }}>
-                <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: acceptPrivacy }} onPress={() => setAcceptPrivacy(!acceptPrivacy)} style={styles.checkRow}>
-                  <Text color={theme.colors.accent}>{acceptPrivacy ? '☑' : '☐'}</Text>
-                  <Text color={theme.colors.text2}>I have read and agree to the Privacy Policy.</Text>
-                </Pressable>
-                <Pressable onPress={() => void Linking.openURL('https://catrealm.app/privacy/')}><Text color={theme.colors.accent}>Read Privacy Policy</Text></Pressable>
-                <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: acceptTerms }} onPress={() => setAcceptTerms(!acceptTerms)} style={styles.checkRow}>
-                  <Text color={theme.colors.accent}>{acceptTerms ? '☑' : '☐'}</Text>
-                  <Text color={theme.colors.text2}>I have read and agree to the Terms of Service.</Text>
-                </Pressable>
-                <Pressable onPress={() => void Linking.openURL('https://catrealm.app/terms/')}><Text color={theme.colors.accent}>Read Terms of Service</Text></Pressable>
-                <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: confirmAge18 }} onPress={() => setConfirmAge18(!confirmAge18)} style={styles.checkRow}>
-                  <Text color={theme.colors.accent}>{confirmAge18 ? '☑' : '☐'}</Text>
-                  <Text color={theme.colors.text2}>I confirm that I am 18 years of age or older.</Text>
+              <View style={[styles.consent, { borderTopColor: theme.colors.line }]}>
+                <ConsentCheckbox
+                  checked={acceptPrivacy}
+                  onToggle={() => setAcceptPrivacy(!acceptPrivacy)}
+                  link={{ label: 'Privacy Policy', url: PRIVACY_URL }}
+                >
+                  I have read and agree to the{' '}
+                </ConsentCheckbox>
+                <ConsentCheckbox
+                  checked={acceptTerms}
+                  onToggle={() => setAcceptTerms(!acceptTerms)}
+                  link={{ label: 'Terms of Service', url: TERMS_URL }}
+                >
+                  I have read and agree to the{' '}
+                </ConsentCheckbox>
+                <ConsentCheckbox checked={confirmAge18} onToggle={() => setConfirmAge18(!confirmAge18)}>
+                  I confirm that I am 18 years of age or older.
+                </ConsentCheckbox>
+                <Pressable
+                  minHit={32}
+                  accessibilityRole="link"
+                  onPress={() => void Linking.openURL(CHILD_SAFETY_URL)}
+                  style={styles.childSafetyLink}
+                >
+                  <Text variant="caption" color={theme.colors.accentText}>
+                    Read CatRealm's Child Safety Standards
+                  </Text>
                 </Pressable>
               </View>
 
@@ -211,7 +289,7 @@ export default function CentralRegisterScreen() {
                   onChangeText={setTotpCode}
                   placeholder={t('auth.sixDigitCodePlaceholder')}
                   placeholderTextColor={theme.colors.text3}
-                  keyboardType="number-pad"
+                  keyboardType={oneTimeCodeKeyboardType}
                   maxLength={6}
                   textContentType="oneTimeCode"
                   autoComplete="one-time-code"
@@ -279,7 +357,11 @@ export default function CentralRegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  consent: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 8 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 12, paddingVertical: 4 },
+  checkBox: { width: 20, height: 20, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  checkLabel: { flex: 1, lineHeight: 20 },
+  childSafetyLink: { alignSelf: 'flex-start', alignItems: 'flex-start', marginLeft: 32 },
   input: {
     paddingHorizontal: 14,
     paddingVertical: 12,

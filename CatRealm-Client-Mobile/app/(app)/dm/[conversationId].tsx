@@ -4,16 +4,17 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, FlatList, Image, StyleSheet, ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, TouchableOpacity, Share, Animated as RNAnimated, Dimensions, Modal, ScrollView } from 'react-native';
+import { View, FlatList, Image, StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, TouchableOpacity, Share, Animated as RNAnimated, Dimensions, Modal, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useComposerKeyboardInset } from '@/hooks/useComposerKeyboardInset';
+import { dismissKeyboard } from '@/lib/dismissKeyboard';
 import { SafeAreaView } from '@/components/SafeAreaView';
 import { useFocusEffect, useIsFocused } from "expo-router/react-navigation";
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Bell, BellOff, Check, CornerUpLeft, EllipsisVertical, Lock, LockOpen, Pin, Search, ShieldAlert, Phone, X } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, MobileComposer, Pressable, MarkdownText, TranslatableMarkdownText, MessageActionSheet, MessageReactionsSheet, Sheet, DMSearchSheet, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
+import { Text, IconBtn, Avatar, MobileComposer, Pressable, MarkdownText, TranslatableMarkdownText, MessageActionSheet, MessageReactionsSheet, SafetyReportSheet, type SafetyReportTarget, Sheet, DMSearchSheet, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { AUTH_BASE } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { useDMStore, type DMPinnedEntry } from '@/stores/dmStore';
@@ -34,6 +35,7 @@ import { DMRequestBanner } from '@/components/DMRequestBanner';
 import { canSendDM } from '@/lib/dmRequests';
 import { useBlockedUsersStore } from '@/stores/blockedUsersStore';
 import { DMKeyRecoveryPanel } from '@/components/DMKeyRecoveryPanel';
+import { hideReportedAttachments, hideReportedLinks, reportableSafetyArtifacts, safetyHiddenArtifactKeys } from '@/lib/safetyReporting';
 
 const EMPTY_DM_MESSAGES: DMMessage[] = [];
 const EMPTY_DM_PINS: DMPinnedEntry[] = [];
@@ -174,7 +176,8 @@ const DMMessageRow = memo(function DMMessageRow({
   const isSelf = message.senderId === selfUserId;
   const ctx = useMemo(() => parseDmContextText(message.text), [message.text]);
 
-  if (message.messageType === 'system') {
+  const isOfficial = message.systemType === 'official_announcement';
+  if (message.messageType === 'system' && !isOfficial) {
     const isE2EEUpgrade = message.systemType === 'dm_e2ee_upgraded';
     return (
       <View style={[styles.systemRow]}>
@@ -197,16 +200,21 @@ const DMMessageRow = memo(function DMMessageRow({
     : (conversation?.otherDisplayName ?? conversation?.otherUsername ?? '?');
 
   const avatarUri = isSelf ? (selfAvatar ?? null) : (conversation?.otherAvatar ?? null);
-  const profileUserId = isSelf ? selfUserId : (conversation?.otherUserId ?? message.senderId);
+  const profileUserId = isOfficial ? null : (isSelf ? selfUserId : (conversation?.otherUserId ?? message.senderId));
 
   const timestamp = formatMessageTimestamp(message.createdAt);
 
-  const bodyText = ctx ? ctx.bodyText : message.text;
+  const rawBodyText = ctx ? ctx.bodyText : message.text;
+  const officialTitle = typeof message.systemData?.title === 'string' ? message.systemData.title : 'Official announcement';
+  const officialLink = typeof message.systemData?.linkUrl === 'string' ? message.systemData.linkUrl : null;
+  const bodyText = isOfficial
+    ? `# ${officialTitle}\n\n${rawBodyText}${officialLink ? `\n\n[Open official link](${officialLink})` : ''}`
+    : rawBodyText;
 
   return (
     <View style={styles.msgRowWrap}>
       <HighlightChaser active={isHighlighted} bgColor={theme.colors.bgApp} />
-      <Pressable minHit={0} onLongPress={() => onMessageLongPress(message, isSelf)} style={[styles.msgRow, { paddingTop: isGrouped ? 2 : 12 }]}>
+      <Pressable minHit={0} onLongPress={isOfficial ? undefined : () => onMessageLongPress(message, isSelf)} style={[styles.msgRow, { paddingTop: isGrouped ? 2 : 12 }]}>
         {isGrouped ? (
           <View style={styles.avatarPlaceholder} />
         ) : (
@@ -235,7 +243,7 @@ const DMMessageRow = memo(function DMMessageRow({
                 style={styles.messageNameButton}
               >
                 <Text variant="subtitle" numberOfLines={1}>
-                  {username}
+                  {isOfficial ? 'Official CatRealm ✓' : username}
                 </Text>
               </Pressable>
               <Text variant="caption" color={theme.colors.text3} style={{ marginLeft: 6 }}>
@@ -341,6 +349,8 @@ export default function DMScreen() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [activeMessage, setActiveMessage] = useState<DMMessage | null>(null);
+  const [safetyReportTarget, setSafetyReportTarget] = useState<SafetyReportTarget | null>(null);
+  const [hiddenSafetyArtifacts, setHiddenSafetyArtifacts] = useState<Record<string, string[]>>({});
   const [reactionsSheetState, setReactionsSheetState] = useState<{ open: boolean; reactions: ReadonlyArray<Reaction> | null; initialEmoji: string | null }>({ open: false, reactions: null, initialEmoji: null });
   const [replyToMessage, setReplyToMessage] = useState<DMMessage | null>(null);
   const [isScrollingOld, setIsScrollingOld] = useState(false);
@@ -367,6 +377,7 @@ export default function DMScreen() {
   const conversation = useDMStore((s) =>
     s.conversations.find((c) => c.id === conversationId),
   );
+  const isOfficialSystemDM = conversation?.conversationKind === 'official_system';
   const otherPresenceStatus = usePresenceStore((s) =>
     conversation?.otherUserId ? (s.centralByUserId[conversation.otherUserId]?.status ?? null) : null,
   );
@@ -374,6 +385,7 @@ export default function DMScreen() {
   const blocked = useBlockedUsersStore((s) => !!conversation && s.blockedUsers.has(conversation.otherUserId));
   const canSend = canSendDM(conversation, blocked);
   const messages = useDMStore((s) => s.messages[conversationId] ?? EMPTY_DM_MESSAGES);
+  const hiddenConversationSafetyLinks = useMemo(() => new Set(messages.flatMap((message) => [...(hiddenSafetyArtifacts[message.id] ?? []), ...safetyHiddenArtifactKeys(message.safetyArtifacts)].filter((key) => key.startsWith('link:')))), [messages, hiddenSafetyArtifacts]);
   const decryptFailure = useMemo((): 1 | 2 | 'unknown' | 'rate_limited' | null => {
     const failed = messages.filter((message) => message.systemType === 'decrypt_failed');
     if (!failed.length) return null;
@@ -415,7 +427,7 @@ export default function DMScreen() {
   // previous chat, then resolve the real per-device state from the key manifest.
   useEffect(() => { setDmEncryptionState(undefined); setKeyHoldersBlocked(false); setLocalKeyNeedsTrust(false); }, [conversationId]);
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId || isOfficialSystemDM) return;
     let cancelled = false;
     (async () => {
       try {
@@ -433,7 +445,7 @@ export default function DMScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, [conversationId, messages.length, keyRefreshRevision]);
+  }, [conversationId, messages.length, keyRefreshRevision, isOfficialSystemDM]);
 
   useEffect(() => {
     const socket = getSocket(AUTH_BASE);
@@ -458,7 +470,7 @@ export default function DMScreen() {
         await Promise.all([
           fetchMessages(conversationId),
           markAsRead(conversationId),
-          fetchPins(conversationId),
+          ...(isOfficialSystemDM ? [] : [fetchPins(conversationId)]),
         ]);
       })();
 
@@ -469,7 +481,7 @@ export default function DMScreen() {
           setActiveConversationId(null);
         }
       };
-    }, [conversationId, fetchConversations, fetchMessages, markAsRead, fetchPins, releaseMessages, setActiveConversationId]),
+    }, [conversationId, fetchConversations, fetchMessages, markAsRead, fetchPins, releaseMessages, setActiveConversationId, isOfficialSystemDM]),
   );
 
   // FlatList is inverted; reverse so newest renders at bottom
@@ -615,13 +627,19 @@ export default function DMScreen() {
   const renderItem = useCallback(
     ({ item, index }: { item: DMMessage; index: number }) => {
       const prev = displayMessages[index + 1] ?? null;
+      const hidden = new Set([...hiddenConversationSafetyLinks, ...(hiddenSafetyArtifacts[item.id] ?? []), ...safetyHiddenArtifactKeys(item.safetyArtifacts)]);
+      const visibleItem = hidden.size > 0 ? {
+        ...item,
+        text: hideReportedLinks(item.text, hidden),
+        attachments: hideReportedAttachments(item.attachments, hidden),
+      } : item;
       return (
         <SwipeableMessageRow
           disabled={item.messageType === 'system'}
           onReply={() => setReplyToMessage(item)}
         >
           <DMMessageRow
-            message={item}
+            message={visibleItem}
             prevMessage={prev}
             selfUserId={selfUser?.id}
             selfUsername={selfUser?.displayName ?? selfUser?.username}
@@ -641,7 +659,7 @@ export default function DMScreen() {
       );
     },
     // displayMessages changes when messages arrive (expected). All other deps are stable.
-    [displayMessages, selfUser, conversation, expressionLookup, dmMediaUrl, dmImageScope, highlightedMessageId, handleMessageLongPress, openProfile, handleJumpToReply, handleToggleReaction],
+    [displayMessages, hiddenSafetyArtifacts, hiddenConversationSafetyLinks, selfUser, conversation, expressionLookup, dmMediaUrl, dmImageScope, highlightedMessageId, handleMessageLongPress, openProfile, handleJumpToReply, handleToggleReaction],
   );
 
   const handleDraftChange = (value: string) => {
@@ -715,7 +733,7 @@ export default function DMScreen() {
         {conversation && (
           <Pressable
             haptic
-            onPress={openOtherUserProfile}
+            onPress={isOfficialSystemDM ? undefined : openOtherUserProfile}
             accessibilityRole="button"
             accessibilityLabel={t('chat.openProfile', { username: conversation.otherDisplayName ?? conversation.otherUsername })}
             style={styles.headerIdentity}
@@ -733,7 +751,7 @@ export default function DMScreen() {
                 {conversation.otherDisplayName ?? conversation.otherUsername}
               </Text>
               <Text variant="caption" color={theme.colors.text3} numberOfLines={1}>
-                {t(`status.${otherStatus && otherStatus !== 'invisible' ? otherStatus : 'invisible'}`)}
+                {isOfficialSystemDM ? 'Verified · read-only announcements' : t(`status.${otherStatus && otherStatus !== 'invisible' ? otherStatus : 'invisible'}`)}
               </Text>
             </View>
           </Pressable>
@@ -743,26 +761,26 @@ export default function DMScreen() {
             {conversationId}
           </Text>
         )}
-        <TouchableOpacity
+        {!isOfficialSystemDM && <TouchableOpacity
           onPress={() => setShowE2EInfo(true)}
           accessibilityLabel={t('chat.e2eeInfo')}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: encryptionBadge.border, backgroundColor: encryptionBadge.bg }}
         >
           <encryptionBadge.Icon size={16} color={encryptionBadge.color} />
           <Text variant="caption" style={{ color: encryptionBadge.color, fontWeight: '600' }}>{encryptionBadge.label}</Text>
-        </TouchableOpacity>
+        </TouchableOpacity>}
         {/* Video call button intentionally absent (parity with desktop): camera is
             volunteered from inside a call, never forced by the call action. */}
-        {conversationId && (
+        {conversationId && !isOfficialSystemDM && (
           <IconBtn icon={Phone} onPress={() => initiateDMCall(conversationId, 'audio')} accessibilityLabel={t('chat.startAudioCall')} />
         )}
-        {conversationId && isTablet ? (
+        {conversationId && isTablet && !isOfficialSystemDM ? (
           <>
             <IconBtn icon={Search} onPress={() => setSearchOpen(true)} accessibilityLabel={t('chat.searchTitle')} />
             <IconBtn icon={Pin} onPress={() => setPinsOpen(true)} accessibilityLabel={t('server.pinnedAccessibility')} />
             <IconBtn icon={dmMuted ? BellOff : Bell} onPress={() => setShowNotificationControls(true)} accessibilityLabel={t('chat.dmNotifSettings')} />
           </>
-        ) : conversationId ? (
+        ) : conversationId && !isOfficialSystemDM ? (
           <IconBtn
             icon={EllipsisVertical}
             onPress={() => setActionsOpen(true)}
@@ -777,7 +795,7 @@ export default function DMScreen() {
         </View>
       )}
 
-      {isFocused && conversationId && conversation ? (
+      {isFocused && conversationId && conversation && !isOfficialSystemDM ? (
         <DMKeyRecoveryPanel
           conversationId={conversationId}
           otherUsername={conversation.otherDisplayName ?? conversation.otherUsername}
@@ -992,7 +1010,9 @@ export default function DMScreen() {
             ref={flatListRef}
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             keyboardShouldPersistTaps="handled"
-            onScrollBeginDrag={Keyboard.dismiss}
+            onScrollBeginDrag={dismissKeyboard}
+            // Tapping the conversation closes the keyboard, as in other chat apps.
+            onTouchStart={dismissKeyboard}
             onScroll={handleScroll}
             scrollEventThrottle={100}
             inverted
@@ -1067,8 +1087,12 @@ export default function DMScreen() {
               </TouchableOpacity>
             </View>
           )}
-          <DMRequestBanner conversation={conversation} />
-          <MobileComposer
+          {!isOfficialSystemDM && <DMRequestBanner conversation={conversation} />}
+          {isOfficialSystemDM ? (
+            <View style={{ padding: 14, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft, backgroundColor: theme.colors.bgElev1 }}>
+              <Text variant="bodySmall" color={theme.colors.text3} style={{ textAlign: 'center' }}>Official CatRealm announcements are read-only.</Text>
+            </View>
+          ) : <MobileComposer
             value={draft}
             onChangeText={handleDraftChange}
             placeholder={t('chat.messagePlaceholder', { name: conversation?.otherDisplayName ?? conversation?.otherUsername ?? '' })}
@@ -1079,7 +1103,7 @@ export default function DMScreen() {
             serverUrl={dmMediaUrl}
             deferUpload
             voiceMessages
-          />
+          />}
         </View>
       </SwipeSidebarContainer>
 
@@ -1134,6 +1158,30 @@ export default function DMScreen() {
           if (!activeMessage) return;
           void deleteMessage(activeMessage.id);
         }}
+        onReport={activeMessage
+          && activeMessage.senderId !== selfUser?.id
+          && reportableSafetyArtifacts(activeMessage.text, activeMessage.attachments).length > 0
+          ? () => {
+            if (!activeMessage || !conversationId) return;
+            setSafetyReportTarget({
+              scopeKind: 'dm',
+              scopeId: conversationId,
+              messageId: activeMessage.id,
+              senderLabel: conversation?.otherDisplayName ?? conversation?.otherUsername ?? 'this user',
+              messageText: activeMessage.text,
+              attachments: activeMessage.attachments,
+            });
+          }
+          : undefined}
+      />
+
+      <SafetyReportSheet
+        target={safetyReportTarget}
+        onClose={() => setSafetyReportTarget(null)}
+        onSubmitted={(messageId, artifactKey) => setHiddenSafetyArtifacts((current) => ({
+          ...current,
+          [messageId]: [...new Set([...(current[messageId] ?? []), artifactKey])],
+        }))}
       />
 
       <MessageReactionsSheet

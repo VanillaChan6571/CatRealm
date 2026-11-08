@@ -26,6 +26,22 @@ export function SystemMessageRow({
   className,
   tone = 'muted',
 }: SystemMessageRowProps) {
+  if (systemType === 'official_announcement') {
+    const title = typeof systemData?.title === 'string' ? systemData.title : 'Official announcement';
+    const linkUrl = typeof systemData?.linkUrl === 'string' ? systemData.linkUrl : null;
+    return (
+      <div className={className || 'px-4 py-2'}>
+        <article className="mx-auto max-w-2xl rounded-xl border border-accent/35 bg-accent/10 px-4 py-3 text-left shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <strong className="text-text-primary">✓ {title}</strong>
+            {timestampLabel ? <time className="text-[10px] text-text-muted">{timestampLabel}</time> : null}
+          </div>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-text-secondary">{text}</p>
+          {linkUrl ? <a href={linkUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm font-semibold text-accent hover:underline">Open official link</a> : null}
+        </article>
+      </div>
+    );
+  }
   const label = formatSystemMessageText({
     messageType,
     systemType,

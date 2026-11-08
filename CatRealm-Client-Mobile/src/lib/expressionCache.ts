@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { AUTH_BASE } from '@/lib/api';
+import { AUTH_BASE, createAuthenticatedApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 
@@ -142,13 +142,23 @@ async function fetchForOrigin(origin: string): Promise<ExpressionLookup | null> 
   }
 }
 
+/** Your own personal expressions. Central binds sessions to the device, so a bare token is refused (401). */
+async function fetchPersonalManifest(origin: string, token: string): Promise<Record<string, unknown> | null> {
+  if (origin === getOrigin(AUTH_BASE)) {
+    // The authenticated client adds the device credentials Central checks.
+    const res = await createAuthenticatedApi().get<Record<string, unknown>>('/api/profile/personal-expressions/manifest');
+    return res.data;
+  }
+  const res = await globalThis.fetch(`${origin}/api/profile/personal-expressions/manifest`, {
+    headers: { Authorization: `Bearer ${token}`, 'X-CatRealm-Client': 'mobile' },
+  });
+  return res.ok ? await res.json() as Record<string, unknown> : null;
+}
+
 async function fetchPersonalForOrigin(origin: string, token: string): Promise<ExpressionLookup | null> {
   try {
-    const res = await globalThis.fetch(`${origin}/api/profile/personal-expressions/manifest`, {
-      headers: { Authorization: `Bearer ${token}`, 'X-CatRealm-Client': 'mobile' },
-    });
-    if (!res.ok) { personalExpressionCacheMap.set(origin, new Map()); notifyWatchers(); return null; }
-    const data = await res.json() as Record<string, unknown>;
+    const data = await fetchPersonalManifest(origin, token);
+    if (!data) { personalExpressionCacheMap.set(origin, new Map()); notifyWatchers(); return null; }
     const lookup = buildLookupFromManifest(data, origin, 'personal');
 
     personalExpressionCacheMap.set(origin, lookup);

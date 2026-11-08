@@ -35,7 +35,8 @@ jest.mock('../DiscoverButton', () => ({
     require('react').createElement(require('react-native').Pressable, { accessibilityLabel: 'Discover', onPress }),
 }));
 jest.mock('../CreateInviteModal', () => ({ CreateInviteModal: () => require('react').createElement(require('react-native').View, { testID: 'invite-modal' }) }));
-jest.mock('../BottomDock', () => ({ DrawerLeftRail: () => null, DrawerHubFooter: () => null }));
+jest.mock('../BottomDock', () => ({ DrawerLeftRail: () => null, DrawerHubFooter: () => null, loadRealmChannels: jest.fn() }));
+jest.mock('../RailExpansion', () => ({ RAIL_EXPAND_MS: 240 }));
 // Stand-in for the folder-aware list: one row per server, using the panel's renderers.
 jest.mock('../ServerListSection', () => ({
   ServerListSection: ({ onServerPress, renderSubtitle, renderTrailing }: {

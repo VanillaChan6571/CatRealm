@@ -1,8 +1,14 @@
-import { Dimensions, Platform, useWindowDimensions } from 'react-native';
+import { Dimensions, Platform, useWindowDimensions, type KeyboardTypeOptions } from 'react-native';
 
 const TABLET_MIN_WIDTH = 900;
 
 const iosPad = Platform.OS === 'ios' && (Platform as any).isPad === true;
+
+/**
+ * Keyboard for 2FA and other one-time codes. iPadOS has no numeric pad, so
+ * `number-pad` opens its full symbols keyboard; use the standard one there.
+ */
+export const oneTimeCodeKeyboardType: KeyboardTypeOptions = iosPad ? 'default' : 'number-pad';
 
 /**
  * Device-stable tablet check for orientation policy. Uses the physical screen

@@ -37,6 +37,7 @@ type DMConversationHeaderProps = {
     videoEnabled?: boolean;
     sharingScreen?: boolean;
   } | null;
+  isOfficialSystem?: boolean;
 };
 
 export function DMConversationHeader({
@@ -61,6 +62,7 @@ export function DMConversationHeader({
   isInCall = false,
   isRinging = false,
   remoteCallState = null,
+  isOfficialSystem = false,
 }: DMConversationHeaderProps) {
   const remoteRingClass = remoteCallState?.deafened
     ? 'ring-4 ring-warning/70'
@@ -117,8 +119,8 @@ export function DMConversationHeader({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <h2
-            className="font-semibold text-text-primary text-xl hover:underline cursor-pointer truncate"
-            onClick={onOpenProfile}
+            className={`font-semibold text-text-primary text-xl truncate ${isOfficialSystem ? '' : 'hover:underline cursor-pointer'}`}
+            onClick={isOfficialSystem ? undefined : onOpenProfile}
           >
             {displayName}
           </h2>
@@ -150,6 +152,7 @@ export function DMConversationHeader({
           </div>
         ) : (
           <div className="flex items-center gap-2 text-base text-text-secondary">
+            {isOfficialSystem ? <span className="font-medium text-accent">✓ Verified · read-only announcements</span> : <>
             {peerKeyRecoveryPending && <LockClosedIcon className="h-4 w-4 text-red-400" title="This person requested DM key recovery" aria-label="DM key recovery requested" />}
             <span className={`w-2.5 h-2.5 rounded-full ${statusDotClassName}`} />
             {clients?.includes('mobile') && (
@@ -164,6 +167,7 @@ export function DMConversationHeader({
               />
             )}
             <span>{statusLabel}</span>
+            </>}
           </div>
         )}
       </div>
@@ -221,16 +225,16 @@ export function DMConversationHeader({
           </button>
         )}
 
-        <button
+        {!isOfficialSystem && <button
           onClick={onShowEncryptionInfo}
           className={`flex items-center gap-1 text-base transition-colors cursor-help px-2 py-1 rounded-lg border ${encryptionBadge.className}`}
           title={encryptionBadge.title}
         >
           <encryptionBadge.Icon className="w-5 h-5 shrink-0" />
           <span className="hidden sm:inline">E2EE</span>
-        </button>
+        </button>}
 
-        <button
+        {!isOfficialSystem && <button
           onClick={onShowRetentionSettings}
           className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-lg bg-bg-elevated hover:bg-bg-hover text-text-secondary hover:text-text-primary transition-colors"
           title="Message retention settings"
@@ -238,7 +242,7 @@ export function DMConversationHeader({
           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
           </svg>
-        </button>
+        </button>}
       </div>
     </div>
   );

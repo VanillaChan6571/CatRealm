@@ -33,6 +33,7 @@ jest.mock('lucide-react-native', () => ({
 jest.mock('../Text', () => ({ Text: require('react-native').Text }));
 jest.mock('../Pressable', () => ({ Pressable: require('react-native').Pressable }));
 jest.mock('../ServerIcon', () => ({ ServerIcon: () => null }));
+jest.mock('../ArrangeItem', () => ({ ArrangeItem: ({ children }: { children: unknown }) => children }));
 jest.mock('../IconBtn', () => ({ IconBtn: ({ accessibilityLabel, onPress, disabled }: { accessibilityLabel: string; onPress: () => void; disabled?: boolean }) =>
   require('react').createElement(require('react-native').Pressable, { accessibilityLabel, onPress, disabled }) }));
 jest.mock('../Sheet', () => ({ Sheet: ({ open, children, presentation }: { open: boolean; children: unknown; presentation: string }) => open
@@ -45,9 +46,9 @@ test.each([false, true])('server editing uses the correct presentation on tablet
   mockIsTablet = isTablet;
   const screen = await setup();
   await fireEvent.press(screen.getByLabelText('folders.serverOptions Alpha'));
-  expect(screen.getByTestId(isTablet ? 'editor-left' : 'editor-bottom')).toBeTruthy();
+  expect(screen.getByTestId(isTablet ? 'editor-center' : 'editor-bottom')).toBeTruthy();
   await fireEvent.press(screen.getByText('folders.createFolder'));
-  expect(screen.getByTestId(isTablet ? 'editor-left' : 'editor-bottom')).toBeTruthy();
+  expect(screen.getByTestId(isTablet ? 'editor-center' : 'editor-bottom')).toBeTruthy();
 });
 
 test('visible server menu moves a grouped server without opening the server', async () => {
@@ -116,7 +117,7 @@ test('another ellipsis swaps folder details without closing and resets unsaved f
   await fireEvent.changeText(screen.getByLabelText('folders.folderName'), 'Unsaved');
   await fireEvent.press(screen.getByLabelText('folders.folderOptions Games'));
   expect(screen.getByLabelText('folders.folderName').props.value).toBe('Games');
-  expect(screen.getByTestId('editor-left')).toBeTruthy();
+  expect(screen.getByTestId('editor-center')).toBeTruthy();
   await fireEvent.press(screen.getByText('common.save'));
   expect(mockUpdate).toHaveBeenCalledWith('games', { name: 'Games', color: '#23A559' });
 });

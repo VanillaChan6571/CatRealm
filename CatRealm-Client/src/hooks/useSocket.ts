@@ -526,6 +526,9 @@ export function useSocket() {
       }
     };
     socket.on('message:new', onMessageNew);
+    socket.on('safety:artifact:update', ({ messageId, artifactKey, state }: { messageId?: string; artifactKey?: string; state?: 'quarantined' | 'removed' | 'cleared' }) => {
+      if (messageId && artifactKey && state) useMessageStore.getState().applySafetyArtifactUpdate(messageId, artifactKey, state);
+    });
 
     socket.on('message:scheduled', (msg: Message) => {
       useMessageStore.getState().addScheduledMessage(msg);
@@ -831,6 +834,7 @@ export function useSocket() {
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onConnectError);
       socket.off('message:new', onMessageNew);
+      socket.off('safety:artifact:update');
       socket.off('message:scheduled');
       socket.off('message:edited');
       socket.off('message:deleted');

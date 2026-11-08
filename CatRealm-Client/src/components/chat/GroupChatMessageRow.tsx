@@ -25,6 +25,7 @@ type GroupChatMessageRowProps = {
   onDelete: (messageId: string) => void;
   /** Names a reactor for "View Cat Reactions" (from the group's member list). */
   resolveReactorName?: (userId: string) => string | null;
+  onReport?: (msg: GroupChatMessage) => void;
 };
 
 export function GroupChatMessageRow({
@@ -44,6 +45,7 @@ export function GroupChatMessageRow({
   onEdit,
   onDelete,
   resolveReactorName,
+  onReport,
 }: GroupChatMessageRowProps) {
   const renderReactionEmoji = (emoji: string) => (
     <MessageFormatter text={emoji} className="inline text-sm leading-none" allowLinks={false} allowEmbeds={false} inlineEmoteSizePxOverride={20} />
@@ -165,6 +167,7 @@ export function GroupChatMessageRow({
     containerClassName: `flex gap-4 ${isGrouped ? '-mt-1' : 'mt-3'} hover:bg-bg-hover/40 px-4 ${isGrouped ? 'py-0.5' : 'py-2'} group`,
     avatarColumnClassName: 'w-10 flex-shrink-0',
     headerClassName: 'flex items-baseline gap-3 mb-2',
+    extraContextMenuItems: onReport ? [{ key: 'report-safety', label: 'Report image or link', onClick: () => onReport(msg), isDanger: true }] : undefined,
   };
 
   return <SharedMessageRow adapter={adapter} />;

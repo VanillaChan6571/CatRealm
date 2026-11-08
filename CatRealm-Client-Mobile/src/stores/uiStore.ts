@@ -17,7 +17,12 @@ export type NavigationDrawer = 'servers' | 'channels';
 export interface UIState {
   closingDrawer: NavigationDrawer | null;
   pendingDrawer: NavigationDrawer | null;
+  /** The channels drawer is replacing the server drawer in place (no slide). */
+  drawerHandoff: boolean;
   finishDrawerClose: (drawer: NavigationDrawer) => void;
+  /** Swap the open server drawer for the channels drawer without either sliding. */
+  handoffToChannels: () => void;
+  clearDrawerHandoff: () => void;
   serverDrawerOpen: boolean;
   channelsSheetOpen: boolean;
   membersSheetOpen: boolean;
@@ -52,6 +57,7 @@ export interface UIState {
 // may open it. This also handles multiple taps batched into one React render.
 function requestedDrawer(s: UIState): NavigationDrawer | null {
   return s.closingDrawer ? s.pendingDrawer
+    : s.drawerHandoff && s.channelsSheetOpen ? 'channels'
     : s.serverDrawerOpen ? 'servers' : s.channelsSheetOpen ? 'channels' : null;
 }
 
@@ -67,6 +73,7 @@ function requestDrawer(s: UIState, next: NavigationDrawer | null): Partial<UISta
 export const useUIStore = create<UIState>((set) => ({
   closingDrawer: null,
   pendingDrawer: null,
+  drawerHandoff: false,
   serverDrawerOpen: false,
   channelsSheetOpen: false,
   membersSheetOpen: false,
@@ -85,9 +92,18 @@ export const useUIStore = create<UIState>((set) => ({
     ? requestDrawer(s, 'servers')
     : requestedDrawer(s) === 'servers' ? requestDrawer(s, null) : s),
   toggleServerDrawer: () => set((s) => requestDrawer(s, requestedDrawer(s) === 'servers' ? null : 'servers')),
-  setChannelsSheetOpen: (v) => set((s) => v
-    ? requestDrawer(s, 'channels')
+  setChannelsSheetOpen: (v) => set((s) => s.drawerHandoff && !v
+    ? { serverDrawerOpen: false, channelsSheetOpen: false, drawerHandoff: false }
+    : v ? requestDrawer(s, 'channels')
     : requestedDrawer(s) === 'channels' ? requestDrawer(s, null) : s),
+  handoffToChannels: () => set({
+    serverDrawerOpen: true,
+    channelsSheetOpen: true,
+    closingDrawer: null,
+    pendingDrawer: null,
+    drawerHandoff: true,
+  }),
+  clearDrawerHandoff: () => set({ serverDrawerOpen: false, drawerHandoff: false }),
   finishDrawerClose: (drawer) => set((s) => s.closingDrawer !== drawer ? s : {
     serverDrawerOpen: s.pendingDrawer === 'servers',
     channelsSheetOpen: s.pendingDrawer === 'channels',
@@ -136,6 +152,7 @@ export const useUIStore = create<UIState>((set) => ({
       ...requestDrawer(s, null),
       serverDrawerOpen: false,
       channelsSheetOpen: false,
+      drawerHandoff: false,
       membersSheetOpen: false,
       searchOpen: false,
       threadsOpen: false,

@@ -11,6 +11,7 @@ import { useGameActivityStore } from '../../stores/gameActivityStore';
 import { useScreenshareSettingsSync } from '../../lib/screenshareSettingsSync';
 import { ScreenshareSettingsPanel } from './ScreenshareSettingsPanel';
 import { ScreenshareWizardModal } from './ScreenshareWizardModal';
+import { ScreenCapturePermissionNotice } from './ScreenCapturePermissionNotice';
 
 type PickerDesktopSource = { id: string; name: string; thumbnail: string | null; appIcon: string | null };
 
@@ -279,6 +280,9 @@ export function ScreenSharePickerModal() {
         )}
         {loading && <p className="text-xs text-text-muted">{t('settingsContent.ssPickerLoadingSources')}</p>}
         {error && <p className="text-xs text-danger">{error}</p>}
+        {step === 'select' && !loading && runningOnDesktop && !cameraMode && effectiveActiveTab !== 'devices' && sources.length === 0 && (
+          <ScreenCapturePermissionNotice />
+        )}
         {step === 'select' && (
           <>
             {cameraMode || activeTab === 'devices' ? (

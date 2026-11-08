@@ -8,6 +8,7 @@ import { getSocket } from '@/lib/socket';
 import { approveTrustedDeviceRequest, type DeviceApprovalRequest } from '@/lib/trustedDeviceApproval';
 import { useAuthStore } from '@/stores/authStore';
 import { useTheme } from '@/theme';
+import { oneTimeCodeKeyboardType } from '@/hooks/useDeviceLayout';
 
 function errorMessage(error: unknown, fallback: string) {
   return (error as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error
@@ -143,6 +144,14 @@ export function DeviceApprovalPrompt() {
     };
   }, [accountSwitching, outgoing?.id, token, user?.accountType]);
 
+  // Skipping is safe: the device just stays untrusted for encrypted DMs. Dropping `outgoing`
+  // also stops the status polling and code rotation; startedForAccountRef keeps this
+  // account from asking again until the next launch or account switch.
+  function approveLater() {
+    setOutgoing(null);
+    setError(null);
+  }
+
   async function deny() {
     if (!current) return;
     setBusy(true);
@@ -199,6 +208,12 @@ export function DeviceApprovalPrompt() {
               </Text>
               <Text style={[styles.displayCode, { color: theme.colors.text }]}>{outgoing.code ?? '••••-••••'}</Text>
               <Text variant="bodySmall" color={theme.colors.text3} style={styles.center}>This code changes in {seconds} second{seconds === 1 ? '' : 's'}.</Text>
+              <Pressable haptic onPress={approveLater} style={[styles.button, styles.laterButton, { borderColor: theme.colors.lineSoft, borderWidth: 1 }]}>
+                <Text color={theme.colors.text2}>Approve later</Text>
+              </Pressable>
+              <Text variant="caption" color={theme.colors.text3} style={styles.center}>
+                Encrypted DMs stay locked on this device until it's approved. You'll be asked again next time you open CatRealm.
+              </Text>
             </>
           ) : current ? (
             <>
@@ -217,7 +232,7 @@ export function DeviceApprovalPrompt() {
               ) : (
                 <>
                   <Text variant="bodySmall" style={styles.center}>Enter the 8-digit code shown on that device.</Text>
-                  <TextInput autoFocus keyboardType="number-pad" textContentType="oneTimeCode" maxLength={9} value={code}
+                  <TextInput autoFocus keyboardType={oneTimeCodeKeyboardType} textContentType="oneTimeCode" maxLength={9} value={code}
                     onChangeText={(value) => {
                       const digits = value.replace(/\D/g, '').slice(0, 8);
                       setCode(digits.length > 4 ? `${digits.slice(0, 4)}-${digits.slice(4)}` : digits);
@@ -249,4 +264,5 @@ const styles = StyleSheet.create({
   input: { width: '100%', borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, textAlign: 'center', fontSize: 25, letterSpacing: 4, fontVariant: ['tabular-nums'] },
   actions: { width: '100%', flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 4 },
   button: { minWidth: 92, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10, paddingHorizontal: 16 },
+  laterButton: { alignSelf: 'stretch', marginTop: 4 },
 });

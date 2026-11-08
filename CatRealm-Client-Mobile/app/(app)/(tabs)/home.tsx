@@ -3,35 +3,38 @@
  * Central accounts get the full friends experience; decentral accounts see recent DMs only.
  */
 
-import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Swipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { SafeAreaView } from '@/components/SafeAreaView';
 import { useRouter } from 'expo-router';
-import { BookText } from 'lucide-react-native';
+import { Bell, BookText, Palette } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme';
 import { Text, Avatar, Pressable, Sheet, FadeInImage } from '@/components';
+import { TourAnchor } from '@/components/TourAnchor';
 import { useDeviceLayout } from '@/hooks/useDeviceLayout';
 import { useAuthStore } from '@/stores/authStore';
 import { useFriendStore } from '@/stores/friendStore';
 import { useDMStore } from '@/stores/dmStore';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useUIStore } from '@/stores/uiStore';
 import { AUTH_BASE } from '@/lib/api';
 import type { Friend, FriendRequest } from '@/types';
 
 type Tab = 'all' | 'pending' | 'add';
 const ROLE_SYNC_INTERVAL_MS = 5000;
+const FLOATING_PROFILE_HEIGHT = 92;
 
-function formatStatusKey(status?: string | null): 'status.invisible' | 'status.away' | 'status.sleeping' | 'status.online' {
-  const normalized = String(status || '').trim().toLowerCase();
-  if (!normalized || normalized === 'offline' || normalized === 'invisible') return 'status.invisible';
+function formatStatusKey(
+  status?: string | null,
+): 'status.invisible' | 'status.away' | 'status.sleeping' | 'status.online' {
+  const normalized = String(status || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized || normalized === 'offline' || normalized === 'invisible')
+    return 'status.invisible';
   if (normalized === 'away') return 'status.away';
   if (normalized === 'sleeping') return 'status.sleeping';
   return 'status.online';
@@ -43,9 +46,19 @@ function resolveUrl(path?: string | null): string | null {
   return AUTH_BASE.replace(/\/$/, '') + (path.startsWith('/') ? path : '/' + path);
 }
 
+const FRIEND_GRID_GAP = 10;
+const FRIEND_CARD_MIN_WIDTH = 440;
+
 // ─── Friend card with banner ──────────────────────────────────────────────────
 
-function FriendCard({ friend, statusLabel, onOpenProfile, onRoles, onMessage, onRemove }: {
+function FriendCard({
+  friend,
+  statusLabel,
+  onOpenProfile,
+  onRoles,
+  onMessage,
+  onRemove,
+}: {
   friend: Friend;
   statusLabel: string;
   onOpenProfile: () => void;
@@ -65,7 +78,10 @@ function FriendCard({ friend, statusLabel, onOpenProfile, onRoles, onMessage, on
       haptic
       minHit={1}
       onPress={onOpenProfile}
-      style={[styles.card, { backgroundColor: theme.colors.bgElev1, borderColor: theme.colors.lineSoft }]}
+      style={[
+        styles.card,
+        { backgroundColor: theme.colors.bgElev1, borderColor: theme.colors.lineSoft },
+      ]}
     >
       {/* Banner */}
       <View style={[styles.banner, { height: bannerHeight }]}>
@@ -82,7 +98,9 @@ function FriendCard({ friend, statusLabel, onOpenProfile, onRoles, onMessage, on
           <Avatar username={friend.username} uri={avatarUri} size={48} shape="circle" />
         </View>
         <View style={styles.cardInfo}>
-          <Text variant="subtitle" numberOfLines={1}>{friend.username}</Text>
+          <Text variant="subtitle" numberOfLines={1}>
+            {friend.username}
+          </Text>
           <Text variant="caption" color={theme.colors.text3}>
             {statusLabel}
           </Text>
@@ -92,25 +110,40 @@ function FriendCard({ friend, statusLabel, onOpenProfile, onRoles, onMessage, on
             haptic
             minHit={1}
             onPress={onRoles}
-            style={[styles.actionBtn, { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.sm }]}
+            style={[
+              styles.actionBtn,
+              { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.sm },
+            ]}
           >
-            <Text variant="caption" color={theme.colors.text}>{t('home.friendCardRoles')}</Text>
+            <Text variant="caption" color={theme.colors.text}>
+              {t('home.friendCardRoles')}
+            </Text>
           </Pressable>
           <Pressable
             haptic
             minHit={1}
             onPress={onMessage}
-            style={[styles.actionBtn, { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.sm }]}
+            style={[
+              styles.actionBtn,
+              { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.sm },
+            ]}
           >
-            <Text variant="caption" color={theme.colors.text}>{t('home.friendCardMessage')}</Text>
+            <Text variant="caption" color={theme.colors.text}>
+              {t('home.friendCardMessage')}
+            </Text>
           </Pressable>
           <Pressable
             haptic
             minHit={1}
             onPress={onRemove}
-            style={[styles.actionBtn, { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.sm }]}
+            style={[
+              styles.actionBtn,
+              { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.sm },
+            ]}
           >
-            <Text variant="caption" color={theme.colors.danger}>{t('home.friendCardRemove')}</Text>
+            <Text variant="caption" color={theme.colors.danger}>
+              {t('home.friendCardRemove')}
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -120,7 +153,12 @@ function FriendCard({ friend, statusLabel, onOpenProfile, onRoles, onMessage, on
 
 // ─── Request row ──────────────────────────────────────────────────────────────
 
-function RequestRow({ req, type, onAccept, onCancel }: {
+function RequestRow({
+  req,
+  type,
+  onAccept,
+  onCancel,
+}: {
   req: FriendRequest;
   type: 'incoming' | 'outgoing';
   onAccept?: () => void;
@@ -135,23 +173,35 @@ function RequestRow({ req, type, onAccept, onCancel }: {
   return (
     <View style={[styles.reqRow, { borderBottomColor: theme.colors.lineSoft }]}>
       <Avatar username={username} uri={avatarUri} size={36} shape="circle" />
-      <Text variant="body" style={{ flex: 1 }} numberOfLines={1}>{username}</Text>
+      <Text variant="body" style={{ flex: 1 }} numberOfLines={1}>
+        {username}
+      </Text>
       <View style={{ flexDirection: 'row', gap: 8 }}>
         {isIncoming && onAccept && (
           <Pressable
             haptic
             onPress={onAccept}
-            style={[styles.actionBtn, { backgroundColor: theme.colors.accent, borderRadius: theme.radius.sm }]}
+            style={[
+              styles.actionBtn,
+              { backgroundColor: theme.colors.accent, borderRadius: theme.radius.sm },
+            ]}
           >
-            <Text variant="caption" color={theme.colors.textOnAccent}>{t('home.requestAccept')}</Text>
+            <Text variant="caption" color={theme.colors.textOnAccent}>
+              {t('home.requestAccept')}
+            </Text>
           </Pressable>
         )}
         <Pressable
           haptic
           onPress={onCancel}
-          style={[styles.actionBtn, { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.sm }]}
+          style={[
+            styles.actionBtn,
+            { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.sm },
+          ]}
         >
-          <Text variant="caption" color={theme.colors.text2}>{isIncoming ? t('home.requestReject') : t('home.requestCancel')}</Text>
+          <Text variant="caption" color={theme.colors.text2}>
+            {isIncoming ? t('home.requestReject') : t('home.requestCancel')}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -165,8 +215,22 @@ export default function HomeTab() {
   const { t } = useTranslation();
   const router = useRouter();
   const { isTablet } = useDeviceLayout();
+  // Tablet columns follow the space the grid actually has (the left column takes
+  // part of the screen), so each card keeps room for its name and actions.
+  const [friendGridWidth, setFriendGridWidth] = useState(0);
+  const friendGridInner = friendGridWidth - theme.spacing.lg * 2;
+  const friendColumns = Math.max(1, Math.floor((friendGridInner + FRIEND_GRID_GAP) / (FRIEND_CARD_MIN_WIDTH + FRIEND_GRID_GAP)));
+  const friendCardWidth = isTablet && friendGridWidth > 0
+    ? Math.floor((friendGridInner - FRIEND_GRID_GAP * (friendColumns - 1)) / friendColumns)
+    : undefined;
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
+  const profileStatusColor =
+    (user?.status && theme.colors.statusColor[user.status]) || theme.colors.accent;
+const channelsSheetOpen = useUIStore((s) => s.channelsSheetOpen);
+  const serverDrawerOpen = useUIStore((s) => s.serverDrawerOpen);
   const isCentral = user?.accountType === 'central';
+  const profileHover = useRef(new Animated.Value(0)).current;
 
   const friends = useFriendStore((s) => s.friends);
   const incoming = useFriendStore((s) => s.incoming);
@@ -219,6 +283,17 @@ export default function HomeTab() {
     return () => clearInterval(timer);
   }, [isCentral, loadPersonalRoles]);
 
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(profileHover, { toValue: -6, duration: 1800, useNativeDriver: true }),
+        Animated.timing(profileHover, { toValue: 0, duration: 1800, useNativeDriver: true }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [profileHover]);
+
   const recentDMs = [...conversations]
     .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
     .slice(0, 8);
@@ -227,7 +302,10 @@ export default function HomeTab() {
     if (conversationId) {
       router.push({ pathname: '/dm/[conversationId]', params: { conversationId } });
     } else {
-      router.push({ pathname: '/profile/[userId]', params: { userId: otherUserId, context: 'central' } });
+      router.push({
+        pathname: '/profile/[userId]',
+        params: { userId: otherUserId, context: 'central' },
+      });
     }
   };
 
@@ -269,20 +347,23 @@ export default function HomeTab() {
 
   const TABS: { key: Tab; label: string }[] = [
     { key: 'all', label: t('home.allCount', { count: friends.length }) },
-    { key: 'pending', label: incoming.length > 0 ? t('home.pendingCount', { count: incoming.length }) : t('home.pending') },
+    {
+      key: 'pending',
+      label:
+        incoming.length > 0
+          ? t('home.pendingCount', { count: incoming.length })
+          : t('home.pending'),
+    },
     { key: 'add', label: t('home.addFriend') },
   ];
 
-  const filteredFriends = roleFilter === 'all'
-    ? friends
-    : friends.filter((friend) => (roleAssignments[friend.id] ?? []).includes(roleFilter));
+  const filteredFriends =
+    roleFilter === 'all'
+      ? friends
+      : friends.filter((friend) => (roleAssignments[friend.id] ?? []).includes(roleFilter));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bgApp }} edges={['top']}>
-      <View style={{ paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md, paddingBottom: theme.spacing.sm }}>
-        <Text variant="display">{t('tabs.home')}</Text>
-      </View>
-
       {/* Tabs — only shown for central accounts */}
       {isCentral && (
         <ScrollView
@@ -296,7 +377,11 @@ export default function HomeTab() {
               key={t.key}
               haptic
               minHit={1}
-              onPress={() => { setTab(t.key); clearError(); setSuccessMsg(''); }}
+              onPress={() => {
+                setTab(t.key);
+                clearError();
+                setSuccessMsg('');
+              }}
               style={[
                 styles.tabBtn,
                 {
@@ -314,6 +399,34 @@ export default function HomeTab() {
               </Text>
             </Pressable>
           ))}
+          <Pressable
+            haptic
+            accessibilityRole="button"
+            accessibilityLabel={t('settings.sectionTheme', { defaultValue: 'Themes' })}
+            onPress={() =>
+              router.push({ pathname: '/(app)/settings', params: { section: 'appearance' } })
+            }
+            style={[
+              styles.iconTabBtn,
+              { backgroundColor: theme.colors.bgElev1, borderRadius: theme.radius.md },
+            ]}
+          >
+            <Palette size={18} color={theme.colors.accentText} />
+          </Pressable>
+          <TourAnchor name="dock-notifications">
+            <Pressable
+              haptic
+              accessibilityRole="button"
+              accessibilityLabel={t('tabs.notifications')}
+              onPress={() => router.replace('/(app)/(tabs)/discover')}
+              style={[
+                styles.iconTabBtn,
+                { backgroundColor: theme.colors.bgElev1, borderRadius: theme.radius.md },
+              ]}
+            >
+              <Bell size={18} color={theme.colors.text} />
+            </Pressable>
+          </TourAnchor>
         </ScrollView>
       )}
 
@@ -323,28 +436,33 @@ export default function HomeTab() {
         onPress={() => router.push('/notes')}
         style={[
           styles.notesBtn,
-          { backgroundColor: theme.colors.bgElev1, borderColor: theme.colors.lineSoft, borderRadius: theme.radius.md, marginHorizontal: theme.spacing.lg, marginBottom: theme.spacing.md },
+          {
+            backgroundColor: theme.colors.bgElev1,
+            borderColor: theme.colors.lineSoft,
+            borderRadius: theme.radius.md,
+            marginHorizontal: theme.spacing.lg,
+            marginBottom: theme.spacing.md,
+          },
         ]}
       >
         <View style={[styles.notesBtnIcon, { backgroundColor: theme.colors.accent + '22' }]}>
           <BookText color={theme.colors.accent} size={18} />
         </View>
-        <Text variant="subtitle" style={{ flex: 1 }}>{t('home.myNotes')}</Text>
-        <Text variant="caption" color={theme.colors.text3}>{t('home.privateEncrypted')}</Text>
+        <Text variant="subtitle" style={{ flex: 1 }}>
+          {t('home.myNotes')}
+        </Text>
+        <Text variant="caption" color={theme.colors.text3}>
+          {t('home.privateEncrypted')}
+        </Text>
       </Pressable>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-
+      <ScrollView contentContainerStyle={{ paddingBottom: 186 }}>
         {(!isCentral || tab === 'all') && (
           <>
             {isCentral && (
               <View style={{ marginTop: theme.spacing.lg }}>
                 <View style={[styles.filterHeaderRow, { paddingHorizontal: theme.spacing.lg }]}>
-                  <Text
-                    variant="caption"
-                    color={theme.colors.text3}
-                    style={styles.sectionLabel}
-                  >
+                  <Text variant="caption" color={theme.colors.text3} style={styles.sectionLabel}>
                     {t('home.filterByRoles')}
                   </Text>
                   <Text variant="caption" color={theme.colors.text3}>
@@ -354,7 +472,10 @@ export default function HomeTab() {
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={[styles.tabBar, { paddingHorizontal: theme.spacing.lg, gap: 6, paddingTop: 0 }]}
+                  contentContainerStyle={[
+                    styles.tabBar,
+                    { paddingHorizontal: theme.spacing.lg, gap: 6, paddingTop: 0 },
+                  ]}
                 >
                   <Pressable
                     haptic
@@ -362,12 +483,17 @@ export default function HomeTab() {
                     style={[
                       styles.tabBtn,
                       {
-                        backgroundColor: roleFilter === 'all' ? theme.colors.accent : theme.colors.bgElev1,
+                        backgroundColor:
+                          roleFilter === 'all' ? theme.colors.accent : theme.colors.bgElev1,
                         borderRadius: theme.radius.md,
                       },
                     ]}
                   >
-                    <Text variant="caption" color={roleFilter === 'all' ? theme.colors.textOnAccent : theme.colors.text2} style={{ fontWeight: '600' }}>
+                    <Text
+                      variant="caption"
+                      color={roleFilter === 'all' ? theme.colors.textOnAccent : theme.colors.text2}
+                      style={{ fontWeight: '600' }}
+                    >
                       {t('home.allFriends')}
                     </Text>
                   </Pressable>
@@ -378,12 +504,17 @@ export default function HomeTab() {
                     style={[
                       styles.tabBtn,
                       {
-                        backgroundColor: roleFilter !== 'all' ? theme.colors.accent : theme.colors.bgElev1,
+                        backgroundColor:
+                          roleFilter !== 'all' ? theme.colors.accent : theme.colors.bgElev1,
                         borderRadius: theme.radius.md,
                       },
                     ]}
                   >
-                    <Text variant="caption" color={roleFilter !== 'all' ? theme.colors.textOnAccent : theme.colors.text2} style={{ fontWeight: '600' }}>
+                    <Text
+                      variant="caption"
+                      color={roleFilter !== 'all' ? theme.colors.textOnAccent : theme.colors.text2}
+                      style={{ fontWeight: '600' }}
+                    >
                       {t('home.filterRoles')}
                     </Text>
                   </Pressable>
@@ -399,7 +530,11 @@ export default function HomeTab() {
                       },
                     ]}
                   >
-                    <Text variant="caption" color={theme.colors.text2} style={{ fontWeight: '600' }}>
+                    <Text
+                      variant="caption"
+                      color={theme.colors.text2}
+                      style={{ fontWeight: '600' }}
+                    >
                       {t('home.roleManagement')}
                     </Text>
                   </Pressable>
@@ -407,12 +542,19 @@ export default function HomeTab() {
               </View>
             )}
 
-            <View style={[
-              { padding: theme.spacing.lg, gap: 10 },
-              isTablet && { flexDirection: 'row', flexWrap: 'wrap' },
-            ]}>
+            <View
+              onLayout={isTablet ? (e) => setFriendGridWidth(e.nativeEvent.layout.width) : undefined}
+              style={[
+                { padding: theme.spacing.lg, gap: FRIEND_GRID_GAP },
+                isTablet && { flexDirection: 'row', flexWrap: 'wrap' },
+              ]}
+            >
               {(isCentral ? filteredFriends : friends).length === 0 ? (
-                <Text variant="body" color={theme.colors.text3} style={{ textAlign: 'center', marginTop: 40 }}>
+                <Text
+                  variant="body"
+                  color={theme.colors.text3}
+                  style={{ textAlign: 'center', marginTop: 40 }}
+                >
                   {isCentral && roleFilter !== 'all'
                     ? t('home.noFriendsRoleFilter')
                     : t('home.noFriendsYet')}
@@ -420,13 +562,19 @@ export default function HomeTab() {
               ) : (
                 (isCentral ? filteredFriends : friends).map((friend) => {
                   const convo = conversations.find((c) => c.otherUserId === friend.id);
-                  const friendStatus = presence[friend.id]?.status ?? convo?.otherStatus ?? friend.status;
+                  const friendStatus =
+                    presence[friend.id]?.status ?? convo?.otherStatus ?? friend.status;
                   return (
-                    <View key={friend.id} style={isTablet && { width: '48%' }}>
+                    <View key={friend.id} style={friendCardWidth ? { width: friendCardWidth } : undefined}>
                       <FriendCard
                         friend={friend}
                         statusLabel={t(formatStatusKey(friendStatus))}
-                        onOpenProfile={() => router.push({ pathname: '/profile/[userId]', params: { userId: friend.id, context: 'central' } })}
+                        onOpenProfile={() =>
+                          router.push({
+                            pathname: '/profile/[userId]',
+                            params: { userId: friend.id, context: 'central' },
+                          })
+                        }
                         onRoles={() => openRoleSheet(friend)}
                         onMessage={() => navigateToDM(friend.id, convo?.id)}
                         onRemove={() => handleRemove(friend)}
@@ -452,7 +600,9 @@ export default function HomeTab() {
           <View style={{ paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.lg }}>
             {incoming.length > 0 && (
               <>
-                <Text variant="caption" color={theme.colors.text3} style={styles.sectionLabel}>{t('home.incoming')}</Text>
+                <Text variant="caption" color={theme.colors.text3} style={styles.sectionLabel}>
+                  {t('home.incoming')}
+                </Text>
                 {incoming.map((req) => (
                   <RequestRow
                     key={req.id}
@@ -466,7 +616,13 @@ export default function HomeTab() {
             )}
             {outgoing.length > 0 && (
               <>
-                <Text variant="caption" color={theme.colors.text3} style={[styles.sectionLabel, { marginTop: 20 }]}>{t('home.outgoing')}</Text>
+                <Text
+                  variant="caption"
+                  color={theme.colors.text3}
+                  style={[styles.sectionLabel, { marginTop: 20 }]}
+                >
+                  {t('home.outgoing')}
+                </Text>
                 {outgoing.map((req) => (
                   <RequestRow
                     key={req.id}
@@ -478,7 +634,11 @@ export default function HomeTab() {
               </>
             )}
             {incoming.length === 0 && outgoing.length === 0 && (
-              <Text variant="body" color={theme.colors.text3} style={{ textAlign: 'center', marginTop: 20 }}>
+              <Text
+                variant="body"
+                color={theme.colors.text3}
+                style={{ textAlign: 'center', marginTop: 20 }}
+              >
                 {t('home.noPendingRequests')}
               </Text>
             )}
@@ -498,28 +658,130 @@ export default function HomeTab() {
               placeholderTextColor={theme.colors.text3}
               autoCapitalize="none"
               autoCorrect={false}
-              style={[styles.input, { backgroundColor: theme.colors.bgElev2, color: theme.colors.text, borderColor: theme.colors.lineSoft }]}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.colors.bgElev2,
+                  color: theme.colors.text,
+                  borderColor: theme.colors.lineSoft,
+                },
+              ]}
             />
-            {error ? <Text variant="bodySmall" color={theme.colors.danger}>{error}</Text> : null}
-            {successMsg ? <Text variant="bodySmall" color={theme.colors.online}>{successMsg}</Text> : null}
+            {error ? (
+              <Text variant="bodySmall" color={theme.colors.danger}>
+                {error}
+              </Text>
+            ) : null}
+            {successMsg ? (
+              <Text variant="bodySmall" color={theme.colors.online}>
+                {successMsg}
+              </Text>
+            ) : null}
             <Pressable
               haptic
               onPress={() => void handleSendRequest()}
-              style={[styles.sendBtn, { backgroundColor: theme.colors.accent, borderRadius: theme.radius.md, opacity: (!addUsername.trim() || loading) ? 0.5 : 1 }]}
+              style={[
+                styles.sendBtn,
+                {
+                  backgroundColor: theme.colors.accent,
+                  borderRadius: theme.radius.md,
+                  opacity: !addUsername.trim() || loading ? 0.5 : 1,
+                },
+              ]}
             >
-              {loading
-                ? <ActivityIndicator color={theme.colors.textOnAccent} size="small" />
-                : <Text variant="body" color={theme.colors.textOnAccent} style={{ fontWeight: '600' }}>{t('home.sendFriendRequest')}</Text>
-              }
+              {loading ? (
+                <ActivityIndicator color={theme.colors.textOnAccent} size="small" />
+              ) : (
+                <Text
+                  variant="body"
+                  color={theme.colors.textOnAccent}
+                  style={{ fontWeight: '600' }}
+                >
+                  {t('home.sendFriendRequest')}
+                </Text>
+              )}
             </Pressable>
           </View>
         )}
-
       </ScrollView>
 
-      <Sheet open={filterRoleSheetOpen} onClose={() => setFilterRoleSheetOpen(false)} maxHeightFraction={0.62}>
-        <ScrollView contentContainerStyle={{ paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xl }}>
-          <Text variant="subtitle" style={{ marginBottom: 6 }}>{t('home.filterRoles')}</Text>
+      {/* Tablets show the desktop-style profile bar in the left column instead. */}
+      {!isTablet && !channelsSheetOpen && !serverDrawerOpen ? (
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            styles.floatingProfileWrap,
+            {
+              bottom: Math.max(insets.bottom + 12, 18),
+              transform: [{ translateY: profileHover }],
+            },
+          ]}
+        >
+          {/* The tour's "Open your profile" step points here now that the header has no You button. */}
+          <TourAnchor name="dock-me">
+            <Pressable
+              haptic
+              accessibilityRole="button"
+              accessibilityLabel={t('tabs.you')}
+              onPress={() => router.replace('/(app)/(tabs)/me')}
+              style={[
+                styles.floatingProfilePill,
+                {
+                  backgroundColor: theme.colors.bgElev2,
+                  borderColor: profileStatusColor,
+                  // The border and glow show your status instead of a dot on the avatar.
+                  boxShadow: [
+                    {
+                      offsetX: 0,
+                      offsetY: 0,
+                      blurRadius: 18,
+                      spreadDistance: 1,
+                      color: `${profileStatusColor}8C`,
+                    },
+                  ],
+                },
+              ]}
+            >
+              {/* Clipped separately so the pill's rounded corners don't also cut off its glow. */}
+              <View style={styles.floatingProfileClip}>
+                <Avatar
+                  username={user?.username ?? t('tabs.you')}
+                  uri={resolveUrl(user?.avatar) ?? user?.avatar ?? null}
+                  size={FLOATING_PROFILE_HEIGHT}
+                  shape="square"
+                  radius={0}
+                  showStatus={false}
+                  // A transparent avatar shows the screen behind it, whatever the avatar-background setting.
+                  style={{ backgroundColor: 'transparent' }}
+                />
+                <View style={styles.floatingBanner}>
+                  {user?.banner ? (
+                    <FadeInImage
+                      uri={resolveUrl(user.banner) ?? user.banner}
+                      style={StyleSheet.absoluteFill}
+                    />
+                  ) : null}
+                </View>
+              </View>
+            </Pressable>
+          </TourAnchor>
+        </Animated.View>
+      ) : null}
+
+      <Sheet
+        open={filterRoleSheetOpen}
+        onClose={() => setFilterRoleSheetOpen(false)}
+        maxHeightFraction={0.62}
+      >
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: theme.spacing.lg,
+            paddingBottom: theme.spacing.xl,
+          }}
+        >
+          <Text variant="subtitle" style={{ marginBottom: 6 }}>
+            {t('home.filterRoles')}
+          </Text>
           <Text variant="caption" color={theme.colors.text3} style={{ marginBottom: 12 }}>
             {t('home.selectRoleFilter')}
           </Text>
@@ -538,8 +800,14 @@ export default function HomeTab() {
             ]}
           >
             <View style={[styles.roleDot, { backgroundColor: theme.colors.accent }]} />
-            <Text variant="body" style={{ flex: 1 }}>{t('home.allFriends')}</Text>
-            {roleFilter === 'all' ? <Text variant="caption" color={theme.colors.online}>{t('home.selected')}</Text> : null}
+            <Text variant="body" style={{ flex: 1 }}>
+              {t('home.allFriends')}
+            </Text>
+            {roleFilter === 'all' ? (
+              <Text variant="caption" color={theme.colors.online}>
+                {t('home.selected')}
+              </Text>
+            ) : null}
           </Pressable>
           {personalRoles.map((role) => (
             <Pressable
@@ -552,23 +820,41 @@ export default function HomeTab() {
               style={[
                 styles.roleRow,
                 {
-                  borderColor: roleFilter === role.id ? (role.color || theme.colors.accent) : theme.colors.lineSoft,
+                  borderColor:
+                    roleFilter === role.id
+                      ? role.color || theme.colors.accent
+                      : theme.colors.lineSoft,
                   backgroundColor: theme.colors.bgElev2,
                 },
               ]}
             >
-              <View style={[styles.roleDot, { backgroundColor: role.color || theme.colors.accent }]} />
-              <Text variant="body" style={{ flex: 1 }}>{role.name}</Text>
-              {roleFilter === role.id ? <Text variant="caption" color={theme.colors.online}>{t('home.selected')}</Text> : null}
+              <View
+                style={[styles.roleDot, { backgroundColor: role.color || theme.colors.accent }]}
+              />
+              <Text variant="body" style={{ flex: 1 }}>
+                {role.name}
+              </Text>
+              {roleFilter === role.id ? (
+                <Text variant="caption" color={theme.colors.online}>
+                  {t('home.selected')}
+                </Text>
+              ) : null}
             </Pressable>
           ))}
         </ScrollView>
       </Sheet>
 
       <Sheet open={roleSheetOpen} onClose={() => setRoleSheetOpen(false)} maxHeightFraction={0.72}>
-        <ScrollView contentContainerStyle={{ paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xl }}>
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: theme.spacing.lg,
+            paddingBottom: theme.spacing.xl,
+          }}
+        >
           <Text variant="subtitle" style={{ marginBottom: 6 }}>
-            {roleSheetFriend ? t('home.rolesFor', { username: roleSheetFriend.username }) : t('home.createPersonalRole')}
+            {roleSheetFriend
+              ? t('home.rolesFor', { username: roleSheetFriend.username })
+              : t('home.createPersonalRole')}
           </Text>
           <Text variant="caption" color={theme.colors.text3} style={{ marginBottom: 12 }}>
             {roleSheetFriend ? t('home.tapToAssignUnassign') : t('home.createRoleDesc')}
@@ -580,7 +866,14 @@ export default function HomeTab() {
               onChangeText={setNewRoleName}
               placeholder={t('home.roleName')}
               placeholderTextColor={theme.colors.text3}
-              style={[styles.input, { backgroundColor: theme.colors.bgElev2, color: theme.colors.text, borderColor: theme.colors.lineSoft }]}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.colors.bgElev2,
+                  color: theme.colors.text,
+                  borderColor: theme.colors.lineSoft,
+                },
+              ]}
             />
             <TextInput
               value={newRoleColor}
@@ -588,14 +881,30 @@ export default function HomeTab() {
               placeholder="#8B6FF7"
               placeholderTextColor={theme.colors.text3}
               autoCapitalize="characters"
-              style={[styles.input, { backgroundColor: theme.colors.bgElev2, color: theme.colors.text, borderColor: theme.colors.lineSoft }]}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.colors.bgElev2,
+                  color: theme.colors.text,
+                  borderColor: theme.colors.lineSoft,
+                },
+              ]}
             />
             <Pressable
               haptic
               onPress={() => void handleCreateRole()}
-              style={[styles.sendBtn, { backgroundColor: theme.colors.accent, borderRadius: theme.radius.md, opacity: (!newRoleName.trim() || loading) ? 0.5 : 1 }]}
+              style={[
+                styles.sendBtn,
+                {
+                  backgroundColor: theme.colors.accent,
+                  borderRadius: theme.radius.md,
+                  opacity: !newRoleName.trim() || loading ? 0.5 : 1,
+                },
+              ]}
             >
-              <Text variant="body" color={theme.colors.textOnAccent} style={{ fontWeight: '600' }}>{t('home.createRole')}</Text>
+              <Text variant="body" color={theme.colors.textOnAccent} style={{ fontWeight: '600' }}>
+                {t('home.createRole')}
+              </Text>
             </Pressable>
           </View>
 
@@ -605,7 +914,9 @@ export default function HomeTab() {
             </Text>
           )}
           {personalRoles.map((role) => {
-            const assigned = roleSheetFriend ? (roleAssignments[roleSheetFriend.id] ?? []).includes(role.id) : false;
+            const assigned = roleSheetFriend
+              ? (roleAssignments[roleSheetFriend.id] ?? []).includes(role.id)
+              : false;
             const roleRow = (
               <Pressable
                 key={role.id}
@@ -617,15 +928,25 @@ export default function HomeTab() {
                 style={[
                   styles.roleRow,
                   {
-                    borderColor: assigned ? (role.color || theme.colors.accent) : theme.colors.lineSoft,
+                    borderColor: assigned
+                      ? role.color || theme.colors.accent
+                      : theme.colors.lineSoft,
                     backgroundColor: theme.colors.bgElev2,
                   },
                 ]}
               >
-                <View style={[styles.roleDot, { backgroundColor: role.color || theme.colors.accent }]} />
-                <Text variant="body" style={{ flex: 1 }}>{role.name}</Text>
+                <View
+                  style={[styles.roleDot, { backgroundColor: role.color || theme.colors.accent }]}
+                />
+                <Text variant="body" style={{ flex: 1 }}>
+                  {role.name}
+                </Text>
                 <Text variant="caption" color={assigned ? theme.colors.online : theme.colors.text3}>
-                  {roleSheetFriend ? (assigned ? t('home.assigned') : t('home.notAssigned')) : t('home.friendCount', { count: role.friendCount })}
+                  {roleSheetFriend
+                    ? assigned
+                      ? t('home.assigned')
+                      : t('home.notAssigned')
+                    : t('home.friendCount', { count: role.friendCount })}
                 </Text>
               </Pressable>
             );
@@ -645,7 +966,11 @@ export default function HomeTab() {
                         { backgroundColor: theme.colors.danger, borderRadius: theme.radius.md },
                       ]}
                     >
-                      <Text variant="caption" color={theme.colors.textOnAccent} style={{ fontWeight: '700' }}>
+                      <Text
+                        variant="caption"
+                        color={theme.colors.textOnAccent}
+                        style={{ fontWeight: '700' }}
+                      >
                         {t('common.delete')}
                       </Text>
                     </Pressable>
@@ -659,9 +984,15 @@ export default function HomeTab() {
         </ScrollView>
       </Sheet>
 
-      <Sheet open={!!confirmRemoveFriend} onClose={() => setConfirmRemoveFriend(null)} maxHeightFraction={0.34}>
+      <Sheet
+        open={!!confirmRemoveFriend}
+        onClose={() => setConfirmRemoveFriend(null)}
+        maxHeightFraction={0.34}
+      >
         <View style={{ paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xl }}>
-          <Text variant="subtitle" style={{ marginBottom: 10 }}>{t('home.removeFriend')}</Text>
+          <Text variant="subtitle" style={{ marginBottom: 10 }}>
+            {t('home.removeFriend')}
+          </Text>
           <Text variant="body" color={theme.colors.text2} style={{ marginBottom: 16 }}>
             {t('home.removeFriendConfirm', { username: confirmRemoveFriend?.username })}
           </Text>
@@ -669,9 +1000,14 @@ export default function HomeTab() {
             <Pressable
               haptic
               onPress={() => setConfirmRemoveFriend(null)}
-              style={[styles.confirmBtn, { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.md }]}
+              style={[
+                styles.confirmBtn,
+                { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.md },
+              ]}
             >
-              <Text variant="body" color={theme.colors.text}>{t('common.cancel')}</Text>
+              <Text variant="body" color={theme.colors.text}>
+                {t('common.cancel')}
+              </Text>
             </Pressable>
             <Pressable
               haptic
@@ -680,17 +1016,28 @@ export default function HomeTab() {
                 await removeFriend(confirmRemoveFriend.id);
                 setConfirmRemoveFriend(null);
               }}
-              style={[styles.confirmBtn, { backgroundColor: theme.colors.danger, borderRadius: theme.radius.md }]}
+              style={[
+                styles.confirmBtn,
+                { backgroundColor: theme.colors.danger, borderRadius: theme.radius.md },
+              ]}
             >
-              <Text variant="body" color={theme.colors.textOnAccent} style={{ fontWeight: '700' }}>{t('common.remove')}</Text>
+              <Text variant="body" color={theme.colors.textOnAccent} style={{ fontWeight: '700' }}>
+                {t('common.remove')}
+              </Text>
             </Pressable>
           </View>
         </View>
       </Sheet>
 
-      <Sheet open={!!confirmDeleteRoleId} onClose={() => setConfirmDeleteRoleId(null)} maxHeightFraction={0.34}>
+      <Sheet
+        open={!!confirmDeleteRoleId}
+        onClose={() => setConfirmDeleteRoleId(null)}
+        maxHeightFraction={0.34}
+      >
         <View style={{ paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xl }}>
-          <Text variant="subtitle" style={{ marginBottom: 10 }}>{t('home.confirmDeleteRole')}</Text>
+          <Text variant="subtitle" style={{ marginBottom: 10 }}>
+            {t('home.confirmDeleteRole')}
+          </Text>
           <Text variant="body" color={theme.colors.text2} style={{ marginBottom: 16 }}>
             {t('home.confirmDeleteRoleDesc')}
           </Text>
@@ -706,9 +1053,14 @@ export default function HomeTab() {
                 setConfirmDeleteRoleId(null);
                 setRoleSheetOpen(true);
               }}
-              style={[styles.confirmBtn, { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.md }]}
+              style={[
+                styles.confirmBtn,
+                { backgroundColor: theme.colors.bgElev2, borderRadius: theme.radius.md },
+              ]}
             >
-              <Text variant="body" color={theme.colors.text}>{t('common.cancel')}</Text>
+              <Text variant="body" color={theme.colors.text}>
+                {t('common.cancel')}
+              </Text>
             </Pressable>
             <Pressable
               haptic
@@ -718,9 +1070,14 @@ export default function HomeTab() {
                 setConfirmDeleteRoleId(null);
                 setRoleSheetOpen(true);
               }}
-              style={[styles.confirmBtn, { backgroundColor: theme.colors.danger, borderRadius: theme.radius.md }]}
+              style={[
+                styles.confirmBtn,
+                { backgroundColor: theme.colors.danger, borderRadius: theme.radius.md },
+              ]}
             >
-              <Text variant="body" color={theme.colors.textOnAccent} style={{ fontWeight: '700' }}>{t('common.delete')}</Text>
+              <Text variant="body" color={theme.colors.textOnAccent} style={{ fontWeight: '700' }}>
+                {t('common.delete')}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -758,6 +1115,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
+  },
+  iconTabBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingProfileWrap: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    zIndex: 20,
+  },
+  floatingProfilePill: {
+    borderRadius: 22,
+    borderWidth: 1.5,
+  },
+  // Avatar beside the banner rather than over it, both filling the pill edge to edge.
+  floatingProfileClip: {
+    flexDirection: 'row',
+    height: FLOATING_PROFILE_HEIGHT,
+    borderRadius: 20.5,
+    overflow: 'hidden',
+  },
+  floatingBanner: {
+    flex: 1,
   },
   sectionLabel: {
     textTransform: 'uppercase',

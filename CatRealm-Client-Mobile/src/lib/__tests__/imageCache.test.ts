@@ -30,3 +30,21 @@ test('a burst of image downloads triggers one cache cap scan', async () => {
     jest.useRealTimers();
   }
 });
+
+test('a zero-byte cached file is discarded and downloaded again', async () => {
+  const FileSystem = jest.requireMock('expo-file-system/legacy');
+  FileSystem.getInfoAsync.mockImplementationOnce(async () => ({ exists: true, isDirectory: true }));
+  FileSystem.getInfoAsync.mockImplementationOnce(async () => ({ exists: true, size: 0 }));
+  const uri = await getCachedUri('https://example.com/empty.png', 'Central/Zero');
+  expect(FileSystem.deleteAsync).toHaveBeenCalledWith(uri, { idempotent: true });
+  expect(FileSystem.downloadAsync).toHaveBeenCalledWith('https://example.com/empty.png', uri);
+});
+
+test.each([
+  ['https://example.com/v1.2/photo', /\.jpg$/],
+  ['https://example.com/photo.php?id=1', /\.jpg$/],
+  ['https://example.com/photo.WEBP#frag', /\.webp$/],
+  ['https://example.com/clip.ogv', /\.ogv$/],
+])('names the cache file for %s with a decodable extension', async (url, expected) => {
+  expect(await getCachedUri(url, 'Central/Names')).toMatch(expected);
+});

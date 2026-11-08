@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import type { MouseEvent } from 'react';
 import type { DMMessage } from '../../types';
@@ -10,6 +10,7 @@ import { DMMessageListStatus } from './DMViewStates';
 import { SystemMessageRow } from './SystemMessageRow';
 import { CallSystemMessageRow } from './CallSystemMessageRow';
 import { AnimatePresence } from 'motion/react';
+import { hiddenSafetyArtifactKeys, hideSafetyAttachments, hideSafetyLinks, reportableSafetyArtifacts } from '../../lib/safetyReporting';
 
 type DMMessageListProps = {
   authBase: string;
@@ -57,6 +58,7 @@ type DMMessageListProps = {
   highlightedMessageId?: string | null;
   activeCallId?: string | null;
   onJoinCall?: () => void;
+  onReport?: (msg: DMMessage) => void;
 };
 
 export function DMMessageList({
@@ -94,10 +96,12 @@ export function DMMessageList({
   highlightedMessageId,
   activeCallId,
   onJoinCall,
+  onReport,
 }: DMMessageListProps) {
   const selfIds = new Set<string>(
     [user?.id, user?.serverUserId].filter((value): value is string => typeof value === 'string' && value.length > 0)
   );
+  const hiddenConversationLinks = useMemo(() => new Set(messages.flatMap((message) => [...hiddenSafetyArtifactKeys(message.safetyArtifacts)].filter((key) => key.startsWith('link:')))), [messages]);
 
   useEffect(() => {
     if (!highlightedMessageId) return;
@@ -126,7 +130,8 @@ export function DMMessageList({
       />
 
       {messages.map((msg: DMMessage, index: number) => {
-        if (msg.messageType === 'system') {
+        const isOfficialAnnouncement = msg.systemType === 'official_announcement';
+        if (msg.messageType === 'system' && !isOfficialAnnouncement) {
           const isCallType = /^call_/.test(msg.systemType ?? '');
           if (isCallType) {
             return (
@@ -168,7 +173,13 @@ export function DMMessageList({
         const showAvatar = !isGrouped;
         const isEditing = editingMessageId === msg.id;
         const parsedLegacyContext = !isEditing && msg.text ? parseDmContextText(msg.text) : null;
-        const displayText = parsedLegacyContext ? parsedLegacyContext.bodyText : (msg.text || '');
+        const hiddenSafetyKeys = new Set([...hiddenConversationLinks, ...hiddenSafetyArtifactKeys(msg.safetyArtifacts)]);
+        const safetyVisibleMessage = hiddenSafetyKeys.size ? {
+          ...msg,
+          text: hideSafetyLinks(msg.text, hiddenSafetyKeys),
+          attachments: hideSafetyAttachments(msg.attachments, hiddenSafetyKeys),
+        } : msg;
+        const displayText = hideSafetyLinks(parsedLegacyContext ? parsedLegacyContext.bodyText : (msg.text || ''), hiddenSafetyKeys);
         const authorAvatarUrl = isOwn
           ? (resolveAvatarUrl(user?.avatar ?? undefined, authBase, 'central') ?? defaultAvatarUrl())
           : (resolveAvatarUrl(activeConversation.otherAvatar ?? undefined, authBase, 'central') ?? defaultAvatarUrl());
@@ -176,18 +187,23 @@ export function DMMessageList({
         const authorName = isOwn
           ? (user?.displayName || user?.username || 'You')
           : (activeConversation.otherDisplayName || activeConversation.otherUsername);
-        const profileUserId = isOwn ? selfUserId : activeConversation.otherUserId;
+        const profileUserId = isOfficialAnnouncement ? null : (isOwn ? selfUserId : activeConversation.otherUserId);
+        const officialTitle = typeof msg.systemData?.title === 'string' ? msg.systemData.title : 'Official announcement';
+        const officialLink = typeof msg.systemData?.linkUrl === 'string' ? msg.systemData.linkUrl : null;
+        const formattedDisplayText = isOfficialAnnouncement
+          ? `# ${officialTitle}\n\n${displayText}${officialLink ? `\n\n[Open official link](${officialLink})` : ''}`
+          : displayText;
 
         return (
           <DMMessageRow
             key={msg.id}
-            msg={msg}
+            msg={safetyVisibleMessage}
             isOwn={isOwn}
             isGrouped={isGrouped}
             showAvatar={showAvatar}
             isEditing={isEditing}
             isHovered={hoveredMessageId === msg.id}
-            authorName={authorName}
+            authorName={isOfficialAnnouncement ? 'Official CatRealm ✓' : authorName}
             authorAvatarUrl={authorAvatarUrl}
             authorAvatarAlt={authorAvatarAlt}
             profileUserId={profileUserId}
@@ -199,7 +215,7 @@ export function DMMessageList({
               previewText: parsedLegacyContext.previewText,
               messageId: parsedLegacyContext.messageId,
             } : null}
-            displayText={displayText}
+            displayText={formattedDisplayText}
             editDraft={editDraft}
             editInputRef={editInputRef}
             onHoverStart={() => setHoveredMessageId(msg.id)}
@@ -242,6 +258,8 @@ export function DMMessageList({
               if (userId === activeConversation.otherUserId) return activeConversation.otherDisplayName || activeConversation.otherUsername;
               return null;
             }}
+            onReport={!isOfficialAnnouncement && !isOwn && reportableSafetyArtifacts(msg.text, msg.attachments).length ? onReport : undefined}
+            readOnly={isOfficialAnnouncement}
           />
         );
       })}

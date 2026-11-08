@@ -1,7 +1,7 @@
 {
   "name": "catrealm-client",
   "private": true,
-  "version": "1.9.3",
+  "version": "1.9.4",
   "description": "Official CatRealm client for web and desktop.",
   "license": "AGPL-3.0-or-later",
   "homepage": "https://catrealm.app",
@@ -42,6 +42,24 @@
     "win": {
       "target": "nsis",
       "icon": "public/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "public/web-app-manifest-512x512.png",
+      "category": "public.app-category.social-networking",
+      "identity": "-",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "publish": [
+        {
+          "provider": "generic",
+          "url": "https://catrealm.app/downloads/mac"
+        }
+      ]
     },
     "linux": {
       "target": [

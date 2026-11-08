@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import { ArrowUpDown, ChevronDown, ChevronRight, ChevronUp, Folder, FolderOpen, FolderPlus, MoreHorizontal, X, Trash2, Check } from 'lucide-react-native';
+import { ArrowUpDown, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, X, Trash2, Check } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { Text } from './Text';
@@ -16,8 +16,10 @@ import { Pressable } from './Pressable';
 import { IconBtn } from './IconBtn';
 import { Sheet } from './Sheet';
 import { ServerIcon } from './ServerIcon';
+import { ArrangeItem, type ArrangeIndicator } from './ArrangeItem';
+import { applyDrop, childItemId, computeDropTarget, topItemId, type DragSource, type DropTarget, type Rect } from '@/lib/arrangeDrop';
 import { useServerStore } from '@/stores/serverStore';
-import type { MobileServer, ServerFolder, ServerLayoutItem } from '@/stores/serverStore';
+import type { MobileServer, ServerFolder } from '@/stores/serverStore';
 import { buildServerListItems, folderContainingServer } from '@/lib/serverListItems';
 import { useDeviceLayout } from '@/hooks/useDeviceLayout';
 import { syncRealmUnreadCounts, useRealmUnreadStore } from '@/lib/realmReadState';
@@ -62,17 +64,7 @@ export function ServerListSection({
 }: ServerListSectionProps) {
   const theme = useTheme();
   const { t } = useTranslation();
-  const { isTablet, width, height } = useDeviceLayout();
-  const listRef = useRef<View>(null);
-  const [editorAnchorRight, setEditorAnchorRight] = useState(0);
-  const measureList = () => listRef.current?.measureInWindow((x, _y, listWidth) => {
-    if (listWidth > 0) setEditorAnchorRight(x + listWidth);
-  });
-  useEffect(() => {
-    if (!isTablet) return;
-    const frame = requestAnimationFrame(measureList);
-    return () => cancelAnimationFrame(frame);
-  }, [isTablet, width, height]);
+  const { isTablet } = useDeviceLayout();
   const servers = useServerStore((s) => s.servers);
   const unreadByServer = useRealmUnreadStore((s) => s.byServer);
   // Throttled per realm, so opening the list repeatedly costs nothing extra.
@@ -87,24 +79,132 @@ export function ServerListSection({
   const removeServerFromFolder = useServerStore((s) => s.removeServerFromFolder);
   const updateFolder = useServerStore((s) => s.updateFolder);
   const deleteFolder = useServerStore((s) => s.deleteFolder);
-  const reorderLayout = useServerStore((s) => s.reorderLayout);
+  const applyLayoutAndFolders = useServerStore((s) => s.applyLayoutAndFolders);
 
   const [editor, setEditorState] = useState<
     | { type: 'server'; server: MobileServer }
     | { type: 'folder'; folder: ServerFolder }
     | { type: 'create'; selected: string[] }
     | { type: 'add'; folder: ServerFolder }
-    | { type: 'reorder' }
     | null
   >(null);
-  useFocusEffect(useCallback(() => () => setEditorState(null), []));
-  const setEditor = (next: typeof editor) => {
-    // The tablet server pane animates horizontally; remeasure its settled edge.
-    if (next && isTablet) measureList();
-    setEditorState(next);
+  // Arrange mode: realms and folders wobble and can be dragged into place, into
+  // a folder, or out of one.
+  const [arranging, setArranging] = useState(false);
+  const [drag, setDrag] = useState<{ source: DragSource; target: DropTarget } | null>(null);
+  const itemViews = useRef(new Map<string, View>());
+  const itemRects = useRef(new Map<string, Rect>());
+  // Gesture callbacks arrive between renders; read the latest drag from here. It is
+  // written as each callback runs, not on render: a quick drag can start and end
+  // before React renders the start.
+  const dragRef = useRef(drag);
+  const updateDrag = (next: typeof drag) => {
+    dragRef.current = next;
+    setDrag(next);
   };
+  useFocusEffect(useCallback(() => () => { setEditorState(null); setArranging(false); dragRef.current = null; setDrag(null); }, []));
+  const setEditor = (next: typeof editor) => setEditorState(next);
   const closeEditor = () => setEditor(null);
   const items = useMemo(() => buildServerListItems(servers, serverLayout, serverFolders), [servers, serverLayout, serverFolders]);
+  const itemGap = variant === 'panel' ? 10 : 6;
+
+  const startArranging = () => {
+    closeEditor();
+    setArranging(true);
+  };
+
+  const registerItem = useCallback((id: string, view: View | null) => {
+    if (view) itemViews.current.set(id, view);
+    else itemViews.current.delete(id);
+  }, []);
+
+  /** Item ids are `s:`/`f:` for top-level realms/folders and `c:folder:realm` inside folders. */
+  const sourceFor = (id: string): DragSource | null => {
+    if (id.startsWith('c:')) {
+      const [, folderId, ...rest] = id.split(':');
+      return { kind: 'child', folderId, serverId: rest.join(':') };
+    }
+    const index = items.findIndex((item) => topItemId(item) === id);
+    return index === -1 ? null : { kind: 'top', index };
+  };
+
+  // Window positions of everything droppable, taken once as a drag begins.
+  const measureItems = () => {
+    itemRects.current = new Map();
+    itemViews.current.forEach((view, id) => {
+      view.measureInWindow((_x, y, _width, height) => {
+        if (height > 0) itemRects.current.set(id, { y, height });
+      });
+    });
+  };
+
+  const handleDragStart = (id: string) => {
+    const source = sourceFor(id);
+    if (!source) return;
+    measureItems();
+    // Until the finger moves, the item would land back where it is.
+    let target: DropTarget;
+    if (source.kind === 'top') {
+      target = { type: 'top', index: source.index };
+    } else {
+      const folderItem = items.find((item) => item.type === 'folder' && item.folder.id === source.folderId);
+      const index = folderItem?.type === 'folder'
+        ? folderItem.servers.findIndex((server) => server.id === source.serverId)
+        : 0;
+      target = { type: 'folder', folderId: source.folderId, index: Math.max(0, index) };
+    }
+    updateDrag({ source, target });
+  };
+
+  const handleDragMove = (_id: string, absoluteY: number) => {
+    const current = dragRef.current;
+    if (!current || itemRects.current.size === 0) return;
+    const target = computeDropTarget(absoluteY, current.source, items, itemRects.current);
+    const same = target.type === current.target.type && target.index === current.target.index
+      && (target.type !== 'folder' || (current.target.type === 'folder' && target.folderId === current.target.folderId));
+    if (!same) updateDrag({ source: current.source, target });
+  };
+
+  const handleDragEnd = () => {
+    const current = dragRef.current;
+    updateDrag(null);
+    if (!current) return;
+    const result = applyDrop(items, serverFolders, current.source, current.target);
+    if (result) applyLayoutAndFolders(result.layout, result.folders);
+  };
+
+  // Top-level reorders of a top-level item slide the items in between aside.
+  const shiftFor = (index: number) => {
+    if (!drag || drag.source.kind !== 'top' || drag.target.type !== 'top' || index === drag.source.index) return 0;
+    const from = drag.source.index;
+    const to = drag.target.index;
+    const span = (itemRects.current.get(topItemId(items[from]))?.height ?? 0) + itemGap;
+    if (from < index && index <= to) return -span;
+    if (to <= index && index < from) return span;
+    return 0;
+  };
+
+  // A realm leaving its folder lands on a top-level line; moves into a folder
+  // light the folder up and mark the spot among its realms.
+  const topIndicator = (index: number): ArrangeIndicator => {
+    if (!drag || drag.source.kind !== 'child' || drag.target.type !== 'top') return null;
+    if (drag.target.index === index) return 'before';
+    return drag.target.index >= items.length && index === items.length - 1 ? 'after' : null;
+  };
+  const childIndicator = (folderId: string, folderServers: MobileServer[], serverId: string): ArrangeIndicator => {
+    if (!drag || drag.target.type !== 'folder' || drag.target.folderId !== folderId) return null;
+    const sourceItem = drag.source.kind === 'top' ? items[drag.source.index] : undefined;
+    const draggedId = drag.source.kind === 'child' ? drag.source.serverId
+      : sourceItem?.type === 'server' ? sourceItem.server.id : null;
+    const others = folderServers.filter((server) => server.id !== draggedId);
+    const position = others.findIndex((server) => server.id === serverId);
+    if (position === -1) return null;
+    if (position === drag.target.index) return 'before';
+    return drag.target.index >= others.length && position === others.length - 1 ? 'after' : null;
+  };
+  const dropHighlightsFolder = (folderId: string) =>
+    !!drag && drag.target.type === 'folder' && drag.target.folderId === folderId
+    && !(drag.source.kind === 'child' && drag.source.folderId === folderId);
 
   const renderServerRow = (server: MobileServer, indented: boolean) => {
     const active = server.id === activeServerId;
@@ -121,7 +221,7 @@ export function ServerListSection({
         borderColor: active ? theme.colors.accentRim : theme.colors.lineSoft,
       }]}>
         <Pressable
-          haptic disabled={disabled} accessibilityRole="button" accessibilityLabel={server.name}
+          haptic disabled={disabled || arranging} accessibilityRole="button" accessibilityLabel={server.name}
           accessibilityState={{ selected: active, disabled: !!disabled }}
           onPress={() => { closeEditor(); onServerPress(server); }}
           onLongPress={() => setEditor({ type: 'server', server })}
@@ -134,7 +234,7 @@ export function ServerListSection({
           </View>
         </Pressable>
         {renderTrailing ? renderTrailing(server) : null}
-        <IconBtn icon={MoreHorizontal} disabled={disabled}
+        <IconBtn icon={MoreHorizontal} disabled={disabled || arranging}
           accessibilityLabel={t('folders.serverOptions', { name: server.name })}
           onPress={() => setEditor({ type: 'server', server })} />
       </View>
@@ -148,7 +248,7 @@ export function ServerListSection({
     return (
       <View key={folder.id} style={[styles.folderWrap, { backgroundColor: theme.colors.bgElev1, borderColor: theme.colors.lineSoft }]}>
         <View style={styles.folderHeader}>
-          <Pressable haptic disabled={disabled} accessibilityRole="button"
+          <Pressable haptic disabled={disabled || arranging} accessibilityRole="button"
             accessibilityLabel={folder.name} accessibilityState={{ expanded: folder.isOpen }}
             onPress={() => toggleFolder(folder.id)}
             onLongPress={() => setEditor({ type: 'folder', folder })}
@@ -171,13 +271,28 @@ export function ServerListSection({
             ) : null}
             <Chevron size={16} color={theme.colors.text3} />
           </Pressable>
-          <IconBtn icon={MoreHorizontal} disabled={disabled}
+          <IconBtn icon={MoreHorizontal} disabled={disabled || arranging}
             accessibilityLabel={t('folders.folderOptions', { name: folder.name })}
             onPress={() => setEditor({ type: 'folder', folder })} />
         </View>
         {folder.isOpen ? (
           <View style={[styles.folderChildren, { borderLeftColor: folder.color }]}>
-            {folderServers.map((server) => renderServerRow(server, true))}
+            {folderServers.map((server) => (
+              <ArrangeItem
+                key={server.id}
+                id={childItemId(folder.id, server.id)}
+                arranging={arranging}
+                dragging={drag?.source.kind === 'child' && drag.source.serverId === server.id}
+                indicator={childIndicator(folder.id, folderServers, server.id)}
+                indicatorColor={theme.colors.accent}
+                onRegister={registerItem}
+                onDragStart={handleDragStart}
+                onDragMove={handleDragMove}
+                onDragEnd={handleDragEnd}
+              >
+                {renderServerRow(server, true)}
+              </ArrangeItem>
+            ))}
           </View>
         ) : null}
       </View>
@@ -185,24 +300,56 @@ export function ServerListSection({
   };
 
   return (
-    <View ref={listRef} collapsable={false} onLayout={measureList} style={{ gap: variant === 'panel' ? 10 : 6 }}>
+    <View style={{ gap: itemGap }}>
       <View style={styles.toolbar}>
-        <Pressable haptic disabled={disabled || !servers.length}
-          onPress={() => setEditor({ type: 'create', selected: [] })}
-          style={[styles.toolbarButton, { backgroundColor: theme.colors.bgElev2 }]}>
-          <FolderPlus size={18} color={theme.colors.accentText} />
-          <Text variant="caption" color={theme.colors.accentText}>{t('folders.newFolder')}</Text>
-        </Pressable>
-        <IconBtn icon={ArrowUpDown} disabled={disabled || items.length < 2}
-          accessibilityLabel={t('folders.reorder')}
-          onPress={() => setEditor({ type: 'reorder' })} />
+        {arranging ? (
+          <Text variant="caption" color={theme.colors.text3} style={styles.arrangeHint}>
+            {t('folders.arrangeHint')}
+          </Text>
+        ) : (
+          <Pressable haptic disabled={disabled || !servers.length}
+            onPress={() => setEditor({ type: 'create', selected: [] })}
+            style={[styles.toolbarButton, { backgroundColor: theme.colors.bgElev2 }]}>
+            <FolderPlus size={18} color={theme.colors.accentText} />
+            <Text variant="caption" color={theme.colors.accentText}>{t('folders.newFolder')}</Text>
+          </Pressable>
+        )}
+        {arranging ? (
+          <Pressable haptic accessibilityRole="button" onPress={() => { setArranging(false); updateDrag(null); }}
+            style={[styles.toolbarButton, { backgroundColor: theme.colors.accent }]}>
+            <Check size={18} color={theme.colors.textOnAccent} />
+            <Text variant="caption" color={theme.colors.textOnAccent}>{t('folders.arrangeDone')}</Text>
+          </Pressable>
+        ) : (
+          <IconBtn icon={ArrowUpDown} disabled={disabled || items.length < 2}
+            accessibilityLabel={t('folders.reorder')}
+            onPress={startArranging} />
+        )}
       </View>
-      {items.map((item) => item.type === 'server'
-        ? renderServerRow(item.server, false) : renderFolder(item.folder, item.servers))}
+      {items.map((item, index) => (
+        <ArrangeItem
+          key={topItemId(item)}
+          id={topItemId(item)}
+          arranging={arranging}
+          dragging={drag?.source.kind === 'top' && drag.source.index === index}
+          raised={item.type === 'folder' && drag?.source.kind === 'child' && drag.source.folderId === item.folder.id}
+          shift={shiftFor(index)}
+          indicator={topIndicator(index)}
+          indicatorColor={theme.colors.accent}
+          highlight={item.type === 'folder' && dropHighlightsFolder(item.folder.id)}
+          highlightColor={item.type === 'folder' ? item.folder.color : undefined}
+          onRegister={registerItem}
+          onDragStart={handleDragStart}
+          onDragMove={handleDragMove}
+          onDragEnd={handleDragEnd}
+        >
+          {item.type === 'server' ? renderServerRow(item.server, false) : renderFolder(item.folder, item.servers)}
+        </ArrangeItem>
+      ))}
 
-      {/* Tablet editors share the app window so the source list stays interactive. */}
+      {/* Tablets show the editor as a centred dialog, as desktop does; phones use a bottom sheet. */}
       <Sheet open={!!editor} onClose={closeEditor} maxHeightFraction={0.8} avoidKeyboard
-        presentation={isTablet ? 'left' : 'bottom'} anchorRight={editorAnchorRight}>
+        presentation={isTablet ? 'center' : 'bottom'}>
         <View style={styles.sheetHeader}>
           <IconBtn icon={X} accessibilityLabel={t('common.close')} onPress={closeEditor} />
         </View>
@@ -212,11 +359,8 @@ export function ServerListSection({
               onAddToFolder={(id) => { addServerToFolder(editor.server.id, id); closeEditor(); }}
               onRemoveFromFolder={(id) => { removeServerFromFolder(editor.server.id, id); closeEditor(); }}
               onCreateFolder={() => setEditor({ type: 'create', selected: [editor.server.id] })}
-              onReorder={() => setEditor({ type: 'reorder' })} />
+              onReorder={startArranging} />
           </ScrollView>
-        ) : null}
-        {editor?.type === 'reorder' ? (
-          <ReorderSheet servers={servers} layout={serverLayout} folders={serverFolders} onReorder={reorderLayout} />
         ) : null}
         {editor?.type === 'folder' ? (
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 }}>
@@ -458,87 +602,10 @@ function FolderSettingsSheet({
   );
 }
 
-function ReorderSheet({
-  servers,
-  layout,
-  folders,
-  onReorder,
-}: {
-  servers: MobileServer[];
-  layout: ServerLayoutItem[];
-  folders: ServerFolder[];
-  onReorder: (layout: ServerLayoutItem[]) => void;
-}) {
-  const theme = useTheme();
-  const { t } = useTranslation();
-  const serverById = new Map(servers.map((s) => [s.id, s]));
-  const folderById = new Map(folders.map((f) => [f.id, f]));
-
-  // Start from the resolved display order so orphan servers and any layout
-  // corruption are already normalised into a clean, complete list.
-  const [order, setOrder] = useState<ServerLayoutItem[]>(() =>
-    buildServerListItems(servers, layout, folders).map((item) =>
-      item.type === 'server'
-        ? { type: 'server', url: item.server.id }
-        : { type: 'folder', folderId: item.folder.id },
-    ),
-  );
-
-  const move = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= order.length) return;
-    const next = [...order];
-    [next[index], next[target]] = [next[target], next[index]];
-    setOrder(next);
-    onReorder(next);
-  };
-
-  return (
-    <View style={[styles.sheetBody, { flex: 1 }]}>
-      <Text variant="subtitle">{t('folders.reorderTitle')}</Text>
-      <Text variant="caption" color={theme.colors.text3}>{t('folders.reorderHint')}</Text>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 8, paddingBottom: 8 }}>
-        {order.map((item, index) => {
-          const isServer = item.type === 'server';
-          const server = isServer ? serverById.get(item.url) : undefined;
-          const folder = !isServer ? folderById.get(item.folderId) : undefined;
-          const label = isServer ? (server?.name ?? item.url) : (folder?.name ?? '');
-          return (
-            <View
-              key={isServer ? `s:${item.url}` : `f:${item.folderId}`}
-              style={[styles.reorderRow, { backgroundColor: theme.colors.bgElev2, borderColor: theme.colors.lineSoft, borderRadius: theme.radius.md }]}
-            >
-              {isServer && server ? (
-                <ServerIcon server={server} size={36} />
-              ) : (
-                <View style={[styles.folderGlyph, styles.reorderGlyph, { backgroundColor: `${folder?.color ?? theme.colors.accent}2E`, borderRadius: theme.radius.md }]}>
-                  <Folder size={18} color={folder?.color ?? theme.colors.accent} />
-                </View>
-              )}
-              <Text variant="body" numberOfLines={1} style={{ flex: 1 }}>{label}</Text>
-              <IconBtn
-                icon={ChevronUp}
-                accessibilityLabel={t('folders.moveUp')}
-                disabled={index === 0}
-                onPress={() => move(index, -1)}
-              />
-              <IconBtn
-                icon={ChevronDown}
-                accessibilityLabel={t('folders.moveDown')}
-                disabled={index === order.length - 1}
-                onPress={() => move(index, 1)}
-              />
-            </View>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   toolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 },
   toolbarButton: { flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 },
+  arrangeHint: { flex: 1, paddingLeft: 4 },
   serverMain: { flex: 1, flexDirection: 'row', gap: 10, paddingHorizontal: 10, paddingVertical: 12, justifyContent: 'flex-start' },
   sheetHeader: { alignItems: 'flex-end', paddingHorizontal: 12 },
   pickerRow: { flexDirection: 'row', gap: 12, padding: 12, borderRadius: 14, borderWidth: 1 },

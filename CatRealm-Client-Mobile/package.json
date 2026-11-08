@@ -131,7 +131,7 @@
   },
   "overrides": {
     "expo-notification-service-extension-plugin": {
-      "semver": "^7.5.4"
+      "semver": "7.8.5"
     }
   },
   "expo": {

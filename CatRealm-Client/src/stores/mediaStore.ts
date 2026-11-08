@@ -3994,6 +3994,15 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       }, 'warn');
       return false;
     }
+    if (support.captureModes && !support.captureModes.includes(nativeCaptureMode)) {
+      logVoiceDebug('livekit', 'native WHIP skipped', {
+        channelId: session.channelId,
+        sourceId,
+        nativeCaptureMode,
+        reason: 'capture-mode-unsupported',
+      }, 'debug');
+      return false;
+    }
 
     if (activeScreenShareTracks.length > 0 || activeNativeWhipPublisherId || activeNativeWhipIngress || get().isScreenShareEnabled) {
       await get().stopScreenShare();
@@ -4227,6 +4236,16 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         reason: support.reason ?? 'native-publisher-unavailable',
         support,
       }, 'warn');
+      return false;
+    }
+    if (support.captureModes && !support.captureModes.includes('device-dshow')) {
+      logVoiceDebug('livekit', 'native WHIP device skipped', {
+        channelId: session.channelId,
+        deviceId,
+        deviceLabel: label,
+        devicePath: devicePath ?? null,
+        reason: 'capture-mode-unsupported',
+      }, 'debug');
       return false;
     }
 

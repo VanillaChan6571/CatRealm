@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Animated, ActivityIndicator, PanResponder, Pressable as RNPressable, ScrollView, StyleSheet, View } from 'react-native';
 import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Link2, ShieldAlert, SquarePlus, X } from 'lucide-react-native';
+import { Link2, ShieldAlert, SquarePlus } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { Text } from './Text';
@@ -11,14 +11,13 @@ import { Pressable } from './Pressable';
 import { ServerListSection } from './ServerListSection';
 import { DiscoverButton } from './DiscoverButton';
 import { CreateInviteModal } from './CreateInviteModal';
-import { useChannelStore } from '@/stores/channelStore';
 import { useAuthStore } from '@/stores/authStore';
-import { useServerStore } from '@/stores/serverStore';
+import { useServerStore, type MobileServer } from '@/stores/serverStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useDrawerTransition } from '@/hooks/useDrawerTransition';
 import { useDeviceLayout } from '@/hooks/useDeviceLayout';
 import { DOCK_HEIGHT, dockBottomInset } from '@/lib/dockLayout';
-import { DrawerLeftRail, DrawerHubFooter } from './BottomDock';
+import { DrawerLeftRail, DrawerHubFooter, loadRealmChannels } from './BottomDock';
 
 const DRAWER_WIDTH = 356;
 
@@ -26,16 +25,15 @@ export function ServerDrawer() {
   const theme = useTheme();
   const { t } = useTranslation();
   const { isTablet, width: viewportWidth } = useDeviceLayout();
-  const router = useRouter();
   const pathname = usePathname();
   const open = useUIStore((s) => s.serverDrawerOpen);
   const closeRequested = useUIStore((s) => s.closingDrawer === 'servers');
   const finishDrawerClose = useUIStore((s) => s.finishDrawerClose);
   const replaced = useUIStore((s) => s.channelsSheetOpen);
   const setOpen = useUIStore((s) => s.setServerDrawerOpen);
-  const setChannelsSheetOpen = useUIStore((s) => s.setChannelsSheetOpen);
-  const setActiveServer = useServerStore((s) => s.setActiveServer);
-  const lastChannelByServer = useChannelStore((s) => s.lastChannelByServer);
+  const handoffToChannels = useUIStore((s) => s.handoffToChannels);
+  const holdForHandoff = useUIStore((s) => s.drawerHandoff);
+  const verifyRealmTrust = useServerStore((s) => s.verifyRealmTrust);
 
   const drawerWidth = isTablet ? Math.min(440, Math.max(360, Math.floor(viewportWidth * 0.38))) : DRAWER_WIDTH;
 
@@ -81,28 +79,43 @@ export function ServerDrawer() {
     [open, drawerWidth, slideAnim, fadeAnim, setOpen],
   );
 
-  const inServerChannelOnTablet = isTablet && pathname.startsWith('/server/');
-  if (inServerChannelOnTablet || !mounted || replaced) return null;
-
-  const openServer = (id: string) => {
-    setActiveServer(id);
-    setOpen(false);
-    const lastChannelId = lastChannelByServer[id];
-    if (lastChannelId) {
-      router.replace({
-        pathname: '/server/[serverId]/channel/[channelId]',
-        params: { serverId: id, channelId: lastChannelId },
-      });
+  // Expand the picker as soon as the drawer opens so its content slides in with it.
+  const [railExpanded, setRailExpanded] = useState(false);
+  useEffect(() => {
+    if (!open) {
+      if (!holdForHandoff) setRailExpanded(false);
       return;
     }
-    setChannelsSheetOpen(true);
+    setRailExpanded(true);
+  }, [open, holdForHandoff]);
+
+  // During a handoff this drawer stays exactly where it is, under the channels
+  // drawer, until that one has faded in; dropping it sooner flashes the screen behind.
+  const inServerChannelOnTablet = isTablet && pathname.startsWith('/server/');
+  if (inServerChannelOnTablet || (!holdForHandoff && (!mounted || replaced))) return null;
+
+  // Keep the picker visible until the channel drawer fades over it.
+  const chooseServer = (server: MobileServer) => {
+    if (server.realmTrust?.state === 'changed') {
+      Alert.alert(
+        t('server.realmChanged'),
+        `${server.name} is presenting a new identity. It may have been reset or replaced. Re-approve before using it again.`,
+        [
+          { text: t('server.notNow'), style: 'cancel' },
+          { text: t('server.reApprovalRequired'), onPress: () => void verifyRealmTrust(server.id, true) },
+        ],
+      );
+      return;
+    }
+    void loadRealmChannels(server);
+    handoffToChannels();
   };
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents={open ? 'box-none' : 'none'}>
       {/* Dimmed backdrop */}
       <Animated.View
-        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)', opacity: fadeAnim }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)', opacity: holdForHandoff ? 1 : fadeAnim }]}
         pointerEvents={open ? 'auto' : 'none'}
       >
         <RNPressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
@@ -117,28 +130,20 @@ export function ServerDrawer() {
             backgroundColor: theme.colors.bgSidebar,
             borderRightColor: theme.colors.line,
             width: drawerWidth,
-            transform: [{ translateX: slideAnim }],
+            transform: [{ translateX: holdForHandoff ? 0 : slideAnim }],
           },
         ]}
       >
+        {/* The rail is the whole picker here: it widens to show names, and the
+            Manage button below opens folders, sorting and server settings. */}
         <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
-          <DrawerLeftRail onClose={() => setOpen(false)} navigateOnSelect />
-          <View style={{ flex: 1, minWidth: 0, paddingTop: theme.spacing.xl }}>
-            <View style={styles.header}>
-              <View style={{ flex: 1 }}>
-                <Text variant="subtitle">{t('tabs.servers')}</Text>
-                <Text variant="caption" color={theme.colors.text3}>
-                  {t('servers.selectSynced')}
-                </Text>
-              </View>
-              <IconBtn icon={X} onPress={() => setOpen(false)} accessibilityLabel={t('call.closeServers')} />
-            </View>
-
-            <ServerListPanel
-              onOpenServer={(server) => openServer(server.id)}
-              onLeave={() => setOpen(false)}
-            />
-          </View>
+          <DrawerLeftRail
+            onClose={() => setOpen(false)}
+            expandable
+            expanded={railExpanded}
+            expandedWidth={drawerWidth - 1}
+            onExpandedSelect={chooseServer}
+          />
         </View>
 
         <DrawerHubFooter onClose={() => setOpen(false)} />
@@ -258,7 +263,7 @@ export function ServerListPanel({ onOpenServer, onLeave }: {
               <SquarePlus size={22} color={theme.colors.online} style={styles.actionRowIcon} />
               <Text variant="body" color={theme.colors.online}>{t('server.addServer')}</Text>
             </Pressable>
-            <DiscoverButton onPress={() => { onLeave?.(); router.push('/(app)/discover-servers'); }} />
+            <DiscoverButton label={t('joinServers.discoverTitle')} onPress={() => { onLeave?.(); router.push('/(app)/discover-servers'); }} />
           </View>
         </ScrollView>
       {inviteServerId && (

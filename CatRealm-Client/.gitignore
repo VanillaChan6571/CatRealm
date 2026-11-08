@@ -18,6 +18,7 @@ release/
 
 # Generated at packaging time by tools/prepare-gstreamer-runtime.cjs
 electron/native/gstreamer/win-msvc-x64/
+electron/native/gstreamer/mac-arm64/
 
 # Editor directories and files
 .vscode/*

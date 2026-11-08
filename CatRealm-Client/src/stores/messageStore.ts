@@ -63,6 +63,7 @@ interface MessageState {
   requestDelete: (messageId: string) => void;
   toggleReaction: (messageId: string, emoji: string) => void;
   applyReactionUpdate: (messageId: string, reactions: MessageReaction[], threadId?: string | null) => void;
+  applySafetyArtifactUpdate: (messageId: string, artifactKey: string, state: 'quarantined' | 'removed' | 'cleared') => void;
   pinMessage: (channelId: string, messageId: string) => Promise<void>;
   unpinMessage: (channelId: string, messageId: string) => Promise<void>;
   messagesByThread: Record<string, Message[]>;
@@ -617,6 +618,23 @@ export const useMessageStore = create<MessageState>((set, get) => {
       }
       return changed ? { messagesByChannel } : s;
     });
+  },
+
+  applySafetyArtifactUpdate: (messageId, artifactKey, state) => {
+    const patch = (message: Message): Message => {
+      if (message.id !== messageId) return message;
+      const existing = (message.safety_artifacts ?? []).filter((artifact) => artifact.artifactKey !== artifactKey);
+      return {
+        ...message,
+        safety_artifacts: state === 'cleared'
+          ? existing
+          : [...existing, { artifactKey, state, hiddenForUser: true }],
+      };
+    };
+    set((current) => ({
+      messagesByChannel: Object.fromEntries(Object.entries(current.messagesByChannel).map(([id, messages]) => [id, messages.map(patch)])),
+      messagesByThread: Object.fromEntries(Object.entries(current.messagesByThread).map(([id, messages]) => [id, messages.map(patch)])),
+    }));
   },
 
   pinMessage: async (channelId, messageId) => {

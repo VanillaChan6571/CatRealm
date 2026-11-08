@@ -6,6 +6,8 @@ import type { GroupChatMessage } from '../../types';
 import { normalizeGCReactions as normalizeReactions, normalizeGCNsfwTags as normalizeNsfwTags, normalizeGCServerAttachments as normalizeServerAttachments } from '../normalizers/groupChatNormalizers';
 import { mergeAndDeduplicateMessages as mergeAndSortMessages } from '../messages/messageCacheHelpers';
 import { getAuthHeader, keyMaterialForVersion } from './gcHelpers';
+import { showUploadQuotaModal, uploadBytesHeader } from '../../lib/uploadQuota';
+import { buildSafetyMessageMetadata } from '../../lib/safetyMetadata';
 
 export type GCOperationsSlice = {
   sendingByGroupId: Record<string, boolean>;
@@ -39,12 +41,14 @@ export function createGCOperationsSlice(set: any, get: any): GCOperationsSlice {
       if (!keyMaterial) throw new Error(`Missing group key v${group.activeKeyVersion}`);
 
       const encryptedPayload = await encryptGroupChatMessage(hasText ? trimmed : '', keyMaterial);
+      const safetyMetadata = buildSafetyMessageMetadata(hasText ? trimmed : '');
       const res = hasAttachment
         ? await authApi.post(
             `/api/group-chats/${groupId}/messages`,
             (() => {
               const form = new FormData();
               form.append('encryptedPayload', encryptedPayload);
+              form.append('safetyMetadata', JSON.stringify(safetyMetadata));
               form.append('keyVersion', String(group.activeKeyVersion));
               if (attachment) form.append('attachment', attachment);
               if (Array.isArray(nsfwTags) && nsfwTags.length > 0) {
@@ -53,11 +57,11 @@ export function createGCOperationsSlice(set: any, get: any): GCOperationsSlice {
               if (scheduledAt != null) form.append('scheduledAt', String(scheduledAt));
               return form;
             })(),
-            { headers: getAuthHeader() }
+            { headers: { ...getAuthHeader(), ...uploadBytesHeader(attachment!) } }
           )
         : await authApi.post(
             `/api/group-chats/${groupId}/messages`,
-            { encryptedPayload, keyVersion: group.activeKeyVersion, nsfwTags: Array.isArray(nsfwTags) ? nsfwTags : [], ...(scheduledAt != null ? { scheduledAt } : {}) },
+            { encryptedPayload, keyVersion: group.activeKeyVersion, safetyMetadata, nsfwTags: Array.isArray(nsfwTags) ? nsfwTags : [], ...(scheduledAt != null ? { scheduledAt } : {}) },
             { headers: getAuthHeader() }
           );
 
@@ -100,6 +104,10 @@ export function createGCOperationsSlice(set: any, get: any): GCOperationsSlice {
         }));
       }
     } catch (err: unknown) {
+      if (showUploadQuotaModal(err)) {
+        set({ error: null });
+        return;
+      }
       if (axios.isAxiosError(err) && err.response?.status === 409) {
         await Promise.all([get().loadGroupDetail(groupId), get().loadGroupKeys(groupId)]);
       }

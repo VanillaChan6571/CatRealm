@@ -99,6 +99,8 @@ export function CatLabTab(props: CatLabTabProps) {
   const catLabAudioTracks = useSettingsStore((s) => s.catLabAudioTracks);
   const setCatLabAudioTracks = useSettingsStore((s) => s.setCatLabAudioTracks);
   const catLabAutoTranslate = useSettingsStore((s) => s.catLabAutoTranslate);
+  const catLabAutoCompressUploads = useSettingsStore((s) => s.catLabAutoCompressUploads);
+  const setCatLabAutoCompressUploads = useSettingsStore((s) => s.setCatLabAutoCompressUploads);
   const obsOverlayReactiveAvatars = useSettingsStore((s) => s.obsOverlayReactiveAvatars);
   const setObsOverlayReactiveAvatars = useSettingsStore((s) => s.setObsOverlayReactiveAvatars);
   const setCatLabAutoTranslate = useSettingsStore((s) => s.setCatLabAutoTranslate);
@@ -338,6 +340,21 @@ export function CatLabTab(props: CatLabTabProps) {
             <p className="text-xs text-text-muted mt-1">{t('settingsContent.catLabAudioTracksToggleDesc')}</p>
           </div>
           <Toggle checked={catLabAudioTracks} onChange={setCatLabAudioTracks} />
+        </div>
+      </div>
+
+      {/* Chat — shrink uploads that are over the server's size limit */}
+      <div className="space-y-3">
+        <div className="border-b border-border pb-2">
+          <h4 className="text-base font-semibold text-text-primary">{t('settingsContent.catLabAutoCompressTitle')}</h4>
+          <p className="text-xs text-text-muted mt-0.5">{t('settingsContent.catLabAutoCompressSectionDesc')}</p>
+        </div>
+        <div className="flex items-center justify-between gap-4 bg-bg-hover/30 p-4 rounded-lg">
+          <div>
+            <p className="text-sm font-medium text-text-primary">{t('settingsContent.catLabAutoCompressToggle')}</p>
+            <p className="text-xs text-text-muted mt-1">{t('settingsContent.catLabAutoCompressToggleDesc')}</p>
+          </div>
+          <Toggle checked={catLabAutoCompressUploads} onChange={setCatLabAutoCompressUploads} />
         </div>
       </div>
 

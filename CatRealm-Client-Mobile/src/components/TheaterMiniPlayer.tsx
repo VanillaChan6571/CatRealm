@@ -335,6 +335,7 @@ export function TheaterOverlayHost() {
           <View testID="theater-media-surface" pointerEvents={isExpanded ? 'auto' : 'none'} style={[styles.surface, { width: mediaWidth, height: mediaHeight }]}>
             {videoUrl ? <TheaterMediaSurface
               videoUrl={videoUrl}
+              serverId={serverId}
               playing={playbackState?.playing ?? false}
               positionMs={positionMs}
               width={mediaWidth}

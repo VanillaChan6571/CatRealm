@@ -224,7 +224,8 @@ export function GifPickerTab({ onSelect, width: pickerWidth }: GifPickerTabProps
         autoCorrect={false}
       />
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.presets}>
+      {/* Never squeezed by the grid below, however short the picker is (tablet panel). */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={styles.presets}>
         {([
           ['gifs', tr('chat.gifTrending')],
           ['memes', tr('chat.gifTrendingMemes')],

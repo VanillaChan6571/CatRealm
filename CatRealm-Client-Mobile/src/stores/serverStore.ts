@@ -232,6 +232,8 @@ export interface ServerState {
 
   // --- Layout & folder management (synced back to Central) ---
   reorderLayout: (layout: ServerLayoutItem[]) => void;
+  /** Replace layout and folders together (drag between folders); sanitised, then synced. */
+  applyLayoutAndFolders: (layout: ServerLayoutItem[], folders: ServerFolder[]) => void;
   createFolder: (serverIds: string[], name?: string) => string;
   deleteFolder: (folderId: string) => void;
   updateFolder: (folderId: string, updates: Partial<Pick<ServerFolder, 'name' | 'color' | 'serverUrls'>>) => void;
@@ -264,18 +266,20 @@ export const useServerStore = create<ServerState>((set, get) => ({
       serverSyncStatus: servers.length > 0 ? 'ready' : (state.serverSyncStatus === 'loading' ? 'loading' : 'idle'),
       serverSyncMessage:
         servers.length > 0
-          ? `Loaded ${servers.length} synced server${servers.length === 1 ? '' : 's'}.`
+          ? `Loaded ${servers.length} synced realm${servers.length === 1 ? '' : 's'}.`
           : (state.serverSyncStatus === 'loading' ? state.serverSyncMessage : null),
     }));
   },
   setActiveServer: async (id) => {
+    debugLog('serverStore', 'setActiveServer', { next: id, prev: get().activeServerId });
+    // Switch first and persist after: the UI (e.g. the drawer handoff) renders
+    // the new realm at once instead of waiting on a storage round trip.
+    set({ activeServerId: id });
     const userId = useAuthStore.getState().user?.id;
     if (userId) {
       if (id) await AsyncStorage.setItem(activeServerStorageKey(userId), id);
       else await AsyncStorage.removeItem(activeServerStorageKey(userId));
     }
-    debugLog('serverStore', 'setActiveServer', { next: id, prev: get().activeServerId });
-    set({ activeServerId: id });
   },
   setChannels: (serverId, list) => {
     debugLog('serverStore', 'setChannels', {
@@ -383,7 +387,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
         serverFolders,
         rawSyncedServers: refreshedServers,
         serverSyncStatus: 'ready',
-        serverSyncMessage: `Loaded ${servers.length} synced server${servers.length === 1 ? '' : 's'}.`,
+        serverSyncMessage: `Loaded ${servers.length} synced realm${servers.length === 1 ? '' : 's'}.`,
       });
       void persistLayoutLocally(serverLayout, serverFolders);
       if (activeServerStillExists && activeServerId !== storedActiveServerId) {
@@ -605,6 +609,14 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   reorderLayout: (newLayout) => {
     set({ serverLayout: newLayout });
+    commitLayoutChange(get);
+  },
+
+  applyLayoutAndFolders: (newLayout, newFolders) => {
+    const knownUrls = new Set(get().servers.map((server) => server.id));
+    // Also drops a folder the move left empty, like removeServerFromFolder does.
+    const { layout, folders } = sanitizeLayoutAndFolders(newLayout, newFolders, knownUrls);
+    set({ serverLayout: layout, serverFolders: folders });
     commitLayoutChange(get);
   },
 

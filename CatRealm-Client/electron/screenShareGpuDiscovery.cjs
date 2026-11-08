@@ -27,6 +27,12 @@ function createScreenShareGpuDiscovery(availableEncoders, platform = process.pla
   }, adapters => adapters.length > 0);
 
   return async function listScreenShareGpus() {
+    if (platform === 'darwin') {
+      const available = await availableEncoders();
+      if (!available.includes('vtenc_h264_hw')) return { gpus: [], encoders: available, hasDiscrete: false };
+      const gpu = { id: 'apple:videotoolbox', label: 'Apple VideoToolbox', vendor: 'apple', encoder: 'vtenc_h264_hw', integrated: false };
+      return { gpus: [gpu], encoders: available, hasDiscrete: false };
+    }
     if (platform !== 'win32') return { gpus: [], encoders: [], hasDiscrete: false };
     // Both operations are asynchronous and deduplicated, including cold-start
     // requests from Settings while startup warming is still running.

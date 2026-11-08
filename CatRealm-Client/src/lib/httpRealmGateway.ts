@@ -9,7 +9,14 @@ export function isHttpGatewayRealm(url: string | null | undefined): boolean {
 }
 
 export function httpRealmGatewayEnabled(): boolean {
-  return import.meta.env.VITE_HTTP_REALM_GATEWAY_ENABLED === 'true';
+  if (import.meta.env.VITE_HTTP_REALM_GATEWAY_ENABLED === 'true') return true;
+  if (typeof window === 'undefined') return false;
+  // Packaged desktop builds are allowed to contact HTTP realms directly, but
+  // Central authentication still needs the HTTPS gateway binding. CI release
+  // builds do not carry the local Vite .env file, so desktop support must not
+  // depend exclusively on that build-time flag.
+  return Boolean(window.electron)
+    || (window.location.protocol === 'http:' && window.location.hostname === 'tauri.localhost');
 }
 
 // Only an HTTPS page (the web app) is blocked from HTTP realms. Desktop builds
@@ -111,10 +118,21 @@ export async function resolveHttpRealm(raw: string): Promise<{
     || url.search || url.hash) throw new Error('Enter a realm HTTP address without a path.');
   const grant = await createAuthenticatedApi().post('/api/login/gateway-ticket', { realmOrigin: url.origin });
   if (typeof grant.data?.ticket !== 'string') throw new Error('Could not authorize the realm lookup.');
-  const response = await axios.post(`${gatewayBase}/api/resolve`, { realmOrigin: url.origin }, {
-    timeout: 12000, headers: { Authorization: `Bearer ${grant.data.ticket}` },
-  });
-  const result = response.data;
+  const desktopResolve = typeof window !== 'undefined' ? window.electron?.resolveHttpRealmGateway : undefined;
+  let result;
+  if (desktopResolve) {
+    const response = await desktopResolve({ realmOrigin: url.origin, ticket: grant.data.ticket });
+    if (response.status !== 200) {
+      const error = (response.data as { error?: unknown } | null)?.error;
+      throw new Error(`HTTP realm gateway lookup failed (${response.status}${typeof error === 'string' ? `: ${error}` : ''}).`);
+    }
+    result = response.data as Record<string, unknown> | null;
+  } else {
+    const response = await axios.post(`${gatewayBase}/api/resolve`, { realmOrigin: url.origin }, {
+      timeout: 12000, headers: { Authorization: `Bearer ${grant.data.ticket}` },
+    });
+    result = response.data;
+  }
   if (typeof result?.gatewayOrigin !== 'string'
     || !isHttpGatewayRealm(result.gatewayOrigin)
     || result.realmOrigin !== url.origin

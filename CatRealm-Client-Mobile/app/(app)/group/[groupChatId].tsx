@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -12,12 +11,13 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useComposerKeyboardInset } from '@/hooks/useComposerKeyboardInset';
+import { dismissKeyboard } from '@/lib/dismissKeyboard';
 import { SafeAreaView } from '@/components/SafeAreaView';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Bell, BellOff, ChevronLeft, CornerUpLeft, Phone, Users, X } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, Avatar, Pressable, MobileComposer, TranslatableMarkdownText, MessageActionSheet, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
+import { Text, Avatar, Pressable, MobileComposer, TranslatableMarkdownText, MessageActionSheet, SafetyReportSheet, type SafetyReportTarget, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { ReactionChips } from '@/components/ReactionChips';
 import { GroupMembersSheet } from '@/components/GroupMembersSheet';
 import { AUTH_BASE } from '@/lib/api';
@@ -30,6 +30,7 @@ import { useCallStore } from '@/stores/callStore';
 import { formatMessageTimestamp } from '@/utils/formatTime';
 import type { GroupChatMessage, MessageAttachment } from '@/types';
 import type { LocalComposerAttachment } from '@/components/MobileComposer';
+import { hideReportedAttachments, hideReportedLinks, reportableSafetyArtifacts, safetyHiddenArtifactKeys } from '@/lib/safetyReporting';
 
 const EMPTY_MSGS: GroupChatMessage[] = [];
 const GROUP_THRESHOLD_MS = 5 * 60 * 1000;
@@ -179,6 +180,9 @@ export default function GroupChatScreen() {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeMessage, setActiveMessage] = useState<GroupChatMessage | null>(null);
+  const [safetyReportTarget, setSafetyReportTarget] = useState<SafetyReportTarget | null>(null);
+  const [hiddenSafetyArtifacts, setHiddenSafetyArtifacts] = useState<Record<string, string[]>>({});
+  const hiddenGroupSafetyLinks = useMemo(() => new Set(messages.flatMap((message) => [...(hiddenSafetyArtifacts[message.id] ?? []), ...safetyHiddenArtifactKeys(message.safetyArtifacts)].filter((key) => key.startsWith('link:')))), [messages, hiddenSafetyArtifacts]);
   const [replyToMessage, setReplyToMessage] = useState<GroupChatMessage | null>(null);
   const [membersOpen, setMembersOpen] = useState(false);
 
@@ -301,7 +305,9 @@ export default function GroupChatScreen() {
                 keyExtractor={(m) => m.id}
                 keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                 keyboardShouldPersistTaps="handled"
-                onScrollBeginDrag={Keyboard.dismiss}
+                onScrollBeginDrag={dismissKeyboard}
+                // Tapping the conversation closes the keyboard, as in other chat apps.
+                onTouchStart={dismissKeyboard}
                 onEndReached={handleLoadMore}
                 onEndReachedThreshold={0.3}
                 ListFooterComponent={
@@ -318,13 +324,25 @@ export default function GroupChatScreen() {
                 }
                 renderItem={({ item, index }) => {
                   const prev = displayMessages[index + 1] ?? null;
+                  const hidden = new Set([...hiddenGroupSafetyLinks, ...(hiddenSafetyArtifacts[item.id] ?? []), ...safetyHiddenArtifactKeys(item.safetyArtifacts)]);
+                  const visibleItem = hidden.size > 0 ? {
+                    ...item,
+                    text: hideReportedLinks(item.text, hidden),
+                    attachments: hideReportedAttachments(messageAttachments(item), hidden),
+                    ...(hidden.has('attachment:0') ? {
+                      attachmentUrl: null,
+                      attachmentType: null,
+                      attachmentSize: null,
+                      attachmentName: null,
+                    } : {}),
+                  } : item;
                   return (
                     <SwipeableMessageRow
                       disabled={item.messageType === 'system'}
                       onReply={() => setReplyToMessage(item)}
                     >
                       <GroupMessageRow
-                        message={item}
+                        message={visibleItem}
                         prev={prev}
                         mediaUrl={mediaUrl}
                         imageScope={imageScope}
@@ -409,6 +427,29 @@ export default function GroupChatScreen() {
             if (!ok) Alert.alert(t('common.error'));
           });
         }}
+        onReport={activeMessage
+          && !isOwnActive
+          && reportableSafetyArtifacts(activeMessage.text, messageAttachments(activeMessage)).length > 0
+          ? () => {
+            if (!activeMessage || !groupChatId) return;
+            setSafetyReportTarget({
+              scopeKind: 'group_dm',
+              scopeId: groupChatId,
+              messageId: activeMessage.id,
+              senderLabel: senderLabel(activeMessage),
+              messageText: activeMessage.text,
+              attachments: messageAttachments(activeMessage),
+            });
+          }
+          : undefined}
+      />
+      <SafetyReportSheet
+        target={safetyReportTarget}
+        onClose={() => setSafetyReportTarget(null)}
+        onSubmitted={(messageId, artifactKey) => setHiddenSafetyArtifacts((current) => ({
+          ...current,
+          [messageId]: [...new Set([...(current[messageId] ?? []), artifactKey])],
+        }))}
       />
     </KeyboardAvoidingView>
   );

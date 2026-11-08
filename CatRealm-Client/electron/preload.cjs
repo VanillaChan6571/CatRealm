@@ -14,9 +14,20 @@ if (process.isMainFrame) contextBridge.exposeInMainWorld('electron', {
   startAppAudioCapture: (opts) => ipcRenderer.invoke('app-audio-capture-start', opts),
   stopAppAudioCapture: (captureId) => ipcRenderer.invoke('app-audio-capture-stop', captureId),
   getNativeWhipPublisherSupport: (opts) => ipcRenderer.invoke('native-whip-publisher-support', opts),
+  getScreenCaptureAccess: () => ipcRenderer.invoke('get-screen-capture-access'),
+  resolveHttpRealmGateway: (request) => ipcRenderer.invoke('http-realm-gateway-resolve', request),
+  openScreenCaptureSettings: () => ipcRenderer.invoke('open-screen-capture-settings'),
   listScreenShareGpus: () => ipcRenderer.invoke('list-screenshare-gpus'),
   startNativeWhipPublisher: (opts) => ipcRenderer.invoke('native-whip-publisher-start', opts),
   stopNativeWhipPublisher: (publisherId) => ipcRenderer.invoke('native-whip-publisher-stop', publisherId),
+  compressVideoForUpload: (opts) => ipcRenderer.invoke('upload-compress-video', opts),
+  cancelVideoForUploadCompression: () => ipcRenderer.invoke('upload-compress-cancel'),
+  onVideoForUploadCompressionProgress: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('upload-compress-progress', handler);
+    return () => ipcRenderer.removeListener('upload-compress-progress', handler);
+  },
   onAppAudioCaptureData: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const handler = (_event, payload) => callback(payload);

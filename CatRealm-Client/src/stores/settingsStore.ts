@@ -18,8 +18,8 @@ export const SCREEN_SHARE_NATIVE_PROFILES = ['high', 'main', 'baseline', 'constr
 // GStreamer H.264 encoder element chosen via the GPU selector. null = auto (the
 // main process picks the best available). nvh264enc=NVIDIA, amfh264enc=AMD,
 // mfh264enc=Media Foundation (vendor-agnostic fallback, incl. Intel).
-export type ScreenShareVideoEncoder = 'nvh264enc' | 'amfh264enc' | 'mfh264enc';
-export const SCREEN_SHARE_VIDEO_ENCODERS = ['nvh264enc', 'amfh264enc', 'mfh264enc'] as const;
+export type ScreenShareVideoEncoder = 'nvh264enc' | 'amfh264enc' | 'mfh264enc' | 'vtenc_h264_hw';
+export const SCREEN_SHARE_VIDEO_ENCODERS = ['nvh264enc', 'amfh264enc', 'mfh264enc', 'vtenc_h264_hw'] as const;
 
 // Motion / animation intensity. Drives the Framer Motion timing profiles in
 // src/lib/motion.ts. 'middle' is the default; OS prefers-reduced-motion is
@@ -151,6 +151,8 @@ interface SettingsState {
   // Cat Lab — On-device Spanish↔English auto-translation of chat messages
   catLabAutoTranslate: boolean;
   setCatLabAutoTranslate: (value: boolean) => void;
+  catLabAutoCompressUploads: boolean;
+  setCatLabAutoCompressUploads: (value: boolean) => void;
 
   // Appearance — server voice call background
   voiceBgMode: VoiceBgMode;
@@ -263,7 +265,7 @@ const STORAGE_KEY = 'catrealm.settings';
 const SCREEN_SHARE_VIEWER_QUALITIES = ['auto', 'high', 'medium', 'low'] as const;
 const SCREEN_SHARE_DESKTOP_CAPTURE_MODES = ['auto', 'monitor-dxgi', 'window-wgc'] as const;
 
-type SettingsData = Omit<SettingsState, 'setAutoTryHttpRealmGateway' | 'setPlayGifAvatars' | 'setShowAvatarBackground' | 'setEnableImageThumbnailing' | 'setDisableEmbedAutoplay' | 'setEmoteSizePx' | 'setVoiceInputDeviceId' | 'setVoiceInputMode' | 'setVoiceOutputDeviceId' | 'setVoiceCallE2EEEnabled' | 'setReconnectToRealtimeChannels' | 'setVoiceUserVolume' | 'setVoiceUserVolumes' | 'clearVoiceUserVolumes' | 'setScreenshareFps' | 'setScreenshareResolution' | 'setScreenshareAudio' | 'setScreenshareDegradationPreference' | 'setScreenshareQualityPreset' | 'setScreenshareCodecPreference' | 'setScreenShareViewerQuality' | 'setScreenShareSimulcastEnabled' | 'setScreenShareHardwareEncoding' | 'setScreenShareEncoderBackend' | 'setScreenShareDesktopCaptureMode' | 'setScreenShareNativeWhipEnabled' | 'setScreenShareNativeProfile' | 'setScreenShareGpu' | 'setScreenShareNativeWhipSimulcastEnabled' | 'setScreenshareWizardCompletedAt' | 'setVoiceMuted' | 'setVoiceDeafened' | 'setNotificationsEnabled' | 'setSoundSetting' | 'setSoundVolume' | 'setNoiseGateEnabled' | 'setNoiseGateThreshold' | 'setRnnoiseEnabled' | 'setTheme' | 'setMotionIntensity' | 'setHeavyAnimationsEnabled' | 'setLanguage' | 'setTimeFormat' | 'setStreamerMode' | 'setStreamerModeAutoDetect' | 'setStreamerModeHidePI' | 'setStreamerModeDisableSounds' | 'setDebugServerStates' | 'setDebugCallingStates' | 'setDebugTheaterStates' | 'setDebugUIHoverInspector' | 'setDebugFpsOverlay' | 'setDebugGameActivity' | 'setForceMobileViewOnDesktop' | 'setOpenOnStartup' | 'setMinimizeToTray' | 'setOpenLinksInApp' | 'setGameActivityEnabled' | 'setDevBuilds' | 'setUpdateChannel' | 'setVoiceDebugConsoleEnabled' | 'setObsOverlayEnabled' | 'setObsOverlayPort' | 'setObsOverlayShowNames' | 'setObsOverlayAvatarSize' | 'setObsOverlayGrayscaleWhenSilent' | 'setObsOverlayHideWhenSilent' | 'setObsOverlaySquareIcons' | 'setObsOverlayReactiveAvatars' | 'setCatLabTextPreview' | 'setCatLabFullProfileButton' | 'setCatLabGifPicker' | 'setCatLabAudioTracks' | 'setCatLabAutoTranslate' | 'setVoiceBgMode' | 'setVoiceBgColors' | 'setVoiceBgPattern' | 'setVoiceBgAnimated' | 'setVoiceBgScene' | 'setVoiceBgImageUpdatedAt'>;
+type SettingsData = Omit<SettingsState, 'setAutoTryHttpRealmGateway' | 'setPlayGifAvatars' | 'setShowAvatarBackground' | 'setEnableImageThumbnailing' | 'setDisableEmbedAutoplay' | 'setEmoteSizePx' | 'setVoiceInputDeviceId' | 'setVoiceInputMode' | 'setVoiceOutputDeviceId' | 'setVoiceCallE2EEEnabled' | 'setReconnectToRealtimeChannels' | 'setVoiceUserVolume' | 'setVoiceUserVolumes' | 'clearVoiceUserVolumes' | 'setScreenshareFps' | 'setScreenshareResolution' | 'setScreenshareAudio' | 'setScreenshareDegradationPreference' | 'setScreenshareQualityPreset' | 'setScreenshareCodecPreference' | 'setScreenShareViewerQuality' | 'setScreenShareSimulcastEnabled' | 'setScreenShareHardwareEncoding' | 'setScreenShareEncoderBackend' | 'setScreenShareDesktopCaptureMode' | 'setScreenShareNativeWhipEnabled' | 'setScreenShareNativeProfile' | 'setScreenShareGpu' | 'setScreenShareNativeWhipSimulcastEnabled' | 'setScreenshareWizardCompletedAt' | 'setVoiceMuted' | 'setVoiceDeafened' | 'setNotificationsEnabled' | 'setSoundSetting' | 'setSoundVolume' | 'setNoiseGateEnabled' | 'setNoiseGateThreshold' | 'setRnnoiseEnabled' | 'setTheme' | 'setMotionIntensity' | 'setHeavyAnimationsEnabled' | 'setLanguage' | 'setTimeFormat' | 'setStreamerMode' | 'setStreamerModeAutoDetect' | 'setStreamerModeHidePI' | 'setStreamerModeDisableSounds' | 'setDebugServerStates' | 'setDebugCallingStates' | 'setDebugTheaterStates' | 'setDebugUIHoverInspector' | 'setDebugFpsOverlay' | 'setDebugGameActivity' | 'setForceMobileViewOnDesktop' | 'setOpenOnStartup' | 'setMinimizeToTray' | 'setOpenLinksInApp' | 'setGameActivityEnabled' | 'setDevBuilds' | 'setUpdateChannel' | 'setVoiceDebugConsoleEnabled' | 'setObsOverlayEnabled' | 'setObsOverlayPort' | 'setObsOverlayShowNames' | 'setObsOverlayAvatarSize' | 'setObsOverlayGrayscaleWhenSilent' | 'setObsOverlayHideWhenSilent' | 'setObsOverlaySquareIcons' | 'setObsOverlayReactiveAvatars' | 'setCatLabTextPreview' | 'setCatLabFullProfileButton' | 'setCatLabGifPicker' | 'setCatLabAudioTracks' | 'setCatLabAutoTranslate' | 'setCatLabAutoCompressUploads' | 'setVoiceBgMode' | 'setVoiceBgColors' | 'setVoiceBgPattern' | 'setVoiceBgAnimated' | 'setVoiceBgScene' | 'setVoiceBgImageUpdatedAt'>;
 
 const DEFAULT_SETTINGS: SettingsData = {
   playGifAvatars: true,
@@ -371,6 +373,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   catLabFullProfileButton: false,
   catLabAudioTracks: false,
   catLabAutoTranslate: false,
+  catLabAutoCompressUploads: false,
 
   // Appearance — server voice call background (defaults mirror the built-in blue)
   voiceBgMode: 'default',
@@ -937,6 +940,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     setCatLabAutoTranslate: (value) => {
       set({ catLabAutoTranslate: value });
       saveSettings({ ...getSnapshot(), catLabAutoTranslate: value });
+    },
+    setCatLabAutoCompressUploads: (value) => {
+      set({ catLabAutoCompressUploads: value });
+      saveSettings({ ...getSnapshot(), catLabAutoCompressUploads: value });
     },
     setVoiceBgMode: (value) => {
       set({ voiceBgMode: value });

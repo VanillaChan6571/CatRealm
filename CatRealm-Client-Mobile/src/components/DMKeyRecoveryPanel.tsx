@@ -9,6 +9,7 @@ import { verifyCurrentDeviceForKeySharing } from '@/lib/verifyDeviceForKeySharin
 import { approveSurvivingDevice } from '@/lib/approveSurvivingDevice';
 import { canRequestPeerKeyRecovery, createSurvivorTrustProof, fetchDMKeyManifest, getLocalConversationSecret, shareDMKeyForRecovery, syncTrustedDeviceKeysForConversation, type DMKeyManifest, type DMKeyRecoveryRequest } from '@/lib/dmKeyStore';
 import { useAuthStore } from '@/stores/authStore';
+import { oneTimeCodeKeyboardType } from '@/hooks/useDeviceLayout';
 
 type RecoveryState = { incoming: DMKeyRecoveryRequest | null; outgoing: DMKeyRecoveryRequest | null; serverNowMs?: number };
 type LookupIssue = { source: 'recovery' | 'key' | 'device'; status: number | null };
@@ -258,7 +259,7 @@ export function DMKeyRecoveryPanel({ conversationId, otherUsername, onIncomingCh
         {' Keep this app and its data intact until key sharing succeeds.'}
       </Text>
       {localDevice ? <>
-        <TextInput accessibilityLabel="2FA code to verify this device" keyboardType="number-pad" textContentType="oneTimeCode" value={totp} onChangeText={setTotp} maxLength={6} placeholder="6-digit 2FA code" placeholderTextColor={theme.colors.text3} style={{ color: theme.colors.text, borderColor: theme.colors.lineSoft, borderWidth: 1, borderRadius: 8, padding: 8 }} />
+        <TextInput accessibilityLabel="2FA code to verify this device" keyboardType={oneTimeCodeKeyboardType} textContentType="oneTimeCode" value={totp} onChangeText={setTotp} maxLength={6} placeholder="6-digit 2FA code" placeholderTextColor={theme.colors.text3} style={{ color: theme.colors.text, borderColor: theme.colors.lineSoft, borderWidth: 1, borderRadius: 8, padding: 8 }} />
         {!selfApprovalUnavailable ? action('Verify this device with 2FA', approveSurvivor, busy || retryCountdown > 0 || !/^\d{6}$/.test(totp)) : null}
         {state.outgoing?.mode === 'survivor-trust' ? <>
           <Text variant="bodySmall" color={theme.colors.text2}>{state.outgoing.survivorProofReady
@@ -287,7 +288,7 @@ export function DMKeyRecoveryPanel({ conversationId, otherUsername, onIncomingCh
           ? <Text variant="bodySmall" color={theme.colors.text2}>Waiting for the other device to submit its DM key proof before you can review.</Text>
           : <>
         <Text variant="bodySmall" color={theme.colors.text2}>Verify with 2FA or a passkey before reviewing this request. Your device must hold the key. {state.incoming.mode === 'survivor-trust' ? 'The two devices will compare proofs without sending the key to Central.' : ''}</Text>
-        <TextInput accessibilityLabel="2FA code for DM key recovery" keyboardType="number-pad" textContentType="oneTimeCode" value={totp} onChangeText={setTotp} maxLength={6} placeholder="6-digit 2FA code" placeholderTextColor={theme.colors.text3} style={{ color: theme.colors.text, borderColor: theme.colors.lineSoft, borderWidth: 1, borderRadius: 8, padding: 8 }} />
+        <TextInput accessibilityLabel="2FA code for DM key recovery" keyboardType={oneTimeCodeKeyboardType} textContentType="oneTimeCode" value={totp} onChangeText={setTotp} maxLength={6} placeholder="6-digit 2FA code" placeholderTextColor={theme.colors.text3} style={{ color: theme.colors.text, borderColor: theme.colors.lineSoft, borderWidth: 1, borderRadius: 8, padding: 8 }} />
         {action('Review with 2FA', () => void review('totp'))}
         {action('Review with passkey', () => void review('passkey'))}
         </>}
@@ -299,14 +300,14 @@ export function DMKeyRecoveryPanel({ conversationId, otherUsername, onIncomingCh
         {action('Cancel & Close', () => void cancel(state.incoming!.id))}
         {action(countdown > 0 ? `Continue in ${countdown} seconds` : 'Continue', () => void continueSharing(), busy || countdown > 0)}
         <Text variant="bodySmall" color={theme.colors.text2}>If verification expired or you changed devices, restart the review:</Text>
-        <TextInput accessibilityLabel="2FA code to restart DM key recovery review" keyboardType="number-pad" textContentType="oneTimeCode" value={totp} onChangeText={setTotp} maxLength={6} placeholder="6-digit 2FA code" placeholderTextColor={theme.colors.text3} style={{ color: theme.colors.text, borderColor: theme.colors.lineSoft, borderWidth: 1, borderRadius: 8, padding: 8 }} />
+        <TextInput accessibilityLabel="2FA code to restart DM key recovery review" keyboardType={oneTimeCodeKeyboardType} textContentType="oneTimeCode" value={totp} onChangeText={setTotp} maxLength={6} placeholder="6-digit 2FA code" placeholderTextColor={theme.colors.text3} style={{ color: theme.colors.text, borderColor: theme.colors.lineSoft, borderWidth: 1, borderRadius: 8, padding: 8 }} />
         {action('Verify again with 2FA', () => void review('totp'))}
         {action('Verify again with passkey', () => void review('passkey'))}
       </> : <>
         <Text variant="bodySmall">Approval was recorded. Send the encrypted key copy to finish recovery.</Text>
         {action('Send encrypted key', () => void continueSharing())}
         <Text variant="bodySmall" color={theme.colors.text2}>If this device cannot send it, verify a device that holds the key and review again.</Text>
-        <TextInput accessibilityLabel="2FA code to restart DM key recovery review" keyboardType="number-pad" textContentType="oneTimeCode" value={totp} onChangeText={setTotp} maxLength={6} placeholder="6-digit 2FA code" placeholderTextColor={theme.colors.text3} style={{ color: theme.colors.text, borderColor: theme.colors.lineSoft, borderWidth: 1, borderRadius: 8, padding: 8 }} />
+        <TextInput accessibilityLabel="2FA code to restart DM key recovery review" keyboardType={oneTimeCodeKeyboardType} textContentType="oneTimeCode" value={totp} onChangeText={setTotp} maxLength={6} placeholder="6-digit 2FA code" placeholderTextColor={theme.colors.text3} style={{ color: theme.colors.text, borderColor: theme.colors.lineSoft, borderWidth: 1, borderRadius: 8, padding: 8 }} />
         {action('Review again with 2FA', () => void review('totp'))}
         {action('Review again with passkey', () => void review('passkey'))}
       </>}
@@ -321,7 +322,7 @@ export function DMKeyRecoveryPanel({ conversationId, otherUsername, onIncomingCh
     </> : eligible ? <>
       <Text variant="body" style={{ fontWeight: '700' }}>Request decrypt</Text>
       <Text variant="bodySmall" color={theme.colors.text2}>None of your trusted devices can decrypt this DM. Ask {otherUsername} to verify their identity and share an encrypted copy with this device. Verify your identity first.</Text>
-      <TextInput accessibilityLabel="2FA code for DM key recovery" keyboardType="number-pad" textContentType="oneTimeCode" value={totp} onChangeText={setTotp} maxLength={6} placeholder="6-digit 2FA code" placeholderTextColor={theme.colors.text3} style={{ color: theme.colors.text, borderColor: theme.colors.lineSoft, borderWidth: 1, borderRadius: 8, padding: 8 }} />
+      <TextInput accessibilityLabel="2FA code for DM key recovery" keyboardType={oneTimeCodeKeyboardType} textContentType="oneTimeCode" value={totp} onChangeText={setTotp} maxLength={6} placeholder="6-digit 2FA code" placeholderTextColor={theme.colors.text3} style={{ color: theme.colors.text, borderColor: theme.colors.lineSoft, borderWidth: 1, borderRadius: 8, padding: 8 }} />
       {action('Request decrypt with 2FA', () => void request('totp'))}
       {action('Request decrypt with passkey', () => void request('passkey'))}
     </> : <>

@@ -152,10 +152,10 @@ export default function ChatsTab() {
                 onPress={() =>
                   router.push({ pathname: '/dm/[conversationId]', params: { conversationId: item.id } })
                 }
-                onLongPress={() => promptTogglePin(item)}
+                onLongPress={item.conversationKind === 'official_system' ? undefined : () => promptTogglePin(item)}
                 style={[styles.row, pinned && { backgroundColor: theme.colors.bgElev1 }]}
               >
-                <Pressable haptic onPress={(event) => { event.stopPropagation(); router.push({ pathname: '/profile/[userId]', params: { userId: item.otherUserId, context: 'central' } }); }}>
+                <Pressable haptic onPress={item.conversationKind === 'official_system' ? undefined : (event) => { event.stopPropagation(); router.push({ pathname: '/profile/[userId]', params: { userId: item.otherUserId, context: 'central' } }); }}>
                   <Avatar username={item.otherUsername} uri={item.otherAvatar} size={48} status={status} />
                 </Pressable>
                 <View style={{ flex: 1 }}>
@@ -163,7 +163,7 @@ export default function ChatsTab() {
                     {item.otherDisplayName ?? item.otherUsername}
                   </Text>
                   <Text variant="bodySmall" color={theme.colors.text3} numberOfLines={1}>
-                    {item.lastMessageAt ? `${timeAgo(item.lastMessageAt)} ${t('chats.ago')}` : t('chats.noMessages')}
+                    {item.conversationKind === 'official_system' ? 'Verified system announcements' : (item.lastMessageAt ? `${timeAgo(item.lastMessageAt)} ${t('chats.ago')}` : t('chats.noMessages'))}
                   </Text>
                 </View>
                 {pinned && (

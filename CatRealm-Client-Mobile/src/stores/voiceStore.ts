@@ -19,6 +19,7 @@ import { playNotificationSound, setVoiceSessionActive } from '@/lib/notification
 import { acquireAudioSession, releaseAudioSession } from '@/lib/audioSession';
 import { captureAccountSession } from '@/lib/accountSession';
 import { useBlockedUsersStore } from './blockedUsersStore';
+import { leaveOtherCalls, registerCallLeaver } from '@/lib/exclusiveCalls';
 import type { AccountType } from '@/types';
 
 // ── Module-level Room (outside Zustand) ────────────────────────────────────
@@ -319,11 +320,18 @@ function scheduleVoiceRejoin(target: { serverId: string; channelId: string; chan
   });
 }
 
-function getCurrentServerUrl(): string | null {
+/**
+ * The realm a voice session talks to: the given realm, else the realm the
+ * current call is in, else the realm on screen. Using only the realm on screen
+ * sent leave/state events for a call in one realm to another realm's socket,
+ * so the first realm kept showing you in its voice channel.
+ */
+function getCurrentServerUrl(serverId?: string | null): string | null {
   const auth = useAuthStore.getState();
   if (auth.user?.accountType === 'central') {
     const ss = useServerStore.getState();
-    return ss.activeServerId ? (ss.byId(ss.activeServerId)?.url ?? null) : null;
+    const id = serverId ?? useVoiceStore.getState().serverId ?? ss.activeServerId;
+    return id ? (ss.byId(id)?.url ?? null) : null;
   }
   return auth.serverUrl ?? null;
 }
@@ -390,17 +398,24 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   roomRevision: 0,
 
   joinChannel: async ({ serverId, channelId, channelName }) => {
-    const serverUrl = getCurrentServerUrl();
+    const serverUrl = getCurrentServerUrl(serverId);
     if (!serverUrl) {
       set({ error: 'No server URL available' });
       return;
     }
 
-    // Leave any existing voice session first
     const current = get();
+    // Already in (or joining) this channel: nothing to do. Leaving and joining
+    // again only dropped the call for a moment.
+    if (current.channelId === channelId && current.serverId === serverId && (current.connecting || activeRoom)) {
+      return;
+    }
+    // One call at a time, as on desktop: leave any other voice channel (in any
+    // realm) and any theater before joining.
     if (current.channelId) {
       get().leaveChannel();
     }
+    leaveOtherCalls('voice');
 
     set({ connecting: true, error: null, channelId, serverId, channelName: channelName ?? null });
 
@@ -957,7 +972,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
 
   handleRoomsSnapshot: ({ rooms }) => {
-    set((s) => {
+    set(() => {
       const nextUsers: Record<string, VoiceParticipant[]> = {};
       const nextStartedAt: Record<string, number> = {};
       for (const room of rooms) {
@@ -966,8 +981,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
           nextStartedAt[room.channelId] = room.startedAt;
         }
       }
+      // The snapshot is the realm's complete list of occupied rooms, and only the
+      // realm on screen has a socket, so replace rather than merge. Merging kept
+      // people in rooms that had emptied (the server omits empty rooms), so you
+      // could appear in a voice channel you had left.
       return {
-        voiceRoomUsers: { ...s.voiceRoomUsers, ...nextUsers },
+        voiceRoomUsers: nextUsers,
         voiceRoomStartedAt: nextStartedAt,
       };
     });
@@ -984,3 +1003,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     getSocket(serverUrl)?.emit('voice:join', { channelId, muted: !selfMicEnabled, deafened: selfDeafened });
   },
 }));
+
+registerCallLeaver('voice', () => {
+  if (useVoiceStore.getState().channelId) useVoiceStore.getState().leaveChannel();
+});

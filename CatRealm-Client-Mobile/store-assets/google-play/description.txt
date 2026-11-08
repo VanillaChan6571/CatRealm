@@ -1,0 +1,13 @@
+CatRealm is a chat and community app. Join Realms with text channels, voice channels and watch-together theater rooms, or talk privately in end-to-end encrypted DMs and group chats.
+
+Features:
+- Servers, channels, threads, forums, reactions, emotes and stickers
+- Encrypted direct messages and group chats, with voice messages
+- Voice channels and DM calls
+- Theater: watch videos together in a voice channel
+- Push notifications, with per-server and per-conversation mutes
+- Discover Servers, to find public communities
+- Private notes for your own use
+- A guided tour for new accounts
+
+Sign in with a CatRealm Central account, or connect to a self-hosted CatRealm server with its address.

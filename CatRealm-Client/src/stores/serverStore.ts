@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import axios from 'axios';
-import type { ServerInfo, Channel, Category, Message, OnlineUser, Thread } from '../types';
+import type { ServerInfo, Channel, Category, Message, OnlineUser, Thread, User } from '../types';
 import { useAuthStore, setOnLogoutCallback, setUpdateServerTokenCallback } from './authStore';
 import { useChannelStore } from './channelStore';
 import { useMessageStore } from './messageStore';
@@ -383,13 +383,35 @@ async function getRealmAssertion(serverUrl: string): Promise<string> {
   return response.data.token;
 }
 
+async function authenticateCentralRealm(
+  serverUrl: string,
+  inviteCode?: string | null,
+): Promise<{ token: string; user?: Partial<User> | null }> {
+  const directUrl = new URL(serverUrl);
+  let authOrigin = directUrl.origin;
+  if (directUrl.protocol === 'http:') {
+    if (!httpRealmGatewayEnabled()) {
+      throw new Error('This HTTP realm requires the CatRealm gateway for Central sign-in.');
+    }
+    const resolved = await resolveHttpRealm(directUrl.origin);
+    authOrigin = resolved.gatewayOrigin;
+  }
+  const assertion = await getRealmAssertion(authOrigin);
+  const payload: { token: string; inviteCode?: string } = { token: assertion };
+  if (inviteCode) payload.inviteCode = inviteCode;
+  const authRes = await axios.post(`${authOrigin}/api/auth/central`, payload, { timeout: 10_000 });
+  if (typeof authRes.data?.token !== 'string' || !authRes.data.token) {
+    throw new Error('The realm did not return a sign-in token.');
+  }
+  return authRes.data;
+}
+
 async function refreshCentralServerTokens(servers: ServerEntry[]): Promise<ServerEntry[]> {
   return Promise.all(
     servers.map(async (entry) => {
       try {
-        const assertion = await getRealmAssertion(entry.url);
-        const authRes = await axios.post(`${entry.url}/api/auth/central`, { token: assertion });
-        return { ...entry, token: authRes.data.token as string };
+        const auth = await authenticateCentralRealm(entry.url);
+        return { ...entry, token: auth.token };
       } catch {
         return entry;
       }
@@ -514,18 +536,14 @@ export const useServerStore = create<ServerState>((set, get) => ({
     }
 
     // Exchange a short-lived assertion intended only for this realm.
-    const realmAssertion = await getRealmAssertion(serverUrl);
     let serverToken: string;
     try {
-      const authRes = await axios.post(`${serverUrl}/api/auth/central`, {
-        token: realmAssertion,
-        inviteCode: options.inviteCode || undefined,
-      });
-      serverToken = authRes.data.token;
+      const authResult = await authenticateCentralRealm(serverUrl, options.inviteCode);
+      serverToken = authResult.token;
       useAuthStore.getState().applyServerAuthRefresh({
         serverUrl,
         token: serverToken,
-        user: authRes.data.user,
+        user: authResult.user,
       });
     } catch (err) {
       if (axios.isAxiosError(err) && !err.response) {
@@ -1464,12 +1482,11 @@ function refreshServerToken(serverUrl: string): Promise<string | null> {
         return null;
       }
 
-      const assertion = await getRealmAssertion(serverUrl);
-      const res = await axios.post(`${serverUrl}/api/auth/central`, { token: assertion }, { timeout: 10_000 });
+      const authResult = await authenticateCentralRealm(serverUrl);
       // Ignore a recovery result after logout/account switching or explicit removal.
       if (useAuthStore.getState().user?.id !== authState.user?.id
         || !useServerStore.getState().servers.some(entry => entry.url === serverUrl)) return null;
-      const nextToken = typeof res.data?.token === 'string' ? res.data.token : null;
+      const nextToken = authResult.token;
       if (!nextToken) {
         lastTokenRefreshFailure.set(serverUrl, Date.now());
         return null;

@@ -76,6 +76,34 @@ Desktop packaging:
 npm run build:electron
 ```
 
+### macOS build workflow
+
+The manually triggered `CatRealm macOS Client` GitHub Actions workflow builds
+Apple Silicon `.dmg` and `.zip` packages. To run it on a Mac, register a
+self-hosted GitHub Actions runner for this repository with the standard
+`self-hosted`, `macOS`, and `ARM64` labels. The runner needs Xcode command line
+tools; the workflow installs Node.js 24 with `actions/setup-node`. It uploads
+the packages directly to `/var/www/CatRealm/landing/downloads/mac/` using the
+same `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PORT`, `DEPLOY_SSH_KEY_B64`, and
+`DEPLOY_KNOWN_HOSTS` secrets as the other desktop workflows.
+
+Signing depends on these repository secrets:
+
+- `CSC_LINK`: base64-encoded Developer ID Application `.p12` certificate
+- `CSC_KEY_PASSWORD`: password for the `.p12` file
+- `APPLE_ID`: Apple account email used for notarization
+- `APPLE_APP_SPECIFIC_PASSWORD`: app-specific password for that account
+- `APPLE_TEAM_ID`: Apple Developer team ID
+
+With all five set, the workflow signs and notarizes the app, and it stops before
+deploying if the signature, Gatekeeper check, or stapled ticket fails. With none
+set, it creates an ad-hoc signed package for testing. macOS blocks those packages
+on first launch until they are allowed with Open Anyway in System Settings under
+Privacy & Security, so they should not be distributed to users. With only some
+set, the workflow fails.
+
+Desktop automatic updates are currently enabled only on Windows.
+
 ## Architecture Notes
 
 High-level areas contributors usually touch:

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -11,11 +12,13 @@ import {
   View,
 } from 'react-native';
 import { X } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { Text, Pressable } from '@/components';
 import { useAuthStore } from '@/stores/authStore';
 import { useSavedAccountsStore } from '@/stores/savedAccountsStore';
+import { oneTimeCodeKeyboardType } from '@/hooks/useDeviceLayout';
 
 type Tab = 'central' | 'local';
 
@@ -27,6 +30,7 @@ interface AddAccountSheetProps {
 
 export function AddAccountSheet({ visible, onClose, onSuccess }: AddAccountSheetProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const addCentralAccount = useAuthStore((s) => s.addCentralAccount);
   const addLocalAccount = useAuthStore((s) => s.addLocalAccount);
@@ -39,6 +43,22 @@ export function AddAccountSheet({ visible, onClose, onSuccess }: AddAccountSheet
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Android runs edge-to-edge, so the window no longer shrinks for the keyboard:
+  // lift the sheet by the IME height (reported without the nav bar) plus that inset.
+  const [androidKeyboardLift, setAndroidKeyboardLift] = useState(0);
+
+  useEffect(() => {
+    if (!visible || Platform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      setAndroidKeyboardLift(e.endCoordinates.height + insets.bottom);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setAndroidKeyboardLift(0));
+    return () => {
+      show.remove();
+      hide.remove();
+      setAndroidKeyboardLift(0);
+    };
+  }, [visible, insets.bottom]);
 
   const atLimit = accounts.length >= 5;
 
@@ -91,7 +111,7 @@ export function AddAccountSheet({ visible, onClose, onSuccess }: AddAccountSheet
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
-        <View style={[styles.sheet, { backgroundColor: theme.colors.bgElev1 }]}>
+        <View style={[styles.sheet, { backgroundColor: theme.colors.bgElev1, marginBottom: androidKeyboardLift }]}>
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: theme.colors.lineSoft }]}>
             <Text variant="subtitle" color={theme.colors.text}>
@@ -102,7 +122,15 @@ export function AddAccountSheet({ visible, onClose, onSuccess }: AddAccountSheet
             </Pressable>
           </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.body}>
+          {/* Edge-to-edge modals draw under the system nav bar, so pad the bottom like Sheet does. */}
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={[
+              styles.body,
+              // Above the keyboard the nav bar is covered anyway; only keep a small gap.
+              { paddingBottom: androidKeyboardLift > 0 ? 16 : Math.max(24, insets.bottom + 8) },
+            ]}
+          >
             {atLimit ? (
               <View style={[styles.limitBox, { backgroundColor: theme.colors.bgElev2 }]}>
                 <Text variant="body" color={theme.colors.text3} style={{ textAlign: 'center' }}>
@@ -151,7 +179,7 @@ export function AddAccountSheet({ visible, onClose, onSuccess }: AddAccountSheet
                       onChangeText={setTotpCode}
                       placeholder={t('auth.twoFACodePlaceholder')}
                       placeholderTextColor={theme.colors.text3}
-                      keyboardType="number-pad"
+                      keyboardType={oneTimeCodeKeyboardType}
                       maxLength={6}
                       textContentType="oneTimeCode"
                       autoComplete="one-time-code"

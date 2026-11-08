@@ -53,6 +53,8 @@ type DMMessageRowProps = {
   isHighlighted?: boolean;
   /** Names a reactor for "View Cat Reactions"; DM reactions only ever come from the two participants. */
   resolveReactorName?: (userId: string) => string | null;
+  onReport?: (msg: DMMessage) => void;
+  readOnly?: boolean;
 };
 
 export function DMMessageRow({
@@ -90,6 +92,8 @@ export function DMMessageRow({
   onPinToggle,
   isHighlighted = false,
   resolveReactorName,
+  onReport,
+  readOnly = false,
 }: DMMessageRowProps) {
   const motionProfile = useMotionProfile();
   const hasReactions = (msg.reactions?.length ?? 0) > 0;
@@ -249,10 +253,10 @@ export function DMMessageRow({
     capabilities: {
       canEdit: isOwn && !isEditing,
       canDelete: isOwn && !isEditing,
-      canPin: !!onPinToggle && !isEditing,
+      canPin: !readOnly && !!onPinToggle && !isEditing,
       canThread: false,
-      canReact: true,
-      canReply: true,
+      canReact: !readOnly,
+      canReply: !readOnly,
       canForward: true,
       canSpeak: false,
       canCopy: !!displayText,
@@ -279,6 +283,7 @@ export function DMMessageRow({
     avatarColumnClassName: 'w-12 flex-shrink-0',
     headerClassName: 'flex items-baseline gap-3 mb-2',
     quickActionsContainerClassName: undefined,
+    extraContextMenuItems: !readOnly && onReport ? [{ key: 'report-safety', label: 'Report image or link', onClick: () => onReport(msg), isDanger: true }] : undefined,
   };
 
   return <SharedMessageRow adapter={adapter} />;

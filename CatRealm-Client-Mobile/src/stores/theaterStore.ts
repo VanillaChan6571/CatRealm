@@ -11,6 +11,7 @@ import { useAuthStore } from './authStore';
 import { useServerStore } from './serverStore';
 import { setTheaterSessionActive } from '@/lib/notificationSounds';
 import { useBlockedUsersStore } from './blockedUsersStore';
+import { leaveOtherCalls, registerCallLeaver } from '@/lib/exclusiveCalls';
 import type { TheaterQueueItem, TheaterPlaybackState } from '@/types';
 import { acquireAudioSession, releaseAudioSession } from '@/lib/audioSession';
 import { ensureLiveKitGlobals, getLiveKitInitError } from '@/lib/livekit-init';
@@ -282,6 +283,8 @@ export const useTheaterStore = create<TheaterState>((set, get) => ({
     if (current.channelId && current.channelId !== channelId) {
       get().leaveTheater();
     }
+    // One call at a time, as on desktop: joining a theater leaves voice.
+    leaveOtherCalls('theater');
 
     const socket = getSocket(serverUrl);
     if (!socket) return;
@@ -784,3 +787,7 @@ export const useTheaterStore = create<TheaterState>((set, get) => ({
 }));
 
 useBlockedUsersStore.subscribe(refreshTheaterAudio);
+
+registerCallLeaver('theater', () => {
+  if (useTheaterStore.getState().channelId) useTheaterStore.getState().leaveTheater();
+});

@@ -11,6 +11,7 @@ import {
   type CaptureScreenShareOptions,
 } from '../../lib/desktopCapture';
 import { restartAndReconnectClient } from '../../lib/clientRestart';
+import { ScreenCapturePermissionNotice } from './ScreenCapturePermissionNotice';
 
 type WizardStep = 'streaming' | 'video' | 'internet' | 'run' | 'result';
 type TestPhase = 'opening' | 'measuring' | null;
@@ -1294,7 +1295,10 @@ function ScreenshareWizardSurface({
                     ))}
                   </select>
                   {sourceOptions.length === 0 && (
-                    <p className="text-[11px] text-amber-200">{t(emptySourceKey(sourceKind))}</p>
+                    <>
+                      <p className="text-[11px] text-amber-200">{t(emptySourceKey(sourceKind))}</p>
+                      <ScreenCapturePermissionNotice />
+                    </>
                   )}
                 </div>
               ) : (

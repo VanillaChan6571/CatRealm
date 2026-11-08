@@ -97,6 +97,8 @@ import {
 import { AudioDeafenedIcon, MicrophoneMutedIcon } from '../voice/VoiceStateIcons';
 import { Check, Clock3, Crown, Lock, Users, X } from 'lucide-react';
 import { dmContextPreviewText } from '../../lib/dmContext';
+import { SafetyReportModal, type SafetyReportTarget } from '../chat/SafetyReportModal';
+import { hiddenSafetyArtifactKeys, hideSafetyAttachments, hideSafetyLinks, reportableSafetyArtifacts } from '../../lib/safetyReporting';
 
 interface HomeViewProps {
   tab: Tab;
@@ -376,6 +378,7 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
   } | null>(null);
   const [groupCallMessageChatOpen, setGroupCallMessageChatOpen] = useState(false);
   const [groupScheduleModalOpen, setGroupScheduleModalOpen] = useState(false);
+  const [groupSafetyReportTarget, setGroupSafetyReportTarget] = useState<SafetyReportTarget | null>(null);
   const [pendingGroupScheduledSend, setPendingGroupScheduledSend] = useState<{ text: string } | null>(null);
   const [groupMentionOpen, setGroupMentionOpen] = useState(false);
   const [groupMentionItems, setGroupMentionItems] = useState<Array<{ label: string; insert: string; type: string; description?: string; avatar?: string | null; accountType?: 'local' | 'central' }>>([]);
@@ -1025,6 +1028,7 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
 
   const activeGroupChat = activeGroupChatId ? (groupDetailsById[activeGroupChatId] || null) : null;
   const activeGroupMessages = activeGroupChatId ? (groupMessagesById[activeGroupChatId] || []) : [];
+  const hiddenGroupSafetyLinks = useMemo(() => new Set(activeGroupMessages.flatMap((message) => [...hiddenSafetyArtifactKeys(message.safetyArtifacts)].filter((key) => key.startsWith('link:')))), [activeGroupMessages]);
   const groupMessagesLoading = activeGroupChatId ? !!groupLoadingMessagesById[activeGroupChatId] : false;
   const groupHasOlderMessages = activeGroupChatId ? (groupHasOlderById[activeGroupChatId] ?? false) : false;
   const groupSending = activeGroupChatId ? !!groupSendingById[activeGroupChatId] : false;
@@ -1872,10 +1876,16 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
           ) || defaultAvatarUrl();
           const authorAvatarAlt = isOwn ? (user?.username || 'You') : message.senderUsername;
           const profileUserId = message.senderId || null;
+          const hiddenSafetyKeys = new Set([...hiddenGroupSafetyLinks, ...hiddenSafetyArtifactKeys(message.safetyArtifacts)]);
+          const visibleMessage = hiddenSafetyKeys.size ? {
+            ...message,
+            text: hideSafetyLinks(message.text, hiddenSafetyKeys),
+            attachments: hideSafetyAttachments(message.attachments, hiddenSafetyKeys),
+          } : message;
           return (
             <GroupChatMessageRow
               key={message.id}
-              msg={message}
+              msg={visibleMessage}
               isOwn={isOwn}
               isGrouped={isGrouped}
               showAvatar={showAvatar}
@@ -1897,6 +1907,14 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
                 const member = activeGroupChat?.members.find((m) => m.id === userId);
                 return member ? member.displayName || member.username : null;
               }}
+              onReport={!isOwn && reportableSafetyArtifacts(message.text, message.attachments).length ? () => setGroupSafetyReportTarget({
+                scopeKind: 'group_dm',
+                scopeId: message.groupChatId,
+                messageId: message.id,
+                senderLabel: message.senderDisplayName || message.senderUsername,
+                messageText: message.text,
+                attachments: message.attachments,
+              }) : undefined}
             />
           );
         })}
@@ -2689,6 +2707,13 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
             <div className="text-sm text-text-muted">No active group chat selected.</div>
           )}
         </Modal>
+        <SafetyReportModal
+          target={groupSafetyReportTarget}
+          onClose={() => setGroupSafetyReportTarget(null)}
+          onSubmitted={async () => {
+            if (activeGroupChatId) await loadGroupChatMessages(activeGroupChatId);
+          }}
+        />
       </div>
     );
   }

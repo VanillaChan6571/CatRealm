@@ -94,6 +94,14 @@ export function ContentSocialTab(props: ContentSocialTabProps) {
 
   return (
     <div className="space-y-8 max-w-2xl">
+      <div className="space-y-3 rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+        <h3 className="text-xl font-bold text-text-primary">Safety Center</h3>
+        <p className="text-sm text-text-secondary">Report an image or link from its message menu. The selected item is hidden immediately while it is reviewed.</p>
+        <div className="flex flex-wrap gap-3 text-sm">
+          <a href="https://catrealm.app/child-safety/" target="_blank" rel="noreferrer" className="text-accent underline">Child Safety Standards</a>
+          <a href="mailto:safety@catrealm.app" className="text-accent underline">Contact safety@catrealm.app</a>
+        </div>
+      </div>
       {/* Content Section */}
       <div className="space-y-4">
         <h3 className="text-xl font-bold text-text-primary">{t('settingsContent.content')}</h3>

@@ -105,7 +105,10 @@ export function DMList() {
                   <h3 className="font-semibold text-text-primary text-base truncate">
                     {conv.otherDisplayName || conv.otherUsername}
                   </h3>
-                  {conv.otherDisplayName && (
+                  {conv.conversationKind === 'official_system' && (
+                    <span className="text-xs font-semibold text-accent">Verified system announcements</span>
+                  )}
+                  {conv.otherDisplayName && conv.conversationKind !== 'official_system' && (
                     <span className="text-xs text-text-muted">@{conv.otherUsername}</span>
                   )}
                 </div>

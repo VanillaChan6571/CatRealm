@@ -59,6 +59,13 @@ export function dmContextPreviewText(sourceText: string | null | undefined): str
   return body ? body.slice(0, 160) : '(attachment)';
 }
 
+/** Display-only: shows `:https://realm:port:name:` and `[[emote:id|name]]` tokens as `:name:` in plain-text previews. */
+export function compactExpressionTokens(text: string): string {
+  return text
+    .replace(/:https?:\/\/[^\s:]+(?::\d{1,5})?:(?:sticker:)?([a-z0-9_-]{1,64})(?::[a-z0-9_-]{3,128})?:/gi, ':$1:')
+    .replace(/\[\[(?:emote|sticker):[^|\]]+\|([^\]]+)\]\]/gi, ':$1:');
+}
+
 function decodeDmContextEnvelope(value: string): DMStructuredContextEnvelope | null {
   try {
     const decoded = decodeURIComponent(escape(atob(value)));

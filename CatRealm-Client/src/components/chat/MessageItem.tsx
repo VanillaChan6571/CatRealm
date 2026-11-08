@@ -35,6 +35,8 @@ import { getRolePrimaryColor } from '../../lib/roleStyles';
 import { isArchiveMime } from '../../lib/archiveFiles';
 import { formatDmAttachmentSize } from './DMAttachmentPreview';
 import { AutoSizingChatImage } from './AutoSizingChatImage';
+import { SafetyReportModal, type SafetyReportTarget } from './SafetyReportModal';
+import { hiddenSafetyArtifactKeys, hideSafetyAttachments, hideSafetyLinks, reportableSafetyArtifacts } from '../../lib/safetyReporting';
 
 function formatExpiryLabel(expiresAt: number): string {
   const diff = expiresAt - Date.now();
@@ -135,6 +137,9 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [mediaRevealed, setMediaRevealed] = useState(false);
+  const [safetyReportTarget, setSafetyReportTarget] = useState<SafetyReportTarget | null>(null);
+  const [locallyHiddenSafetyKeys, setLocallyHiddenSafetyKeys] = useState<Set<string>>(() => new Set());
+  const hiddenSafetyKeys = useMemo(() => new Set([...locallyHiddenSafetyKeys, ...hiddenSafetyArtifactKeys(message.safety_artifacts)]), [locallyHiddenSafetyKeys, message.safety_artifacts]);
   const editRef = useRef<HTMLTextAreaElement>(null);
   const allowNsfw = useContentSocialStore((s) => s.allowNsfw);
   const nsfwLewds = useContentSocialStore((s) => s.nsfwLewds);
@@ -307,11 +312,15 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
     }
     return [];
   }, [message.id, message.attachments, message.attachment_url, message.attachment_type, message.attachment_size]);
+  const safetyVisibleAttachments = useMemo(
+    () => hideSafetyAttachments(effectiveAttachments, hiddenSafetyKeys) ?? [],
+    [effectiveAttachments, hiddenSafetyKeys]
+  );
 
   // Grid attachments: those not rendered inline
   const gridAttachments = useMemo(
-    () => effectiveAttachments.filter((_, idx) => !inlineAttachmentIndices.has(idx)),
-    [effectiveAttachments, inlineAttachmentIndices]
+    () => safetyVisibleAttachments.filter((_, idx) => !inlineAttachmentIndices.has(idx)),
+    [safetyVisibleAttachments, inlineAttachmentIndices]
   );
 
   // --- Build body content ---
@@ -332,7 +341,8 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
       )}
     </div>
   );
-  const bodyContentNode = message.content ? renderBodyText(message.content) : null;
+  const visibleSafetyContent = hideSafetyLinks(message.content, hiddenSafetyKeys);
+  const bodyContentNode = visibleSafetyContent ? renderBodyText(visibleSafetyContent) : null;
 
   // --- Build attachment content (horizontal gallery row for non-inline attachments) ---
   const attachmentContentNode = gridAttachments.length > 0 && serverUrl ? (
@@ -505,7 +515,7 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
   const botCommands = useBotStore((s) => s.commands);
   const appMenuItems = useMemo<ContextMenuItem[]>(() => {
     if (isPending) return [];
-    return botCommands
+    const items: ContextMenuItem[] = botCommands
       .filter((command) => command.type === 'message')
       .map((command) => ({
         key: `app:${command.botId}:${command.name}`,
@@ -536,7 +546,15 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
           });
         },
       }));
-  }, [botCommands, isPending, message.channel_id, message.thread_id, message.id]);
+    const reportable = !isOwner ? reportableSafetyArtifacts(message.content, effectiveAttachments) : [];
+    if (reportable.length) items.push({
+      key: 'report-safety',
+      label: 'Report image or link',
+      isDanger: true,
+      onClick: () => setSafetyReportTarget({ scopeKind: 'realm', scopeId: message.channel_id, messageId: message.id, senderLabel: resolveDisplayName(message.user_id, message.username, message.display_name), messageText: message.content, attachments: effectiveAttachments }),
+    });
+    return items;
+  }, [botCommands, isPending, isOwner, message.channel_id, message.thread_id, message.id, message.content, message.user_id, message.username, message.display_name, effectiveAttachments]);
 
   // --- "View Cat Reactions" (names come from the realm member list) ---
   const renderReactionEmoji = (emoji: string) => (
@@ -664,6 +682,14 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
   return (
     <>
       <SharedMessageRow adapter={adapter} />
+      <SafetyReportModal
+        realm
+        target={safetyReportTarget}
+        onClose={() => setSafetyReportTarget(null)}
+        onSubmitted={async (_messageId, artifactKey) => {
+          setLocallyHiddenSafetyKeys((current) => new Set(current).add(artifactKey));
+        }}
+      />
       {isScheduled && message.scheduled_at && (
         <div className="flex items-center gap-1 ml-12 mb-1 text-xs text-yellow-400/80">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">

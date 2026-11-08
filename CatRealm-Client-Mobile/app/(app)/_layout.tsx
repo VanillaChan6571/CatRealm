@@ -39,7 +39,8 @@ import { secureStorage, StorageKeys } from '@/lib/storage';
 import { useCallStore } from '@/stores/callStore';
 import { nativeCallBridge } from '@/native/nativeCallBridge';
 import { drainPendingNativeCallActions } from '@/native/pendingNativeCallActions';
-import { isTabletDevice } from '@/hooks/useDeviceLayout';
+import { isTabletDevice, useDeviceLayout } from '@/hooks/useDeviceLayout';
+import { TabletShell } from '@/components/tablet/TabletShell';
 import { TheaterJoinPromptHost } from '@/components/theater/TheaterJoinModal';
 import { applyScreenOrientation } from '@/lib/screenOrientation';
 import { useTheaterStore } from '@/stores/theaterStore';
@@ -52,6 +53,16 @@ import { useDMKeyReverificationStore } from '@/stores/dmKeyReverificationStore';
 import { DeviceApprovalPrompt } from '@/components/DeviceApprovalPrompt';
 
 type NotificationSubscription = { remove: () => void };
+
+/**
+ * Stack screens are single-instance: pushing a screen that is already open
+ * (a second tap on Add Server, a double tap on a DM) returns to it instead of
+ * stacking a copy. Screens with parameters are single per parameter value.
+ */
+function byParams(...keys: string[]) {
+  return (_name: string, params: Record<string, unknown>) =>
+    keys.map((key) => String(params?.[key] ?? '')).join(':');
+}
 
 export default function AppLayout() {
   const { t } = useTranslation();
@@ -77,6 +88,10 @@ export default function AppLayout() {
   const pushSettingsLoaded = usePushSettingsStore((s) => s.loaded);
   const router = useRouter();
   const pathname = usePathname();
+  const { isTablet } = useDeviceLayout();
+  // Tablets keep a desktop-style left column on every screen; it stays mounted so
+  // navigating between realms, channels and DMs only swaps the content area.
+  const showTabletShell = isTablet;
   const theaterFullscreen = useTheaterStore((s) => s.overlayMode === 'expanded' && s.focused);
   const notificationTapListener = useRef<NotificationSubscription | null>(null);
   const notificationReceivedListener = useRef<NotificationSubscription | null>(null);
@@ -387,23 +402,27 @@ export default function AppLayout() {
     <View style={styles.root}>
       <DMKeyReverificationBanner />
       <PasskeyRecommendationBanner />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
-        <Stack.Screen name="server/[serverId]/channel/[channelId]" options={{ animation: 'none' }} />
-        <Stack.Screen name="server/[serverId]/voice/[channelId]" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
-        <Stack.Screen name="server/[serverId]/threads/[channelId]" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="server/[serverId]/forum/[channelId]" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="server/[serverId]/theater/[channelId]" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="server/[serverId]/settings" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="dm/[conversationId]" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="group/[groupChatId]" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="profile/[userId]" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="notes/index" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="add-server" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="discover-servers" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="notes/[noteId]" options={{ animation: 'slide_from_right' }} />
-      </Stack>
+      <View style={styles.body}>
+        {showTabletShell ? <TabletShell /> : null}
+        <View style={styles.main}>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(tabs)" dangerouslySingular options={{ animation: 'none' }} />
+            <Stack.Screen name="server/[serverId]/channel/[channelId]" dangerouslySingular={byParams('serverId', 'channelId')} options={{ animation: 'none' }} />
+            <Stack.Screen name="server/[serverId]/voice/[channelId]" dangerouslySingular={byParams('serverId', 'channelId')} options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+            <Stack.Screen name="server/[serverId]/threads/[channelId]" dangerouslySingular={byParams('serverId', 'channelId')} options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="server/[serverId]/theater/[channelId]" dangerouslySingular={byParams('serverId', 'channelId')} options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="server/[serverId]/settings" dangerouslySingular={byParams('serverId')} options={{ presentation: 'modal' }} />
+            <Stack.Screen name="dm/[conversationId]" dangerouslySingular={byParams('conversationId')} options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="group/[groupChatId]" dangerouslySingular={byParams('groupChatId')} options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="profile/[userId]" dangerouslySingular={byParams('userId')} options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="settings" dangerouslySingular options={{ presentation: 'modal' }} />
+            <Stack.Screen name="notes/index" dangerouslySingular options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="add-server" dangerouslySingular options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="discover-servers" dangerouslySingular options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="notes/[noteId]" dangerouslySingular={byParams('noteId')} options={{ animation: 'slide_from_right' }} />
+          </Stack>
+        </View>
+      </View>
       <ServerDrawer />
       <ChannelsSheet />
       <MembersSheet />
@@ -426,5 +445,13 @@ export default function AppLayout() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  body: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  main: {
+    flex: 1,
+    minWidth: 0,
   },
 });

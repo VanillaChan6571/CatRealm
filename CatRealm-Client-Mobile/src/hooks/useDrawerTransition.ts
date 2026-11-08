@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Animated } from 'react-native';
 import { useUIStore } from '@/stores/uiStore';
 
@@ -149,25 +149,50 @@ export function useDrawerTransition(
     };
   }, [kind, width, open, slideAnim, fadeAnim]);
 
+  // Taking over from the server drawer in place: be fully open before the first
+  // frame is painted, or the swap would show a frame with neither drawer.
+  const handedOff = useRef(false);
+  useLayoutEffect(() => {
+    if (!open || kind !== 'channels' || !useUIStore.getState().drawerHandoff) return;
+    handedOff.current = true;
+    slideAnim.setValue(0);
+    fadeAnim.setValue(1);
+    setMounted(true);
+  }, [open, kind, slideAnim, fadeAnim]);
+
   useEffect(() => {
     let cancelled = false;
+    let closeCompleted = false;
     if (open) setMounted(true);
+    if (handedOff.current) {
+      handedOff.current = false;
+      return;
+    }
     const animation = Animated.parallel([
       Animated.timing(slideAnim, { toValue: open ? 0 : -width, duration: 210, useNativeDriver: true }),
       Animated.timing(fadeAnim, { toValue: open ? 1 : 0, duration: 210, useNativeDriver: true }),
     ]);
+    const finishClose = () => {
+      if (cancelled || closeCompleted || open) return;
+      closeCompleted = true;
+      slideAnim.setValue(-width);
+      fadeAnim.setValue(0);
+      setMounted(false);
+      setDragging(false);
+      closedCallback.current?.();
+    };
+    // Native Animated occasionally stops without a completion callback while
+    // the expanded rail is mounted. Never leave an invisible drawer half open.
+    const closeFallback = !open ? setTimeout(finishClose, 350) : null;
     animation.start(({ finished }) => {
-      if (!cancelled && finished && !open) {
-        setMounted(false);
-        setDragging(false);
-        closedCallback.current?.();
-      }
+      if (finished) finishClose();
     });
     return () => {
       cancelled = true;
+      if (closeFallback) clearTimeout(closeFallback);
       animation.stop();
     };
-  }, [open, width, slideAnim, fadeAnim, closeRequested]);
+  }, [open, width, slideAnim, fadeAnim, closeRequested, kind]);
 
   return { slideAnim, fadeAnim, mounted: mounted || dragging };
 }

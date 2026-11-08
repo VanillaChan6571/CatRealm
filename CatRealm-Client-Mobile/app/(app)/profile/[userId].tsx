@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { Alert, View, ScrollView, ActivityIndicator, StyleSheet, Image } from 'react-native';
+import { Alert, View, ScrollView, ActivityIndicator, StyleSheet, Image, TextInput } from 'react-native';
 import { SafeAreaView } from '@/components/SafeAreaView';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { X, MessageCircle, UserPlus, Clock4, Calendar, ShieldAlert } from 'lucide-react-native';
@@ -79,6 +79,10 @@ export default function ProfileScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [requestSending, setRequestSending] = useState(false);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const [profileReportOpen, setProfileReportOpen] = useState(false);
+  const [profileReportReason, setProfileReportReason] = useState<'grooming_or_exploitation' | 'child_sexual_abuse' | 'other_child_safety'>('grooming_or_exploitation');
+  const [profileReportDetails, setProfileReportDetails] = useState('');
+  const [profileReportBusy, setProfileReportBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [gameIconUrl, setGameIconUrl] = useState<string | null>(null);
   const [visibleBanner, setVisibleBanner] = useState<{ key: string | null; url: string | null }>({ key: null, url: null });
@@ -319,7 +323,7 @@ export default function ProfileScreen() {
   const isSelf = selfUser?.id === userId || selfUser?.serverUserId === userId;
   const isBlocked = useBlockedUsersStore((s) => !!userId && s.blockedUsers.has(userId));
   const [blockBusy, setBlockBusy] = useState(false);
-  const toggleBlock = async () => {
+  const applyBlock = async () => {
     if (!userId || blockBusy) return;
     setBlockBusy(true);
     try {
@@ -329,6 +333,23 @@ export default function ProfileScreen() {
       await fetchConversations();
     } catch { Alert.alert('Block user', 'Could not save this change. Please try again.'); }
     finally { setBlockBusy(false); }
+  };
+  // Blocking is one stray tap away on a phone, so it asks first; unblocking just restores.
+  const toggleBlock = () => {
+    if (!userId || blockBusy) return;
+    if (isBlocked) {
+      void applyBlock();
+      return;
+    }
+    const name = profile?.displayName ?? profile?.username ?? 'this user';
+    Alert.alert(
+      `Block ${name}?`,
+      'You can unblock them from their profile at any time.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Block', style: 'destructive', onPress: () => void applyBlock() },
+      ],
+    );
   };
   const isPendingOutgoing = outgoing.some((req) =>
     (userId && req.to_user_id === userId) || (profile?.username && req.to_username === profile.username),
@@ -692,8 +713,12 @@ export default function ProfileScreen() {
 
             {!isSelf && canUseCentralSocialActions && (
               <View style={{ gap: theme.spacing.sm, marginTop: theme.spacing.md }}>
-                {selfUser?.accountType === 'central' && viewContext === 'central' && <Pressable disabled={blockBusy} onPress={() => void toggleBlock()} style={[styles.actionBtn, { backgroundColor: theme.colors.bgElev1 }]}>
+                {selfUser?.accountType === 'central' && viewContext === 'central' && <Pressable disabled={blockBusy} onPress={toggleBlock} style={[styles.actionBtn, { backgroundColor: theme.colors.bgElev1 }]}>
                   <Text color={theme.colors.danger}>{isBlocked ? 'Unblock user' : 'Block user'}</Text>
+                </Pressable>}
+                {selfUser?.accountType === 'central' && viewContext === 'central' && <Pressable onPress={() => setProfileReportOpen(true)} style={[styles.actionBtn, { backgroundColor: theme.colors.bgElev1 }]}>
+                  <ShieldAlert size={18} color={theme.colors.danger} />
+                  <Text color={theme.colors.danger}>Report child-safety concern</Text>
                 </Pressable>}
                 <Pressable
                   haptic
@@ -915,6 +940,28 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
         </View>
+      </Sheet>
+      <Sheet open={profileReportOpen} onClose={() => setProfileReportOpen(false)} maxHeightFraction={0.82}>
+        <ScrollView contentContainerStyle={{ padding: theme.spacing.lg, gap: theme.spacing.md }} keyboardShouldPersistTaps="handled">
+          <Text variant="subtitle">Report profile for child safety</Text>
+          <Text variant="bodySmall" color={theme.colors.text3}>For a specific image or link, report it from the message instead.</Text>
+          {([
+            ['grooming_or_exploitation', 'Grooming or exploitation'],
+            ['child_sexual_abuse', 'Child sexual abuse'],
+            ['other_child_safety', 'Other child-safety concern'],
+          ] as const).map(([value, label]) => <Pressable key={value} onPress={() => setProfileReportReason(value)} style={[styles.actionBtn, { backgroundColor: theme.colors.bgElev1, borderWidth: 1, borderColor: profileReportReason === value ? theme.colors.accent : theme.colors.lineSoft }]}><Text>{label}</Text></Pressable>)}
+          <TextInput value={profileReportDetails} onChangeText={setProfileReportDetails} multiline maxLength={4000} placeholder="Describe the concern without attaching or forwarding suspected CSAM" placeholderTextColor={theme.colors.text3} style={{ minHeight: 96, borderWidth: 1, borderColor: theme.colors.lineSoft, borderRadius: theme.radius.md, padding: 12, color: theme.colors.text, backgroundColor: theme.colors.bgElev1, textAlignVertical: 'top' }} />
+          <Pressable disabled={profileReportBusy} onPress={async () => {
+            const subjectUserId = profile?.centralId || profile?.id || userId;
+            if (!subjectUserId) return;
+            setProfileReportBusy(true);
+            try {
+              await createAuthenticatedApi().post('/api/safety/profile-reports', { subjectUserId, reason: profileReportReason, details: profileReportDetails });
+              setProfileReportOpen(false); setProfileReportDetails(''); Alert.alert('Report received', 'CatRealm will review this profile concern.');
+            } catch (err: any) { Alert.alert('Could not submit report', err?.response?.data?.error || 'Try again in a moment.'); }
+            finally { setProfileReportBusy(false); }
+          }} style={[styles.actionBtn, { backgroundColor: theme.colors.danger }]}><Text color="#fff">{profileReportBusy ? 'Submitting…' : 'Submit profile report'}</Text></Pressable>
+        </ScrollView>
       </Sheet>
     </SafeAreaView>
   );

@@ -49,6 +49,7 @@ interface MessageActionSheetProps {
   translationText?: string | null;
   reactions?: ReadonlyArray<Reaction> | null;
   onViewReactions?: () => void;
+  onReport?: () => void;
 }
 
 function buildExpressionToken(item: ExpressionEntry, currentOrigin: string | null): string {
@@ -119,6 +120,7 @@ export function MessageActionSheet({
   translationText,
   reactions,
   onViewReactions,
+  onReport,
 }: MessageActionSheetProps) {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -309,6 +311,7 @@ export function MessageActionSheet({
       : t('chat.translateTo', { language: t(`chat.languageName_${translationAction.target}`) }),
     onPress: translationAction.run,
   });
+  if (onReport) actionRows.push({ key: 'report', label: 'Report image or link', onPress: onReport });
 
   const innerContent = (
     <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 10 }}>

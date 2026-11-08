@@ -80,6 +80,7 @@ import { PasskeyRecommendationBanner } from './PasskeyRecommendationBanner';
 import { PrivateBrowsingBanner } from './PrivateBrowsingBanner';
 import { MessageActionDrawer } from '../chat/MessageActionDrawer';
 import { KeybindsModal } from './KeybindsModal';
+import { UploadQuotaModal } from './UploadQuotaModal';
 import { AmbiencePixelsOverlay } from './AmbiencePixelsOverlay';
 import { useGlobalKeybinds } from '../../hooks/useGlobalKeybinds';
 import { useVoiceStore } from '../../stores/voiceStore';
@@ -466,6 +467,7 @@ export function AppLayout() {
       <InviteEmbedModal />
       <MessageActionDrawer />
       <KeybindsModal />
+      <UploadQuotaModal />
       {showVoiceBar && <VoiceFloatingBar />}
       <VoiceScreenSharePopout />
       <TheaterAudioManager />

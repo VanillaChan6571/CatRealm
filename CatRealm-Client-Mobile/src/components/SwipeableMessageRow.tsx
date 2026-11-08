@@ -194,7 +194,11 @@ export function SwipeableMessageRow({
             if (dx <= REPLY_TRIGGER_DX || (dx < -28 && vx < -0.55)) {
               onReplyRef.current?.();
             }
-          } else if (mode === 'sidebar' && drawerDragStartedRef.current && !drawerOpenedDuringMoveRef.current) {
+          } else if (
+            mode === 'sidebar' &&
+            drawerDragStartedRef.current &&
+            !drawerOpenedDuringMoveRef.current
+          ) {
             const shouldOpen = dx >= OPEN_SIDEBAR_TRIGGER_DX || (dx > 24 && vx > 0.35);
             if (shouldOpen) triggerLightHaptic();
             endDrawerOpenDrag(shouldOpen, triggerOpenSidebar);
@@ -213,7 +217,11 @@ export function SwipeableMessageRow({
             damping: 20,
             stiffness: 240,
           }).start();
-          if (gestureModeRef.current === 'sidebar' && drawerDragStartedRef.current && !drawerOpenedDuringMoveRef.current) {
+          if (
+            gestureModeRef.current === 'sidebar' &&
+            drawerDragStartedRef.current &&
+            !drawerOpenedDuringMoveRef.current
+          ) {
             endDrawerOpenDrag(false, triggerOpenSidebar);
           }
           gestureModeRef.current = null;
@@ -254,9 +262,7 @@ export function SwipeableMessageRow({
       >
         <CornerUpLeft size={16} color={theme.colors.accent} />
       </Animated.View>
-      <Animated.View style={{ transform: [{ translateX }] }}>
-        {children}
-      </Animated.View>
+      <Animated.View style={{ transform: [{ translateX }] }}>{children}</Animated.View>
     </View>
   );
 }
@@ -265,6 +271,8 @@ interface SwipeSidebarContainerProps {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   onOpenSidebar?: () => void;
+  /** Optional left swipe destination, used by Home to reveal Chats. */
+  onSwipeLeft?: () => void;
   disabled?: boolean;
 }
 
@@ -277,6 +285,7 @@ export function SwipeSidebarContainer({
   children,
   style,
   onOpenSidebar,
+  onSwipeLeft,
   disabled = false,
 }: SwipeSidebarContainerProps) {
   const { isTablet } = useDeviceLayout();
@@ -286,6 +295,10 @@ export function SwipeSidebarContainer({
 
   const onOpenRef = useRef(onOpenSidebar);
   onOpenRef.current = onOpenSidebar;
+  const onSwipeLeftRef = useRef(onSwipeLeft);
+  onSwipeLeftRef.current = onSwipeLeft;
+  const contentTranslateX = useRef(new Animated.Value(0)).current;
+  const navigationDragRef = useRef(false);
   const drawerDragStartedRef = useRef(false);
   const drawerOpenedDuringMoveRef = useRef(false);
   const peakDxRef = useRef(0);
@@ -313,18 +326,31 @@ export function SwipeSidebarContainer({
           const { dx, dy } = gestureState;
           const absDx = Math.abs(dx);
           const absDy = Math.abs(dy);
-          if (absDx < 10 || absDx < absDy * 1.3) return false;
-          // Swipe right anywhere opens the left sidebar
-          return dx > 10;
+          if (absDx < 8 || absDx < absDy * 1.15) return false;
+          return dx > 8 || (dx < -8 && Boolean(onSwipeLeftRef.current));
+        },
+        onMoveShouldSetPanResponderCapture: (_evt, gestureState) => {
+          if (effectiveDisabledRef.current || isAnySidebarOpen()) return false;
+          const { dx, dy } = gestureState;
+          const absDx = Math.abs(dx);
+          const absDy = Math.abs(dy);
+          if (absDx < 12 || absDx < absDy * 1.25) return false;
+          return dx > 12 || (dx < -12 && Boolean(onSwipeLeftRef.current));
         },
         onPanResponderGrant: () => {
           drawerDragStartedRef.current = false;
           drawerOpenedDuringMoveRef.current = false;
           peakDxRef.current = 0;
+          navigationDragRef.current = false;
         },
         onPanResponderMove: (_evt, gestureState) => {
           if (isAnySidebarOpen() && drawerOpenedDuringMoveRef.current) return;
           const { dx } = gestureState;
+          if (dx < 0 && onSwipeLeftRef.current && !drawerDragStartedRef.current) {
+            navigationDragRef.current = true;
+            contentTranslateX.setValue(Math.max(-110, dx * 0.55));
+            return;
+          }
           peakDxRef.current = Math.max(peakDxRef.current, dx);
           if (!drawerDragStartedRef.current && dx > 0) {
             drawerDragStartedRef.current = true;
@@ -349,6 +375,23 @@ export function SwipeSidebarContainer({
         },
         onPanResponderRelease: (_evt, gestureState) => {
           const { dx, vx } = gestureState;
+          if (navigationDragRef.current) {
+            const shouldNavigate = dx <= -54 || (dx < -24 && vx < -0.4);
+            Animated.spring(contentTranslateX, {
+              toValue: shouldNavigate ? -140 : 0,
+              useNativeDriver: true,
+              damping: 22,
+              stiffness: 240,
+            }).start(() => {
+              if (shouldNavigate) onSwipeLeftRef.current?.();
+              contentTranslateX.setValue(0);
+            });
+            navigationDragRef.current = false;
+            drawerDragStartedRef.current = false;
+            drawerOpenedDuringMoveRef.current = false;
+            peakDxRef.current = 0;
+            return;
+          }
           if (drawerDragStartedRef.current && !drawerOpenedDuringMoveRef.current) {
             const shouldOpen = dx >= OPEN_SIDEBAR_TRIGGER_DX || (dx > 24 && vx > 0.35);
             if (shouldOpen) triggerLightHaptic();
@@ -359,20 +402,29 @@ export function SwipeSidebarContainer({
           peakDxRef.current = 0;
         },
         onPanResponderTerminate: () => {
+          Animated.spring(contentTranslateX, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 22,
+            stiffness: 240,
+          }).start();
           if (drawerDragStartedRef.current && !drawerOpenedDuringMoveRef.current) {
             endDrawerOpenDrag(false, triggerOpen);
           }
           drawerDragStartedRef.current = false;
           drawerOpenedDuringMoveRef.current = false;
           peakDxRef.current = 0;
+          navigationDragRef.current = false;
         },
       }),
-    [],
+    [contentTranslateX],
   );
 
   return (
     <View style={[{ flex: 1 }, style]} {...panResponder.panHandlers}>
-      {children}
+      <Animated.View style={{ flex: 1, transform: [{ translateX: contentTranslateX }] }}>
+        {children}
+      </Animated.View>
     </View>
   );
 }

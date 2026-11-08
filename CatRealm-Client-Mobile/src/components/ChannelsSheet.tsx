@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { HeadphoneOff, MicOff, TriangleAlert } from 'lucide-react-native';
+import { HeadphoneOff, MicOff } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { Text } from './Text';
@@ -36,11 +36,13 @@ import { useVoiceStore, type VoiceParticipant } from '@/stores/voiceStore';
 import { useTheaterStore, type TheaterParticipant } from '@/stores/theaterStore';
 import type { Channel, Category } from '@/types';
 import { useDeviceLayout } from '@/hooks/useDeviceLayout';
+import { ChannelNsfwTag, ChannelUnreadBadge } from './ChannelRowBadges';
 import { DOCK_HEIGHT, dockBottomInset } from '@/lib/dockLayout';
 import { debugLog, debugTap } from '@/lib/debugLog';
 import { VoiceChannelContent } from './VoiceChannelContent';
 import { useCachedUri, realmScope } from '@/lib/imageCache';
-import { DrawerLeftRail, DrawerHubFooter } from './BottomDock';
+import { DrawerLeftRail, DrawerHubFooter, loadRealmChannels } from './BottomDock';
+import { RAIL_WIDTH } from './RailExpansion';
 
 const DRAWER_WIDTH = 356;
 const HEADER_HEIGHT = 126;
@@ -120,6 +122,7 @@ export function ChannelsSheet() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const [voiceModal, setVoiceModal] = useState<{ channelId: string; serverId: string } | null>(null);
+  const [railExpanded, setRailExpanded] = useState(false);
 
   const open = useUIStore((s) => s.channelsSheetOpen);
   const closeRequested = useUIStore((s) => s.closingDrawer === 'channels');
@@ -141,7 +144,6 @@ export function ChannelsSheet() {
   const lastChannelByServer = useChannelStore((s) => s.lastChannelByServer);
   const activeChannelId = activeServerId ? (lastChannelByServer[activeServerId] ?? null) : null;
   const unreadByChannel = useChannelStore((s) => s.unreadByChannel);
-  const mentionByChannel = useChannelStore((s) => s.mentionByChannel);
 
   const voiceRoomUsers = useVoiceStore((s) => s.voiceRoomUsers);
   const voiceRoomStartedAt = useVoiceStore((s) => s.voiceRoomStartedAt);
@@ -178,6 +180,7 @@ export function ChannelsSheet() {
 
   useEffect(() => {
     if (open) Keyboard.dismiss();
+    else setRailExpanded(false);
   }, [open]);
 
   const drawerWidth = isTablet ? Math.min(440, Math.max(360, Math.floor(viewportWidth * 0.38))) : DRAWER_WIDTH;
@@ -185,6 +188,16 @@ export function ChannelsSheet() {
   const restoredScrollRef = useRef(false);
 
   const { slideAnim, fadeAnim, mounted } = useDrawerTransition(open, drawerWidth, () => finishDrawerClose('channels'), closeRequested, 'channels');
+
+  // Keep the server picker underneath while the channel view commits and paints.
+  // Its rail stays expanded during the handoff, then shrinks to reveal channels.
+  const drawerHandoff = useUIStore((s) => s.drawerHandoff);
+  const clearDrawerHandoff = useUIStore((s) => s.clearDrawerHandoff);
+  useEffect(() => {
+    if (!open || !drawerHandoff) return;
+    const hold = setTimeout(clearDrawerHandoff, 350);
+    return () => clearTimeout(hold);
+  }, [open, drawerHandoff, clearDrawerHandoff]);
   const inServerChannelOnTablet = isTablet && pathname.startsWith('/server/');
 
   useEffect(() => {
@@ -273,7 +286,10 @@ export function ChannelsSheet() {
     : null;
   const cachedBannerUrl = useCachedUri(bannerUrl, realmScope(activeServer?.url ?? bannerUrl ?? ''));
 
-  if (inServerChannelOnTablet || !mounted || replaced) return voiceModalEl;
+  // A handoff renders straight away (no unmounted first pass) so the list's
+  // view exists by the time its fade-in starts.
+  const handingOff = open && drawerHandoff;
+  if (inServerChannelOnTablet || (!mounted && !handingOff) || (replaced && !drawerHandoff)) return voiceModalEl;
 
   const scrollKey = activeServerId ?? '';
 
@@ -287,6 +303,9 @@ export function ChannelsSheet() {
     Keyboard.dismiss();
     setOpen(false);
     const sid = activeServerId ?? '';
+    // Re-tapping the channel already on screen just closes the sheet; navigating
+    // again would reload it.
+    if (channel.type !== 'voice' && channel.type !== 'theater' && pathname === `/server/${sid}/channel/${channel.id}`) return;
     if (channel.type === 'voice') {
       if (isDesktopLike) {
         debugLog('ChannelsSheet', 'modal:voice', { serverId: sid, channelId: channel.id });
@@ -361,7 +380,6 @@ export function ChannelsSheet() {
       && (channel.id === connectedChannels.voiceChannelId || channel.id === connectedChannels.theaterChannelId);
     const connectedColor = connectedElsewhere ? theme.colors.statusColor.online : null;
     const unread = unreadByChannel[channel.id] ?? 0;
-    const mentions = mentionByChannel[channel.id] ?? 0;
     const voiceStartedAt = channel.type === 'voice' ? voiceRoomStartedAt[channel.id] : null;
     const theaterStartedAt = channel.type === 'theater' ? theaterRoomStartedAt[channel.id] : null;
     const elapsedStartedAt = typeof voiceStartedAt === 'number'
@@ -396,27 +414,13 @@ export function ChannelsSheet() {
         >
           {channel.name}
         </Text>
-        {!!channel.nsfw && (
-          <View style={styles.nsfwTag} accessibilityLabel="18+ channel">
-            <TriangleAlert size={14} color={theme.colors.warning} />
-            <Text style={[styles.nsfwText, { color: theme.colors.danger }]}>18+</Text>
-          </View>
-        )}
+        <ChannelNsfwTag nsfw={channel.nsfw} />
         {elapsedStartedAt != null && (
           <Text variant="caption" style={[styles.roomElapsed, { color: theme.colors.accent }]}>
             {formatRoomElapsed(Math.max(0, roomNowMs - elapsedStartedAt))}
           </Text>
         )}
-        {mentions > 0 && (
-          <View style={[styles.badge, { backgroundColor: theme.colors.danger }]}>
-            <Text style={styles.badgeText}>{mentions > 99 ? '99+' : mentions}</Text>
-          </View>
-        )}
-        {unread > 0 && mentions === 0 && (
-          <View style={[styles.badge, { backgroundColor: theme.colors.text }]}>
-            <Text style={[styles.badgeText, { color: theme.colors.bgApp }]}>{unread > 99 ? '99+' : unread}</Text>
-          </View>
-        )}
+        <ChannelUnreadBadge channelId={channel.id} />
       </Pressable>
     );
   };
@@ -434,7 +438,8 @@ export function ChannelsSheet() {
     <View style={StyleSheet.absoluteFill} pointerEvents={open ? 'box-none' : 'none'}>
       {/* Backdrop */}
       <Animated.View
-        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)', opacity: fadeAnim }]}
+        // Mid-handoff the held server drawer's backdrop already dims the screen; two would darken it.
+        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)', opacity: drawerHandoff ? 0 : fadeAnim }]}
         pointerEvents={open ? 'auto' : 'none'}
       >
         <RNPressable
@@ -455,16 +460,28 @@ export function ChannelsSheet() {
             backgroundColor: theme.colors.bgSidebar,
             borderRightColor: theme.colors.line,
             width: drawerWidth,
-            transform: [{ translateX: slideAnim }],
+            transform: [{ translateX: drawerHandoff ? 0 : slideAnim }],
           },
         ]}
       >
         <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
           {/* Unified Left Rail (Chats, Home, Servers, Add Server) */}
-          <DrawerLeftRail onClose={() => setOpen(false)} />
+          <View style={[styles.railOverlay, { width: drawerWidth }]} pointerEvents="box-none">
+            <DrawerLeftRail
+              onClose={() => setOpen(false)}
+              expandable
+              expanded={drawerHandoff || railExpanded}
+              expandedWidth={drawerWidth - 1}
+              onActiveServerPress={() => setRailExpanded((expanded) => !expanded)}
+              onExpandedSelect={(server) => {
+                void loadRealmChannels(server);
+                setRailExpanded(false);
+              }}
+            />
+          </View>
 
           {/* Right column: Server header + Channel list */}
-          <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={{ flex: 1, minWidth: 0, marginLeft: RAIL_WIDTH }}>
             {/* Server header with banner */}
             <View style={[styles.header, { borderBottomColor: theme.colors.line }]}>
               {cachedBannerUrl && (
@@ -523,6 +540,14 @@ export function ChannelsSheet() {
 }
 
 const styles = StyleSheet.create({
+  railOverlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 2,
+    flexDirection: 'row',
+  },
   drawer: {
     width: DRAWER_WIDTH,
     maxWidth: '92%',
@@ -578,29 +603,6 @@ const styles = StyleSheet.create({
   channelName: {
     flex: 1,
     fontSize: 15,
-  },
-  nsfwTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  nsfwText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  badge: {
-    borderRadius: 9,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 5,
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '700',
-    lineHeight: 14,
   },
   roomElapsed: {
     fontSize: 10,

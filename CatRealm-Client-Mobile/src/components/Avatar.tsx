@@ -29,6 +29,8 @@ export interface AvatarProps {
   accountType?: AccountType | null;
   size?: number;
   shape?: 'circle' | 'square';
+  /** Overrides the shape's corner radius, e.g. 0 for a tile that fills a clipped container. */
+  radius?: number;
   status?: UserStatus | null;
   showStatus?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -49,6 +51,7 @@ export function Avatar({
   accountType,
   size = 40,
   shape = 'circle',
+  radius,
   status,
   showStatus = true,
   style,
@@ -85,7 +88,7 @@ export function Avatar({
     batteryLevel <= 0.15
   );
   const animateGif = playGifAvatars && !batterySaverEnabled;
-  const borderRadius = shape === 'circle' ? size / 2 : Math.max(4, Math.round(size * 0.16));
+  const borderRadius = radius ?? (shape === 'circle' ? size / 2 : Math.max(4, Math.round(size * 0.16)));
 
   useEffect(() => {
     retryCountRef.current = 0;

@@ -730,30 +730,41 @@ function isKlipyMediaUrl(url: string): boolean {
 }
 
 /** Single image that sizes itself to the image's natural aspect ratio (capped, never upscaled). */
+/**
+ * Picks a chat image's source: cached file, then display URL, then full URL. Once a source has
+ * rendered it stays put, so a late disk-cache resolve can't swap it mid-render (Android Glide
+ * clears the visible bitmap when the source changes).
+ */
+function useChatImageSource(displayUrl: string, fullUrl: string, scope: string) {
+  const cachedUri = useCachedUri(displayUrl, scope);
+  const [failedUris, setFailedUris] = useState<ReadonlySet<string>>(() => new Set());
+  const [lockedUri, setLockedUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFailedUris((prev) => (prev.size > 0 ? new Set() : prev));
+    setLockedUri(null);
+  }, [displayUrl]);
+
+  const candidate = [cachedUri, displayUrl, fullUrl].find((u): u is string => !!u && !failedUris.has(u)) ?? displayUrl;
+  const uri = lockedUri && !failedUris.has(lockedUri) ? lockedUri : candidate;
+
+  const lockSource = useCallback(() => setLockedUri((prev) => prev ?? uri), [uri]);
+  const markFailed = useCallback(() => {
+    evictCachedFile(uri);
+    setLockedUri(null);
+    setFailedUris((prev) => new Set(prev).add(uri));
+  }, [uri]);
+
+  return { uri, allFailed: failedUris.has(displayUrl) && failedUris.has(fullUrl), lockSource, markFailed };
+}
+
 function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, serverUrl, imageScope, autoplay = true }: ImageSharedProps & { block: ImageBlock; autoplay?: boolean }) {
   const theme = useTheme();
   const { t } = useTranslation();
   const [containerW, setContainerW] = useState(0);
   const [naturalDim, setNaturalDim] = useState<{ w: number; h: number } | null>(null);
   const displayUrl = block.thumbnailUrl ?? block.url;
-  const cachedUri = useCachedUri(displayUrl, imageScope ?? realmScope(serverUrl ?? displayUrl));
-  const [failedUris, setFailedUris] = useState<ReadonlySet<string>>(() => new Set());
-  const [lockedLoadedUri, setLockedLoadedUri] = useState<string | null>(null);
-
-  useEffect(() => {
-    setFailedUris(new Set());
-    setLockedLoadedUri(null);
-  }, [displayUrl]);
-
-  const candidateUri = [cachedUri, displayUrl, block.url].find(
-    (u): u is string => typeof u === 'string' && u.length > 0 && !failedUris.has(u),
-  ) ?? displayUrl;
-  // Once an image has decoded and displayed in this mount, never swap its source
-  // mid-render when background disk caching completes (prevents Android Glide
-  // from clearing the already-visible bitmap mid-transition).
-  const imageUri = lockedLoadedUri && !failedUris.has(lockedLoadedUri) ? lockedLoadedUri : candidateUri;
-  const allFailed = Boolean(displayUrl) && failedUris.has(displayUrl) && (!block.url || failedUris.has(block.url));
-
+  const { uri: imageUri, allFailed, lockSource, markFailed } = useChatImageSource(displayUrl, block.url, imageScope ?? realmScope(serverUrl ?? displayUrl));
   const klipyMedia = isKlipyMediaUrl(block.url);
   const maxWidth = klipyMedia ? KLIPY_IMAGE_MAX_WIDTH : SINGLE_IMAGE_MAX_WIDTH;
   const maxHeight = klipyMedia ? KLIPY_IMAGE_MAX_HEIGHT : 360;
@@ -774,15 +785,9 @@ function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, ser
   const handleLoad = useCallback((e: ImageLoadEventData) => {
     const { width: w, height: h } = e.source;
     if (w > 0 && h > 0) setNaturalDim({ w, h });
-    setLockedLoadedUri((prev) => prev ?? imageUri);
+    lockSource();
     markLoaded();
-  }, [imageUri, markLoaded]);
-
-  const handleError = useCallback(() => {
-    evictCachedFile(imageUri);
-    setLockedLoadedUri(null);
-    setFailedUris((prev) => new Set(prev).add(imageUri));
-  }, [imageUri]);
+  }, [lockSource, markLoaded]);
 
   const imageStyle = { width: displayWidth, height: displayHeight, borderRadius: 8 };
 
@@ -790,7 +795,7 @@ function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, ser
     return (
       <View style={styles.imageWrap} onLayout={handleLayout}>
         <Pressable onPress={onReveal}>
-          <ExpoImage source={{ uri: imageUri }} style={[imageStyle, { opacity: 0.15 }]} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} blurRadius={20} onLoad={handleLoad} onError={handleError} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
+          <ExpoImage source={{ uri: imageUri }} style={[imageStyle, { opacity: 0.15 }]} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} blurRadius={20} onLoad={handleLoad} onError={markFailed} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
           <View style={styles.nsfwOverlay}>
             <Text style={[styles.nsfwLabel, { color: theme.colors.text }]}>{nsfwLabels.length > 0 ? nsfwLabels.join(' · ') : 'NSFW'}</Text>
             <Text style={[styles.nsfwReveal, { color: theme.colors.text3 }]}>{t('chat.tapToReveal')}</Text>
@@ -806,7 +811,7 @@ function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, ser
         <Pressable onPress={() => onPress(block)} style={{ width: imageStyle.width, height: imageStyle.height }}>
           {!loaded && !allFailed && <ImagePlaceholder radius={8} mark style={{ width: imageStyle.width, height: imageStyle.height }} />}
           {allFailed && <ImageFailed width={imageStyle.width} height={imageStyle.height} />}
-          <ExpoImage source={{ uri: imageUri }} style={imageStyle} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} autoplay={autoplay} transition={transition} onLoad={handleLoad} onError={handleError} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
+          <ExpoImage source={{ uri: imageUri }} style={imageStyle} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} autoplay={autoplay} transition={transition} onLoad={handleLoad} onError={markFailed} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
         </Pressable>
         <GifFavoriteStarOverlay url={block.url} mime={block.mime} />
       </View>
@@ -840,38 +845,17 @@ function GalleryImage({ img, index, shouldBlur, nsfwLabels, onReveal, onPress, s
   const theme = useTheme();
   const { t } = useTranslation();
   const displayUrl = img.thumbnailUrl ?? img.url;
-  const cachedUri = useCachedUri(displayUrl, imageScope ?? realmScope(serverUrl ?? displayUrl));
-  const [failedUris, setFailedUris] = useState<ReadonlySet<string>>(() => new Set());
-  const [lockedLoadedUri, setLockedLoadedUri] = useState<string | null>(null);
-
-  useEffect(() => {
-    setFailedUris(new Set());
-    setLockedLoadedUri(null);
-  }, [displayUrl]);
-
-  const candidateUri = [cachedUri, displayUrl, img.url].find(
-    (u): u is string => typeof u === 'string' && u.length > 0 && !failedUris.has(u),
-  ) ?? displayUrl;
-  const uri = lockedLoadedUri && !failedUris.has(lockedLoadedUri) ? lockedLoadedUri : candidateUri;
-  const allFailed = Boolean(displayUrl) && failedUris.has(displayUrl) && (!img.url || failedUris.has(img.url));
+  const { uri, allFailed, lockSource, markFailed } = useChatImageSource(displayUrl, img.url, imageScope ?? realmScope(serverUrl ?? displayUrl));
   const { loaded, transition, markLoaded } = useImageReveal(displayUrl);
-
   const handleLoad = useCallback(() => {
-    setLockedLoadedUri((prev) => prev ?? uri);
+    lockSource();
     markLoaded();
-  }, [uri, markLoaded]);
-
-  const handleError = useCallback(() => {
-    evictCachedFile(uri);
-    setLockedLoadedUri(null);
-    setFailedUris((prev) => new Set(prev).add(uri));
-  }, [uri]);
-
+  }, [lockSource, markLoaded]);
   return (
     <View style={{ width: GALLERY_THUMB, height: GALLERY_THUMB, borderRadius: 8, overflow: 'hidden' }}>
       {shouldBlur ? (
         <Pressable onPress={onReveal} style={{ flex: 1 }}>
-          <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB, opacity: 0.15 }} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} blurRadius={20} onLoad={handleLoad} onError={handleError} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
+          <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB, opacity: 0.15 }} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} blurRadius={20} onLoad={handleLoad} onError={markFailed} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
           {index === 0 && (
             <View style={styles.nsfwOverlay}>
               <Text style={[styles.nsfwLabel, { color: theme.colors.text }]}>{nsfwLabels.length > 0 ? nsfwLabels.join(' · ') : 'NSFW'}</Text>
@@ -884,7 +868,7 @@ function GalleryImage({ img, index, shouldBlur, nsfwLabels, onReveal, onPress, s
           <Pressable onPress={() => onPress(img)} style={{ flex: 1 }}>
             {!loaded && !allFailed && <ImagePlaceholder mark />}
             {allFailed && <ImageFailed width={GALLERY_THUMB} height={GALLERY_THUMB} />}
-            <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB }} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} transition={transition} onLoad={handleLoad} onError={handleError} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
+            <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB }} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} transition={transition} onLoad={handleLoad} onError={markFailed} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
           </Pressable>
           <GifFavoriteStarOverlay url={img.url} mime={img.mime} />
         </View>
@@ -1003,7 +987,7 @@ function ChatVideo({ url, name, serverUrl, imageScope, autoLoop = false }: { url
 
   return (
     <View style={[styles.videoWrap, { backgroundColor: '#000', borderColor: theme.colors.lineSoft }]}>
-      <View style={{ position: 'relative', width: '100%', height: 240, overflow: 'hidden' }}>
+      <View style={styles.video}>
         <VideoView
           player={player}
           style={StyleSheet.absoluteFill}

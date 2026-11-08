@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { runHardwareProbe, createCachedProbe } = require('./hardwareProbe.cjs');
@@ -147,11 +148,11 @@ function cachedSupportIfFresh(forceRefresh) {
   return null;
 }
 
-function nonWindowsSupport() {
+function unsupportedPlatformSupport() {
   return {
     ok: false,
     platform: process.platform,
-    reason: 'native WHIP publishing is Windows-only',
+    reason: 'native WHIP publishing is only available on Windows and macOS',
     checkedAt: Date.now(),
   };
 }
@@ -201,8 +202,12 @@ function interpretSupport(ffmpeg, { muxers, filters, encoders, devices }) {
 function getSupport({ forceRefresh = false } = {}) {
   const fresh = cachedSupportIfFresh(forceRefresh);
   if (fresh) return fresh;
+  if (process.platform === 'darwin') {
+    // Only warmSupport probes the runtime on macOS, so this never blocks the main process.
+    return cachedSupport ?? macRuntimeMissingSupport();
+  }
   if (process.platform !== 'win32') {
-    cachedSupport = nonWindowsSupport();
+    cachedSupport = unsupportedPlatformSupport();
     return cachedSupport;
   }
   const ffmpeg = resolveFfmpegPath();
@@ -234,8 +239,12 @@ function warmSupport({ forceRefresh = false } = {}) {
   if (fresh) return Promise.resolve(fresh);
   warmSupportPromise = Promise.resolve().then(async () => {
     try {
+      if (process.platform === 'darwin') {
+        cachedSupport = await probeMacSupport();
+        return cachedSupport;
+      }
       if (process.platform !== 'win32') {
-        cachedSupport = nonWindowsSupport();
+        cachedSupport = unsupportedPlatformSupport();
         return cachedSupport;
       }
       const ffmpeg = await resolveFfmpegPathAsync();
@@ -537,6 +546,8 @@ function shouldRetryDshowAttempt(options, attemptIndex, attempts, stderrText) {
 // CATREALM_WHIP_BACKEND=gstreamer|ffmpeg forces desktop/window capture only.
 const DEFAULT_GST_LAUNCH = 'C:\\Program Files\\GStreamer\\1.0\\msvc_x86_64\\bin\\gst-launch-1.0.exe';
 const DEFAULT_GST_DEVICE_MONITOR = 'C:\\Program Files\\GStreamer\\1.0\\msvc_x86_64\\bin\\gst-device-monitor-1.0.exe';
+const GST_EXE_SUFFIX = process.platform === 'win32' ? '.exe' : '';
+const BUNDLED_GST_DIR = process.platform === 'darwin' ? 'mac-arm64' : 'win-msvc-x64';
 
 let cachedWhipBackend = null;
 let cachedGstAudioDevices = null;
@@ -564,26 +575,29 @@ function gstLaunchCandidates() {
     ? __dirname.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`)
     : __dirname;
   const bundledGstDirs = [
-    path.join(unpackedDir, 'native', 'gstreamer', 'win-msvc-x64', 'bin'),
-    path.join(process.cwd(), 'electron', 'native', 'gstreamer', 'win-msvc-x64', 'bin'),
-    path.join(__dirname, '..', 'electron', 'native', 'gstreamer', 'win-msvc-x64', 'bin'),
+    path.join(unpackedDir, 'native', 'gstreamer', BUNDLED_GST_DIR, 'bin'),
+    path.join(process.cwd(), 'electron', 'native', 'gstreamer', BUNDLED_GST_DIR, 'bin'),
+    path.join(__dirname, '..', 'electron', 'native', 'gstreamer', BUNDLED_GST_DIR, 'bin'),
   ];
   if (process.resourcesPath) {
     bundledGstDirs.push(
-      path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'native', 'gstreamer', 'win-msvc-x64', 'bin'),
-      path.join(process.resourcesPath, 'electron', 'native', 'gstreamer', 'win-msvc-x64', 'bin'),
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'native', 'gstreamer', BUNDLED_GST_DIR, 'bin'),
+      path.join(process.resourcesPath, 'electron', 'native', 'gstreamer', BUNDLED_GST_DIR, 'bin'),
     );
   }
-  bundledGstDirs.push(path.join(__dirname, 'native', 'gstreamer', 'win-msvc-x64', 'bin'));
+  bundledGstDirs.push(path.join(__dirname, 'native', 'gstreamer', BUNDLED_GST_DIR, 'bin'));
   // Bundled runtime ships the launcher renamed to CatRealmStreamer.exe (branded
   // process name); prefer it, fall back to gst-launch-1.0.exe for older bundles.
   for (const binDir of bundledGstDirs) {
-    candidates.push(path.join(binDir, 'CatRealmStreamer.exe'));
-    candidates.push(path.join(binDir, 'gst-launch-1.0.exe'));
+    candidates.push(path.join(binDir, `CatRealmStreamer${GST_EXE_SUFFIX}`));
+    candidates.push(path.join(binDir, `gst-launch-1.0${GST_EXE_SUFFIX}`));
   }
-  const root = process.env.GSTREAMER_1_0_ROOT_MSVC_X86_64;
-  if (root) candidates.push(path.join(root, 'bin', 'gst-launch-1.0.exe'));
-  candidates.push(DEFAULT_GST_LAUNCH);
+  // macOS only ever uses the bundled runtime or an explicit CATREALM_GSTREAMER_BIN.
+  if (process.platform === 'win32') {
+    const root = process.env.GSTREAMER_1_0_ROOT_MSVC_X86_64;
+    if (root) candidates.push(path.join(root, 'bin', 'gst-launch-1.0.exe'));
+    candidates.push(DEFAULT_GST_LAUNCH);
+  }
   return [...new Set(candidates)];
 }
 
@@ -642,7 +656,12 @@ function gstRuntimeEnv(gstPath) {
   if (!root) return env;
 
   const pluginPath = path.join(root, 'lib', 'gstreamer-1.0');
-  const scanner = path.join(root, 'libexec', 'gstreamer-1.0', 'gst-plugin-scanner.exe');
+  const scanner = path.join(root, 'libexec', 'gstreamer-1.0', `gst-plugin-scanner${GST_EXE_SUFFIX}`);
+  if (process.platform === 'darwin') {
+    // Keep the plugin registry apart from any other GStreamer on this Mac, in a
+    // location that stays writable once the app bundle is signed.
+    env.GST_REGISTRY_1_0 = path.join(os.homedir(), 'Library', 'Caches', 'CatRealm', 'gstreamer-registry.bin');
+  }
   if (fs.existsSync(pluginPath)) {
     env.GST_PLUGIN_PATH = pluginPath;
     env.GST_PLUGIN_SYSTEM_PATH = pluginPath;
@@ -817,14 +836,14 @@ function buildGstWasapiAudioBranch(options, gstPath, sinkTarget, encodedRtp, war
   ];
 }
 
-const H264_ENCODERS = ['nvh264enc', 'amfh264enc', 'mfh264enc'];
+const H264_ENCODERS = process.platform === 'darwin' ? ['vtenc_h264_hw'] : ['nvh264enc', 'amfh264enc', 'mfh264enc'];
 let cachedEncoders = null;
 
 const availableH264EncodersAsync = createCachedProbe(async () => {
-  if (process.platform !== 'win32') return [];
+  if (process.platform !== 'win32' && process.platform !== 'darwin') return [];
   const gstPath = await resolveGstLaunchAsync();
   if (!gstPath) return [];
-  const inspect = path.join(path.dirname(gstPath), 'gst-inspect-1.0.exe');
+  const inspect = path.join(path.dirname(gstPath), `gst-inspect-1.0${GST_EXE_SUFFIX}`);
   const exe = fs.existsSync(inspect) ? inspect : 'gst-inspect-1.0';
   const env = gstRuntimeEnv(gstPath);
   const results = await Promise.all(H264_ENCODERS.map(enc => runHardwareProbe(exe, [enc], { env, timeoutMs: 10000 })));
@@ -841,7 +860,7 @@ function availableH264Encoders() {
   if (cachedEncoders) return cachedEncoders;
   const gstPath = resolveGstLaunch();
   if (!gstPath) { cachedEncoders = []; return cachedEncoders; }
-  const inspect = path.join(path.dirname(gstPath), 'gst-inspect-1.0.exe');
+  const inspect = path.join(path.dirname(gstPath), `gst-inspect-1.0${GST_EXE_SUFFIX}`);
   const exe = fs.existsSync(inspect) ? inspect : 'gst-inspect-1.0';
   const env = gstRuntimeEnv(gstPath);
   const result = [];
@@ -982,7 +1001,7 @@ function buildGstDeviceArgs(options) {
 
 function shouldEmitGstStatus(text) {
   if (truthy(process.env.CATREALM_NATIVE_WHIP_DEBUG)) return true;
-  if (/fraction_range|GStreamer-CRITICAL|GLib-/.test(text)) return false;
+  if (/fraction_range|GStreamer-CRITICAL|GLib-|generated empty RTCP/.test(text)) return false;
   return /ICE connection state|peer connection state|WHIP resource|201 Created|ERROR|fail|could not|not-negotiated|no element|nvh264|Setting pipeline to (PLAYING|NULL)/i.test(text);
 }
 
@@ -1006,6 +1025,12 @@ function startGstreamer(options, sender) {
     return { ok: false, reason: 'bad-options', message: error instanceof Error ? error.message : String(error) };
   }
 
+  return runGstPublisher({ gstPath, args, warnings, options, sender });
+}
+
+// Spawns a gst-launch publisher and reports its status and exit to the renderer.
+// `stdin` feeds the macOS audio branch; `publisherFields` adds stop behavior.
+function runGstPublisher({ gstPath, args, warnings, options, sender, gstDebug, stdin = 'ignore', publisherFields = {}, onStarted }) {
   const publisherId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const emitStatus = (message, level = 'info') => {
     if (!sender || sender.isDestroyed()) return;
@@ -1013,7 +1038,7 @@ function startGstreamer(options, sender) {
   };
   for (const warning of warnings) emitStatus(warning, 'warn');
   const env = gstRuntimeEnv(gstPath);
-  env.GST_DEBUG = process.env.GST_DEBUG || '2,webrtc-whip-signaller:3,webrtcbin:3,whipsink:3';
+  env.GST_DEBUG = process.env.GST_DEBUG || gstDebug || '2,webrtc-whip-signaller:3,webrtcbin:3,whipsink:3';
   const safeArgs = args.map((arg) => {
     if (arg.startsWith('signaller::whip-endpoint=')) return 'signaller::whip-endpoint=<whip-endpoint>';
     if (arg.startsWith('whip-endpoint=')) return 'whip-endpoint=<whip-endpoint>';
@@ -1022,7 +1047,7 @@ function startGstreamer(options, sender) {
 
   let child;
   try {
-    child = spawn(gstPath, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, env });
+    child = spawn(gstPath, args, { stdio: [stdin, 'ignore', 'pipe'], windowsHide: true, env });
   } catch (error) {
     if (sender && !sender.isDestroyed()) {
       sender.send('native-whip-publisher-stopped', { publisherId, code: null, signal: null, error: error instanceof Error ? error.message : String(error), at: Date.now() });
@@ -1030,8 +1055,9 @@ function startGstreamer(options, sender) {
     return { ok: false, reason: 'spawn-failed', message: 'Failed to start gst-launch.' };
   }
 
-  activePublishers.set(publisherId, { child, options, startedAt: Date.now(), backend: 'gstreamer' });
+  activePublishers.set(publisherId, { child, options, startedAt: Date.now(), backend: 'gstreamer', ...publisherFields });
   emitStatus(`spawn gstreamer=${gstPath} args=${safeArgs.join(' ')}`);
+  onStarted?.({ child, publisherId, emitStatus });
   child.stderr.on('data', (chunk) => {
     const text = chunk.toString('utf8');
     if (!shouldEmitGstStatus(text)) return;
@@ -1055,7 +1081,215 @@ function startGstreamer(options, sender) {
   return { ok: true, publisherId, backend: 'gstreamer', gstPath, captureMode: options.captureMode, sourceId: options.sourceId };
 }
 
-function start(options, sender) {
+// ── macOS screen publisher ────────────────────────────────────────────────────
+// avfvideosrc -> VideoToolbox H.264 -> whipsink, with system audio from
+// CatRealmCaptureHelper on stdin. Displays only: avfvideosrc can't capture a single
+// window, so window and capture-card shares stay on the browser encoder.
+const MAC_CAPTURE_MODES = ['monitor-dxgi'];
+const MAC_CAPTURE_HELPER = 'CatRealmCaptureHelper';
+const MAC_REQUIRED_ELEMENTS = [
+  'avfvideosrc', 'vtenc_h264_hw', 'videorate', 'videoscale', 'h264parse', 'rtph264pay', 'whipsink',
+  'fdsrc', 'rawaudioparse', 'audioconvert', 'audioresample', 'opusenc', 'rtpopuspay',
+];
+const MAC_FIRST_FRAME_TIMEOUT_MS = 10_000;
+const MAC_STOP_TIMEOUT_MS = 3_000;
+
+function macRuntimeMissingSupport() {
+  return {
+    ok: false,
+    platform: process.platform,
+    reason: 'the CatRealm encoder runtime is not bundled with this build',
+    checkedAt: Date.now(),
+  };
+}
+
+async function probeMacSupport() {
+  const gstPath = await resolveGstLaunchAsync();
+  if (!gstPath) return macRuntimeMissingSupport();
+  const inspect = path.join(path.dirname(gstPath), 'gst-inspect-1.0');
+  const env = gstRuntimeEnv(gstPath);
+  // The first run scans every plugin, so let it finish before probing in parallel.
+  await runHardwareProbe(inspect, ['--version'], { env, timeoutMs: 60_000 });
+  const results = await Promise.all(MAC_REQUIRED_ELEMENTS.map((element) => (
+    runHardwareProbe(inspect, ['--exists', element], { env, timeoutMs: 10_000 })
+  )));
+  const missing = MAC_REQUIRED_ELEMENTS.filter((_, index) => !results[index].ok);
+  return {
+    ok: missing.length === 0,
+    platform: process.platform,
+    backend: 'gstreamer',
+    gstPath,
+    captureModes: MAC_CAPTURE_MODES,
+    reason: missing.length ? `the CatRealm encoder runtime is missing: ${missing.join(', ')}` : null,
+    checkedAt: Date.now(),
+  };
+}
+
+function macProcessTapsAvailable() {
+  // Core Audio process taps need macOS 14.2, which is Darwin 23.2.
+  const [major, minor] = os.release().split('.').map(Number);
+  return major > 23 || (major === 23 && minor >= 2);
+}
+
+// Shows the system prompt the first time, and lists CatRealm in System Settings.
+function requestMacScreenAccess(onLog) {
+  const gstPath = resolveGstLaunch();
+  if (!gstPath) return false;
+  const helper = spawn(path.join(path.dirname(gstPath), MAC_CAPTURE_HELPER), ['--request-screen-access'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  helper.on('error', (error) => onLog?.(error instanceof Error ? error.message : String(error)));
+  helper.stderr?.on('data', (chunk) => onLog?.(chunk.toString('utf8').trim()));
+  return true;
+}
+
+function resolveMacScreen(helperPath, sourceId) {
+  const source = parseDesktopSource(sourceId);
+  if (source?.kind !== 'screen') throw new Error('macOS native capture only supports full displays.');
+  const result = spawnSync(helperPath, ['--list-screens'], { encoding: 'utf8', timeout: 5_000 });
+  let screens = [];
+  try { screens = JSON.parse(result.stdout || '[]'); } catch {}
+  const match = screens.find((screen) => screen.displayId === source.index);
+  if (match) return match;
+  // Never guess between displays: that could share the wrong screen.
+  if (screens.length === 1) return screens[0];
+  throw new Error(`Display ${source.index} was not found among the ${screens.length} connected displays.`);
+}
+
+function buildGstMacAudioBranch() {
+  return [
+    'fdsrc', 'fd=0', 'do-timestamp=true', 'blocksize=3840',
+    '!', 'rawaudioparse', 'use-sink-caps=false', 'format=pcm', 'pcm-format=f32le', 'sample-rate=48000', 'num-channels=2',
+    '!', 'queue', 'leaky=downstream', 'max-size-buffers=0', 'max-size-bytes=0', 'max-size-time=200000000',
+    '!', 'audioconvert',
+    '!', 'audioresample',
+    '!', 'audio/x-raw,format=S16LE,rate=48000,channels=2,layout=interleaved',
+    '!', 'opusenc', 'bitrate=128000', 'bitrate-type=cbr', 'audio-type=generic', 'frame-size=20',
+    'perfect-timestamp=true', 'hard-resync=true',
+    '!', 'rtpopuspay', 'pt=97',
+    '!', 'whip.',
+  ];
+}
+
+// Downscale-only and aspect-preserving, so smaller displays pass through untouched and
+// a 16:10 or ultrawide display keeps its shape. The target height is the limit unless
+// the caller also gave a width. H.264 needs even dimensions.
+function fitMacOutputSize(screen, options) {
+  const height = numberOption(options.height, 1080, 16, 4320);
+  const width = options.width ? numberOption(options.width, 7680, 16, 7680) : Infinity;
+  const scale = Math.min(1, height / screen.height, width / screen.width);
+  const even = (value) => Math.max(2, Math.round(value / 2) * 2);
+  return { width: even(screen.width * scale), height: even(screen.height * scale) };
+}
+
+function buildGstMacScreenArgs(options, { screen, includeAudio }) {
+  const fps = numberOption(options.fps, 60, 1, 240);
+  const { width, height } = fitMacOutputSize(screen, options);
+  const endpoint = joinWhipEndpoint(options.whip?.url, options.whip?.streamKey);
+  if (!endpoint) throw new Error('Missing WHIP endpoint.');
+  const bitrate = numberOption(Number(process.env.CATREALM_WHIP_BITRATE) || options.bitrate, 8000000, 500000, 50000000);
+  // VideoToolbox rejects constrained-baseline as a caps request.
+  const requestedProfile = gstH264Profile(options) || 'high';
+  const profile = requestedProfile === 'constrained-baseline' ? 'baseline' : requestedProfile;
+  return [
+    'avfvideosrc', 'capture-screen=true', 'capture-screen-cursor=true', `device-index=${screen.index}`,
+    '!', 'video/x-raw,format=NV12',
+    '!', 'videorate',
+    '!', 'videoscale',
+    '!', `video/x-raw,width=(int)${width},height=(int)${height},framerate=(fraction)${fps}/1,pixel-aspect-ratio=(fraction)1/1`,
+    '!', 'queue', 'max-size-buffers=2', 'leaky=downstream',
+    // CBR for every preset: VideoToolbox's ABR mode overshot the target by about three
+    // times in testing, and data-rate-limits had no effect on it.
+    '!', 'vtenc_h264_hw', 'realtime=true', 'allow-frame-reordering=false', 'rate-control=cbr',
+    `bitrate=${Math.max(500, Math.round(bitrate / 1000))}`, `max-keyframe-interval=${Math.max(15, fps * 2)}`,
+    // VideoToolbox only outputs avc; h264parse handles the conversion for RTP.
+    '!', `video/x-h264,profile=(string)${profile}`,
+    '!', 'h264parse', 'config-interval=-1',
+    '!', 'rtph264pay', 'config-interval=-1', 'pt=96',
+    '!', 'whipsink', 'name=whip', `whip-endpoint=${endpoint}`,
+    ...(includeAudio ? buildGstMacAudioBranch() : []),
+  ];
+}
+
+function startMacScreen(options, sender, { screenAccessStatus } = {}) {
+  if (!MAC_CAPTURE_MODES.includes(options.captureMode)) {
+    return { ok: false, reason: 'unsupported', message: 'macOS native capture only supports full displays.' };
+  }
+  if (screenAccessStatus !== 'granted') {
+    return { ok: false, reason: 'permission-denied', message: `Screen Recording permission is ${screenAccessStatus || 'unknown'}.` };
+  }
+  const gstPath = resolveGstLaunch();
+  if (!gstPath) return { ok: false, reason: 'unsupported', message: 'The CatRealm encoder runtime is not bundled with this build.' };
+  const helperPath = path.join(path.dirname(gstPath), MAC_CAPTURE_HELPER);
+  const warnings = [];
+  const includeAudio = !!options.includeAudio && macProcessTapsAvailable();
+  if (options.includeAudio && !includeAudio) warnings.push('System audio sharing needs macOS 14.2 or later; sharing video only.');
+
+  let args;
+  try {
+    args = buildGstMacScreenArgs(options, { screen: resolveMacScreen(helperPath, options.sourceId), includeAudio });
+  } catch (error) {
+    return { ok: false, reason: 'bad-options', message: error instanceof Error ? error.message : String(error) };
+  }
+
+  for (const publisherId of Array.from(activePublishers.keys())) stop(publisherId);
+
+  let helper = null;
+  if (includeAudio) {
+    try {
+      helper = spawn(helperPath, ['--audio', '--exclude-tree', String(process.pid)], { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      return { ok: false, reason: 'spawn-failed', message: error instanceof Error ? error.message : String(error) };
+    }
+    helper.on('error', () => {});
+  }
+
+  const result = runGstPublisher({
+    gstPath,
+    args,
+    warnings,
+    options,
+    sender,
+    gstDebug: '1,whipsink:4',
+    stdin: helper ? helper.stdout : 'ignore',
+    publisherFields: { helper, stopSignal: 'SIGINT' },
+    onStarted: ({ child, publisherId, emitStatus }) => {
+      // Only the publisher should hold the read end, so the helper gets SIGPIPE if the
+      // publisher dies.
+      helper?.stdout.destroy();
+      helper?.stderr.on('data', (chunk) => emitStatus(chunk.toString('utf8'), 'debug'));
+      helper?.on('exit', (code, signal) => {
+        // End of stream on the audio branch freezes the whole WHIP session while the
+        // process stays alive, so end the share and let the renderer know.
+        if (!activePublishers.has(publisherId)) return;
+        emitStatus(`System audio capture stopped unexpectedly (code ${code}, signal ${signal}); ending the share.`, 'error');
+        child.kill('SIGKILL');
+      });
+
+      // Without Screen Recording access avfvideosrc reaches PLAYING and then produces
+      // nothing, with no error. whipsink only starts once encoded frames arrive.
+      let framesFlowing = false;
+      const watchdog = setTimeout(() => {
+        if (framesFlowing) return;
+        emitStatus('No frames were captured from the display; stopping the share. Check the Screen Recording permission.', 'error');
+        child.kill('SIGKILL');
+      }, MAC_FIRST_FRAME_TIMEOUT_MS);
+      child.stderr.on('data', (chunk) => {
+        if (!framesFlowing && /ICE gathering/.test(chunk.toString('utf8'))) {
+          framesFlowing = true;
+          clearTimeout(watchdog);
+        }
+      });
+      child.on('exit', () => {
+        clearTimeout(watchdog);
+        helper?.kill('SIGTERM');
+      });
+    },
+  });
+  if (!result.ok) helper?.kill('SIGTERM');
+  return result;
+}
+
+function start(options, sender, context) {
+  if (process.platform === 'darwin') return startMacScreen(options, sender, context);
   if (whipBackend(options) === 'gstreamer') return startGstreamer(options, sender);
   if (options.captureMode === 'device-dshow') {
     return { ok: false, reason: 'unsupported', message: 'Native device WHIP capture requires GStreamer; FFmpeg DirectShow device capture is disabled.' };
@@ -1165,7 +1399,15 @@ function stop(publisherId) {
     const publisher = activePublishers.get(publisherId);
     if (!publisher) return { ok: true };
     activePublishers.delete(publisherId);
-    try { publisher.child.kill('SIGTERM'); } catch {}
+    try { publisher.child.kill(publisher.stopSignal || 'SIGTERM'); } catch {}
+    try { publisher.helper?.kill('SIGTERM'); } catch {}
+    if (publisher.stopSignal === 'SIGINT') {
+      // SIGINT lets gst-launch shut the pipeline down cleanly, but don't let a stuck
+      // pipeline keep capturing the screen.
+      setTimeout(() => {
+        if (publisher.child.exitCode === null && publisher.child.signalCode === null) publisher.child.kill('SIGKILL');
+      }, MAC_STOP_TIMEOUT_MS).unref?.();
+    }
     return { ok: true };
   }
   for (const id of Array.from(activePublishers.keys())) stop(id);
@@ -1182,6 +1424,10 @@ module.exports = {
   warmSupport,
   availableH264Encoders,
   availableH264EncodersAsync,
+  // Shared with uploadCompressBridge (same bundled runtime and encoders).
+  resolveGstLaunchAsync,
+  gstRuntimeEnv,
+  requestMacScreenAccess,
   start,
   stop,
   stopAll,

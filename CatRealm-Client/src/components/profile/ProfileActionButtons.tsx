@@ -26,6 +26,7 @@ interface ProfileActionButtonsProps {
   onViewServerProfile: () => void;
   onInviteToServer: () => void;
   onCopyUserId: () => void;
+  onReport: () => void;
 }
 
 export function ProfileActionButtons({
@@ -49,6 +50,7 @@ export function ProfileActionButtons({
   onViewServerProfile,
   onInviteToServer,
   onCopyUserId,
+  onReport,
 }: ProfileActionButtonsProps) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -142,6 +144,7 @@ export function ProfileActionButtons({
             onBlock={onBlock}
             onUnblock={onUnblock}
             onCopyUserId={onCopyUserId}
+            onReport={onReport}
           />
         )}
       </div>

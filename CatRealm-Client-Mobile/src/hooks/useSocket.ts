@@ -301,6 +301,9 @@ export function useSocket() {
         void playNotificationSound('message-in-server', settings.soundVolumes?.soundMessageInServer ?? 100);
       }
     });
+    socket.on('safety:artifact:update', ({ channelId, messageId, artifactKey, state }: { channelId?: string; messageId?: string; artifactKey?: string; state?: 'quarantined' | 'removed' | 'cleared' }) => {
+      if (channelId && messageId && artifactKey && state) useMessageStore.getState().applySafetyArtifactUpdate(channelId, messageId, artifactKey, state);
+    });
 
     socket.on('bot:ephemeral', (msg: {
       interactionId?: string;
@@ -496,6 +499,7 @@ export function useSocket() {
       appStateSub.remove();
       socket.off('connect', onServerConnect);
       socket.off('message:new');
+      socket.off('safety:artifact:update');
       socket.off('bot:ephemeral');
       socket.off('message:edited');
       socket.off('message:deleted');
@@ -535,6 +539,14 @@ export function useSocket() {
     const dmSession = captureAccountSession();
     useCallStore.getState().setSocket(accountType === 'central' ? socket : null);
     socket.on('dm:requests:changed', () => void useDMStore.getState().fetchConversations());
+    socket.on('official:announcement:new', () => {
+      void useDMStore.getState().fetchConversations();
+      if (useDMStore.getState().activeConversationId === 'official-system') void useDMStore.getState().fetchMessages('official-system');
+    });
+    socket.on('official:announcement:changed', () => {
+      void useDMStore.getState().fetchConversations();
+      if (useDMStore.getState().activeConversationId === 'official-system') void useDMStore.getState().fetchMessages('official-system');
+    });
     let centralFriendSyncInFlight = false;
     let lastCentralFriendSyncAt = 0;
     const CENTRAL_FRIEND_SYNC_INTERVAL_MS = 60000;
@@ -570,7 +582,7 @@ export function useSocket() {
       const activeConversationId = useDMStore.getState().activeConversationId;
       if (activeConversationId) {
         void useDMStore.getState().fetchMessages(activeConversationId);
-        void useDMStore.getState().fetchPins(activeConversationId);
+        if (activeConversationId !== 'official-system') void useDMStore.getState().fetchPins(activeConversationId);
       }
     };
 
@@ -589,6 +601,7 @@ export function useSocket() {
       }
       const conversations = useDMStore.getState().conversations;
       for (const conversation of conversations) {
+        if (conversation.conversationKind === 'official_system') continue;
         try {
           const manifest = await fetchDMKeyManifest(conversation.id);
           if (manifest.activeKeyVersion == null) continue;
@@ -696,6 +709,11 @@ export function useSocket() {
     });
     socket.on('dm:message:delete', ({ messageId }: { messageId: string }) => {
       useDMStore.getState().removeMessageLocal(messageId);
+    });
+    socket.on('safety:artifact:update', ({ scopeKind, scopeId }: { scopeKind?: string; scopeId?: string }) => {
+      if (!scopeId) return;
+      if (scopeKind === 'dm') void useDMStore.getState().fetchMessages(scopeId);
+      if (scopeKind === 'group_dm') void useGroupChatStore.getState().fetchMessages(scopeId);
     });
     socket.on('gc:message', (raw: RawGroupMessage) => {
       const groupChatId = raw.groupChatId ?? raw.group_chat_id;
@@ -812,6 +830,8 @@ export function useSocket() {
       globalThis.clearInterval(centralFriendSyncTimer);
       socket.off('dm:message');
       socket.off('dm:requests:changed');
+      socket.off('official:announcement:new');
+      socket.off('official:announcement:changed');
       socket.off('dm:message:new');
       socket.off('dm:typing:start');
       socket.off('dm:typing:stop');
@@ -819,6 +839,7 @@ export function useSocket() {
       socket.off('dm:pin:update');
       socket.off('dm:message:update');
       socket.off('dm:message:delete');
+      socket.off('safety:artifact:update');
       socket.off('gc:message');
       socket.off('gc:list:update');
       socket.off('gc:member:added');

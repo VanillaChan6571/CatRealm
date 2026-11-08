@@ -3,8 +3,14 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-// The bundled GStreamer runtime is Windows-only (PE import closure, D3D/MediaFoundation
-// plugins, rcedit). Linux/macOS builds ship without it — capture is unsupported there.
+// macOS has its own staging script: Mach-O closure and an unpacked official package.
+if (process.platform === 'darwin') {
+  require('./prepare-gstreamer-runtime-mac.cjs');
+  return;
+}
+
+// This runtime is Windows-only (PE import closure, D3D/MediaFoundation plugins,
+// rcedit). Linux builds ship without it, so capture is unsupported there.
 if (process.platform !== 'win32') {
   console.log(`[gstreamer] Skipping bundled runtime staging: Windows-only step (platform: ${process.platform}).`);
   process.exit(0);
@@ -68,6 +74,17 @@ const pluginDlls = [
   'gstdebugutilsbad.dll',
   'gstrsrtp.dll',
 
+  // Cat Lab "Auto Compress Upload" re-encodes oversized videos to fit the
+  // upload limit: decodebin (gstplayback + typefind) picks demuxer/decoders,
+  // MP4 in/out (qtdemux/mp4mux), WebM in (matroskademux), and VP8 decode
+  // (vp8dec, libvpx is static). Decode/encode reuse d3d11 and the H.264
+  // encoders above; audio reuses mf*dec/opusdec and mfaacenc.
+  'gstplayback.dll',
+  'gsttypefindfunctions.dll',
+  'gstisomp4.dll',
+  'gstmatroska.dll',
+  'gstvpx.dll',
+
   // Dynamically-created WebRTC transport elements used by whipsink/webrtcsink.
   'gstwebrtc.dll',
   'gstdtls.dll',
@@ -92,6 +109,8 @@ const validationElements = [
   // webrtcsink; element registration of whipclientsink alone does NOT prove they
   // (or webrtcsink's discovery chain) are present — validateWebrtcsinkChain does.
   'appsrc', 'appsink', 'rtpgccbwe',
+  // Upload video compression (see the plugin list above).
+  'decodebin', 'qtdemux', 'mp4mux', 'matroskademux', 'vp8dec', 'mfaacenc',
 ];
 
 // Both publish paths are supported: the production whipsink path (we encode H.264

@@ -20,7 +20,7 @@ function forgetResolved(match: (localPath: string) => boolean): void {
 // ─── File type detection & cap enforcement ───────────────────────────────────
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'bmp', 'avif']);
-const VIDEO_EXTS = new Set(['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v', 'ts', 'flv', '3gp']);
+const VIDEO_EXTS = new Set(['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v', 'ts', 'flv', '3gp', 'ogv', 'ogg']);
 
 type MediaType = 'image' | 'video' | 'other';
 

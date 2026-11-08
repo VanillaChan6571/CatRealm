@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, shell, powerMonitor, session, Tray, Menu, Notification, crashReporter, nativeImage, net } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, shell, powerMonitor, session, Tray, Menu, Notification, crashReporter, nativeImage, net, systemPreferences } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -7,6 +7,7 @@ const { autoUpdater } = require('electron-updater');
 const { GameActivityService } = require('./gameActivityService.cjs');
 const windowsAppAudioBridge = require('./windowsAppAudioBridge.cjs');
 const whipPublisherBridge = require('./whipPublisherBridge.cjs');
+const uploadCompressBridge = require('./uploadCompressBridge.cjs');
 const { createScreenShareGpuDiscovery } = require('./screenShareGpuDiscovery.cjs');
 const { createAppSecurity, isHttpUrl, isPasskeyUrl, isOverlayHostAllowed } = require('./appSecurity.cjs');
 const { createReactiveAvatarFiles } = require('./reactiveAvatarFiles.cjs');
@@ -481,8 +482,10 @@ function applyVideoEncodingConfig() {
   // Chromium otherwise launches a dedicated ~130 MB Video Capture utility the
   // first time media devices are queried and supervises it if killed. Its
   // supported in-browser mode keeps the same service on a dedicated background
-  // thread without the extra Chromium process.
-  enableFeatures.push('RunVideoCaptureServiceInBrowserProcess');
+  // thread without the extra Chromium process. Not on macOS: that thread has no
+  // CFRunLoop, and Chromium's Mac capture code crashes the app on purpose without
+  // one the first time media devices are queried.
+  if (process.platform !== 'darwin') enableFeatures.push('RunVideoCaptureServiceInBrowserProcess');
 
   // Core Performance Switches
   // Expose V8's collector so the renderer can reclaim large, short-lived
@@ -1667,7 +1670,7 @@ function createWindow() {
     // Warm the native-WHIP capability cache so the first Settings → Voice / share
     // reads a ready cache and never triggers the blocking spawnSync probe.
     // warmSupport() probes via async spawn, so it never blocks the main process
-    // (Windows only; no-ops elsewhere). GPU diagnostics warmed alongside so the
+    // (Windows and macOS; no-ops elsewhere). GPU diagnostics warmed alongside so the
     // encoder status line is ready too.
     setTimeout(() => {
       void whipPublisherBridge.warmSupport();
@@ -1956,7 +1959,54 @@ function captureWindowThumbnailsViaHelper(px = 150, timeoutMs = 8000) {
   return thumbHelperInFlight;
 }
 
+let requestedScreenCaptureAccess = false;
+
+function requestScreenCaptureAccessOnce() {
+  if (requestedScreenCaptureAccess) return;
+  requestedScreenCaptureAccess = true;
+  whipPublisherBridge.requestMacScreenAccess((message) => {
+    appendMainProcessVoiceDebug('electron', 'screen capture access request', { message });
+  });
+}
+
+function screenCaptureAccessStatus() {
+  return process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'granted';
+}
+
+handleAppIpc('get-screen-capture-access', async () => ({ status: screenCaptureAccessStatus() }));
+
+// The bridge only resolves HTTP realms for allowed page origins. The app's page is a
+// file:// page that sends no Origin header (or localhost in dev), so the lookup is
+// made here with the opaque origin a file page has. The ticket from Central is what
+// authorizes it; the renderer still validates the response.
+handleAppIpc('http-realm-gateway-resolve', async (_event, request) => {
+  const realmOrigin = typeof request?.realmOrigin === 'string' ? request.realmOrigin : '';
+  const ticket = typeof request?.ticket === 'string' ? request.ticket : '';
+  let url;
+  try { url = new URL(realmOrigin); } catch { url = null; }
+  if (!url || url.protocol !== 'http:' || url.origin !== realmOrigin || !ticket || ticket.length > 4096) {
+    throw new Error('Invalid HTTP realm lookup.');
+  }
+  const response = await fetch('https://bridge.catrealm.app/api/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ticket}`, Origin: 'null' },
+    body: JSON.stringify({ realmOrigin }),
+    signal: AbortSignal.timeout(12000),
+  });
+  const data = await response.json().catch(() => null);
+  return { status: response.status, data };
+});
+
+handleAppIpc('open-screen-capture-settings', async () => {
+  if (process.platform !== 'darwin') return false;
+  await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+  return true;
+});
+
 handleAppIpc('desktop-sources', async (_event, opts) => {
+  // desktopCapturer fails immediately on macOS without Screen Recording access, and
+  // nothing else asks for it.
+  if (screenCaptureAccessStatus() !== 'granted') requestScreenCaptureAccessOnce();
   const types = opts?.types ?? ['screen', 'window'];
   const includeWindowThumbnails = opts?.includeWindowThumbnails === true;
   const sources = [];
@@ -1995,7 +2045,7 @@ handleAppIpc('desktop-sources', async (_event, opts) => {
       appendMainProcessVoiceDebug('electron', 'desktop-sources: grab screens (after)', { count: screens.length });
       sources.push(...screens);
     } catch (err) {
-      appendMainProcessVoiceDebug('electron', 'desktop-sources: screens failed', { message: err?.message }, 'error');
+      appendMainProcessVoiceDebug('electron', 'desktop-sources: screens failed', { message: err?.message ?? String(err) }, 'error');
     }
   }
 
@@ -2010,7 +2060,7 @@ handleAppIpc('desktop-sources', async (_event, opts) => {
       appendMainProcessVoiceDebug('electron', 'desktop-sources: grab windows (after)', { count: windows.length });
       sources.push(...windows);
     } catch (err) {
-      appendMainProcessVoiceDebug('electron', 'desktop-sources: windows failed', { message: err?.message }, 'error');
+      appendMainProcessVoiceDebug('electron', 'desktop-sources: windows failed', { message: err?.message ?? String(err) }, 'error');
     }
   }
 
@@ -2060,12 +2110,24 @@ handleAppIpc('native-whip-publisher-support', async (_event, opts = {}) => (
 handleAppIpc('list-screenshare-gpus', async () => listScreenShareGpus());
 
 handleAppIpc('native-whip-publisher-start', async (event, opts = {}) => (
-  whipPublisherBridge.start(opts, event.sender)
+  whipPublisherBridge.start(opts, event.sender, {
+    screenAccessStatus: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : undefined,
+  })
 ));
 
 handleAppIpc('native-whip-publisher-stop', async (_event, publisherId) => (
   whipPublisherBridge.stop(typeof publisherId === 'string' ? publisherId : undefined)
 ));
+
+// Cat Lab "Auto Compress Upload": GPU re-encode of an oversized upload video.
+handleAppIpc('upload-compress-video', async (event, opts = {}) => {
+  const result = await uploadCompressBridge.compressVideo(opts, (progress) => {
+    if (!event.sender.isDestroyed()) event.sender.send('upload-compress-progress', { progress });
+  });
+  return result.ok ? { ...result, data: new Uint8Array(result.data) } : result;
+});
+
+handleAppIpc('upload-compress-cancel', async () => uploadCompressBridge.cancel());
 
 
 function parseDesktopSourceWindowId(sourceId) {

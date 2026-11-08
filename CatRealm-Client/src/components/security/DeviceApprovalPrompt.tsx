@@ -136,6 +136,14 @@ export function DeviceApprovalPrompt() {
     };
   }, [outgoing?.id, token, user?.accountType]);
 
+  // Dismissing the prompt does not trust the device or resolve the server-side
+  // request. It only pauses polling and code rotation for this launch; the
+  // account will be prompted again after CatRealm restarts or is switched.
+  function approveLater() {
+    setOutgoing(null);
+    setError(null);
+  }
+
   async function deny() {
     if (!current) return;
     setBusy(true);
@@ -181,6 +189,16 @@ export function DeviceApprovalPrompt() {
           <div className="my-6 font-mono text-4xl font-bold tracking-[0.16em] text-text-primary">{outgoing.code ?? '••••-••••'}</div>
           <p className="text-xs text-text-muted">This code changes in {seconds} second{seconds === 1 ? '' : 's'}.</p>
           {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+          <button
+            type="button"
+            onClick={approveLater}
+            className="mt-5 w-full rounded-lg border border-border px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-bg-secondary hover:text-text-primary"
+          >
+            Approve later
+          </button>
+          <p className="mt-3 text-xs text-text-muted">
+            Encrypted DMs stay locked on this device until it&apos;s approved. You&apos;ll be asked again next time you open CatRealm.
+          </p>
         </div>
       </div>
     );

@@ -7,7 +7,9 @@ import Animated, {
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import { File, Mic, Paperclip, Send, Smile, X } from 'lucide-react-native';
+import { File, Image as ImageIcon, Mic, Paperclip, Send, Smile, X } from 'lucide-react-native';
+import { ActionMenuSheet, type ActionMenuItem } from './ActionMenuSheet';
+import { onDismissKeyboard } from '@/lib/dismissKeyboard';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { Text } from './Text';
@@ -477,6 +479,10 @@ export function MobileComposer({
   const theme = useTheme();
   const { t } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Tablets open the picker as a panel above its button, as desktop does.
+  const pickerButtonRef = useRef<View>(null);
+  const [pickerAnchor, setPickerAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [commandPickerOpen, setCommandPickerOpen] = useState(false);
   const [commandPickerInitial, setCommandPickerInitial] = useState<BotCommand | null>(null);
   const [botCommands, setBotCommands] = useState<BotCommand[]>([]);
@@ -575,6 +581,9 @@ export function MobileComposer({
     if (channelsSheetOpen) injectComposerCommand('blur', []);
   }, [channelsSheetOpen, injectComposerCommand]);
 
+  // Touching the message list calls dismissKeyboard(); blur the editor so its keyboard closes too.
+  useEffect(() => onDismissKeyboard(() => injectComposerCommand('blur', [])), [injectComposerCommand]);
+
   useEffect(() => {
     if (value === webValueRef.current || webReportedRef.current.has(value)) return;
     webValueRef.current = value;
@@ -665,17 +674,24 @@ export function MobileComposer({
     }
   };
 
-  const handleAttachPress = () => {
+  // One menu for everything the paperclip can add, voice messages included.
+  const attachMenuItems: ActionMenuItem[] = [
+    { key: 'media', label: t('chat.attachMedia'), icon: ImageIcon, onPress: () => { void handlePickFile(); } },
     // DMs send files through Central, which doesn't take archives; realms do.
-    if (deferUpload) {
-      void handlePickFile();
+    ...(!deferUpload
+      ? [{ key: 'archive', label: t('chat.attachArchive'), icon: File, onPress: () => { void handlePickArchive(); } }]
+      : []),
+    ...(voiceMessages
+      ? [{ key: 'voice', label: t('chat.voiceRecord'), icon: Mic, onPress: () => setVoiceRecording(true) }]
+      : []),
+  ];
+
+  const handleAttachPress = () => {
+    if (attachMenuItems.length === 1) {
+      attachMenuItems[0].onPress();
       return;
     }
-    Alert.alert(t('chat.attachFile'), undefined, [
-      { text: t('chat.attachMedia'), onPress: () => { void handlePickFile(); } },
-      { text: t('chat.attachArchive'), onPress: () => { void handlePickArchive(); } },
-      { text: t('common.cancel'), style: 'cancel' },
-    ]);
+    setAttachMenuOpen(true);
   };
 
   const stageAttachments = async (pending: PendingAttachment[]) => {
@@ -877,7 +893,15 @@ export function MobileComposer({
 
   const openExpressionPicker = () => {
     if (effectiveServerUrl) prefetchExpressions(effectiveServerUrl);
-    setPickerOpen(true);
+    const button = pickerButtonRef.current;
+    if (!button) {
+      setPickerOpen(true);
+      return;
+    }
+    button.measureInWindow((x, y, width, height) => {
+      setPickerAnchor(width > 0 ? { x, y, width, height } : null);
+      setPickerOpen(true);
+    });
   };
 
   return (
@@ -1028,11 +1052,13 @@ export function MobileComposer({
               />
             )}
           </View>
-          <IconBtn
-            icon={Smile}
-            accessibilityLabel={t('chat.expressions')}
-            onPress={openExpressionPicker}
-          />
+          <View ref={pickerButtonRef} collapsable={false}>
+            <IconBtn
+              icon={Smile}
+              accessibilityLabel={t('chat.expressions')}
+              onPress={openExpressionPicker}
+            />
+          </View>
           {/* Only realms with slash commands get the picker button. */}
           {botCommandsEnabled && botCommands.length > 0 ? (
             <TouchableOpacity
@@ -1045,14 +1071,17 @@ export function MobileComposer({
             </TouchableOpacity>
           ) : null}
         </View>
-        {voiceMessages && !value.trim() && pendingAttachments.length === 0 ? (
-          <IconBtn icon={Mic} accessibilityLabel={t('chat.voiceRecord')} onPress={() => setVoiceRecording(true)} disabled={disabled} />
-        ) : (
-          <IconBtn icon={Send} accessibilityLabel={t('chat.send')} onPress={handleSend} disabled={disabled} />
-        )}
+        <IconBtn icon={Send} accessibilityLabel={t('chat.send')} onPress={handleSend} disabled={disabled} />
         </>
         )}
       </Animated.View>
+
+      <ActionMenuSheet
+        open={attachMenuOpen}
+        onClose={() => setAttachMenuOpen(false)}
+        title={t('chat.attachFile')}
+        items={attachMenuItems}
+      />
 
       <VoiceExpirySheet
         open={voiceUri !== null && !voiceSending}
@@ -1069,6 +1098,7 @@ export function MobileComposer({
         canLoadExpressions={Boolean(effectiveServerUrl || token)}
         gifPickerEnabled={Boolean(isCentralAccount || true)}
         onSelectGif={(gifUrl) => { onSend(gifUrl); setPickerOpen(false); }}
+        anchor={pickerAnchor}
       />
       <BotCommandPicker
         open={commandPickerOpen}
