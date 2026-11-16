@@ -35,9 +35,10 @@ pub(crate) fn init_client_debug_log(app: &AppHandle) {
         "pid": std::process::id(),
         "logsDir": dir,
     });
-    if let Ok(mut file) = std::fs::File::create(current) {
+    if let Ok(mut file) = std::fs::File::create(&current) {
         let _ = writeln!(file, "{session}");
     }
+    crate::startup_timing::attach_log(current);
 }
 
 #[tauri::command]

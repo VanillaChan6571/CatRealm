@@ -6,6 +6,7 @@ import { useChannelStore } from './channelStore';
 import { useMessageStore } from './messageStore';
 import { usePresenceStore } from './presenceStore';
 import { useThreadStore } from './threadStore';
+import { useWorkItemStore } from './workItemStore';
 import { useDMStore } from './dmStore';
 import { useGroupChatStore } from './groupChatStore';
 import { useFriendStore } from './friendStore';
@@ -23,6 +24,7 @@ import { createApi } from '../lib/api';
 import { attachRealmSocketRecovery } from '../lib/realmSocketRecovery';
 import { getServerAvatarOverride } from '../lib/serverProfileAvatar';
 import { httpRealmGatewayApplies, httpRealmGatewayEnabled, resolveHttpRealm, savedRealmHttpOrigin, selectRealmsForPlatform } from '../lib/httpRealmGateway';
+import { shouldDeferPassiveLocalNetworkRequest } from '../lib/localNetworkAccess';
 
 export interface ServerEntry {
   url: string;
@@ -118,7 +120,7 @@ interface ServerState {
   addServer: (url: string, options?: { inviteCode?: string | null }) => Promise<void>;
   reconnectThroughHttpGateway: (url: string) => Promise<void>;
   removeServer: (url: string, reason: 'user' | 'membership') => void;
-  switchServer: (url: string) => void;
+  switchServer: (url: string, localTokenRefreshed?: boolean) => void;
   goHome: () => void;
   saveSnapshot: (url: string) => void;
   restoreSnapshot: (url: string) => void;
@@ -211,6 +213,7 @@ function sanitizeLayoutAndFolders(
 // realm here (gateway copy on desktop, direct HTTP copy on the web). Keyed by
 // the visible URL so removing a realm also removes its hidden copies.
 const hiddenRealmAliases = new Map<string, string[]>();
+let pendingLocalRealmSelection: string | null = null;
 
 function addHiddenRealmAlias(visibleUrl: string, hiddenUrl: string) {
   const aliases = hiddenRealmAliases.get(visibleUrl) ?? [];
@@ -264,6 +267,10 @@ export function attachServerSocketStatusHandlers(
 function connectBackgroundServerSockets(servers: ServerEntry[], setServerStatus: SetServerStatusFn) {
   const isSecureContext = typeof window !== 'undefined' && window.location.protocol === 'https:';
   for (const entry of servers) {
+    if (shouldDeferPassiveLocalNetworkRequest(entry.url)) {
+      setServerStatus(entry.url, 'idle');
+      continue;
+    }
     if (isSecureContext && entry.url.startsWith('http://')) {
       setServerStatus(entry.url, 'disconnected');
       continue;
@@ -409,6 +416,7 @@ async function authenticateCentralRealm(
 async function refreshCentralServerTokens(servers: ServerEntry[]): Promise<ServerEntry[]> {
   return Promise.all(
     servers.map(async (entry) => {
+      if (shouldDeferPassiveLocalNetworkRequest(entry.url)) return entry;
       try {
         const auth = await authenticateCentralRealm(entry.url);
         return { ...entry, token: auth.token };
@@ -752,7 +760,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
     get().persistServers();
   },
 
-  switchServer: (url: string) => {
+  switchServer: (url: string, localTokenRefreshed = false) => {
     const candidate = get().servers.find((server) => server.url === url);
     if (candidate?.realmTrust?.state === 'changed') {
       useUIStore.getState().setRealmTrustPromptUrl(url);
@@ -772,6 +780,18 @@ export const useServerStore = create<ServerState>((set, get) => ({
     const { activeServerUrl } = get();
     if (activeServerUrl === url) return;
 
+    if (!localTokenRefreshed && candidate && shouldDeferPassiveLocalNetworkRequest(url)
+      && useAuthStore.getState().user?.accountType === 'central') {
+      pendingLocalRealmSelection = url;
+      void refreshServerToken(url).then(() => {
+        if (pendingLocalRealmSelection !== url || !get().servers.some((server) => server.url === url)) return;
+        pendingLocalRealmSelection = null;
+        get().switchServer(url, true);
+      });
+      return;
+    }
+    pendingLocalRealmSelection = null;
+
     useUIStore.getState().setSslBlockedServerUrl(null);
 
     // Save snapshot of current server (socket stays alive)
@@ -784,6 +804,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
     useMessageStore.getState().reset();
     usePresenceStore.getState().reset();
     useThreadStore.getState().reset();
+    useWorkItemStore.getState().reset();
 
     // Restore snapshot if exists
     if (get().snapshots[url]) {
@@ -843,6 +864,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   goHome: () => {
+    pendingLocalRealmSelection = null;
     useUIStore.getState().setSslBlockedServerUrl(null);
     const { activeServerUrl } = get();
     if (activeServerUrl) {
@@ -853,6 +875,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
     useChannelStore.getState().reset();
     useMessageStore.getState().reset();
     useThreadStore.getState().reset();
+    useWorkItemStore.getState().reset();
 
     set({ activeServerUrl: null });
     setActiveSocketUrl(null);
@@ -981,7 +1004,8 @@ export const useServerStore = create<ServerState>((set, get) => ({
       }
       const storedActive = loadActiveServerUrl();
       const lastActive = storedActive && localView.rename(storedActive);
-      if (lastActive && localServers.some((s) => s.url === lastActive)) {
+      if (lastActive && localServers.some((s) => s.url === lastActive)
+        && !shouldDeferPassiveLocalNetworkRequest(lastActive)) {
         const isSecureContext = typeof window !== 'undefined' && window.location.protocol === 'https:';
         if (isSecureContext && lastActive.startsWith('http://')) {
           useUIStore.getState().setSslBlockedServerUrl(lastActive);
@@ -1030,11 +1054,14 @@ export const useServerStore = create<ServerState>((set, get) => ({
           saveServerLayout(serverLayout);
           saveServerFolders(serverFolders);
           connectBackgroundServerSockets(freshServers, get().setServerStatus);
-          freshServers.forEach((server) => void get().verifyRealmTrust(server.url));
+          freshServers.forEach((server) => {
+            if (!shouldDeferPassiveLocalNetworkRequest(server.url)) void get().verifyRealmTrust(server.url);
+          });
 
           const storedActive = loadActiveServerUrl();
           const lastActive = storedActive && remoteView.rename(storedActive);
-          if (lastActive && freshServers.some((s) => s.url === lastActive)) {
+          if (lastActive && freshServers.some((s) => s.url === lastActive)
+            && !shouldDeferPassiveLocalNetworkRequest(lastActive)) {
             const isSecureContext = typeof window !== 'undefined' && window.location.protocol === 'https:';
             if (isSecureContext && lastActive.startsWith('http://')) {
               useUIStore.getState().setSslBlockedServerUrl(lastActive);
@@ -1259,6 +1286,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   reset: () => {
+    pendingLocalRealmSelection = null;
     cancelServerSync();
     for (const handlers of socketStatusHandlers.values()) handlers.dispose();
     socketStatusHandlers.clear();
@@ -1268,6 +1296,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   logoutCleanup: (keepServers) => {
+    pendingLocalRealmSelection = null;
     cancelServerSync();
     if (!keepServers) {
       get().reset();

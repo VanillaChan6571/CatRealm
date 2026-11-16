@@ -6,8 +6,9 @@ import { isRealmCredentialError, isRealmMembershipError } from '../lib/realmSock
 import { useMessageStore } from '../stores/messageStore';
 import { usePresenceStore } from '../stores/presenceStore';
 import { useThreadStore } from '../stores/threadStore';
+import { useWorkItemStore, type WorkKind } from '../stores/workItemStore';
 import { useUIStore } from '../stores/uiStore';
-import type { Message, MessageReaction, OnlineUser, Channel, ForumPost } from '../types';
+import type { Message, MessageReaction, OnlineUser, Channel, Category, ForumPost, Thread, TrackerIssue, TrackerSettings, BoardCard, BoardList, BoardSettings, WorkItemComment, WorkItemLabel } from '../types';
 import { useChannelStore } from '../stores/channelStore';
 import { useVoiceStore, type VoiceSignal } from '../stores/voiceStore';
 import { useTheaterStore } from '../stores/theaterStore';
@@ -28,6 +29,32 @@ import {
 } from '../lib/voicePermissionErrors';
 
 const REALTIME_RECONNECT_FAILOVER_MS = 10000;
+
+/** What a channel notification needs from a message; forum posts supply the same fields. */
+type NotifiableMessage =
+  Pick<Message, 'id' | 'channel_id' | 'user_id' | 'username' | 'content' | 'created_at'>
+  & Partial<Pick<Message, 'avatar' | 'display_name' | 'message_type' | 'attachment_url' | 'attachment_type' | 'attachments'>>;
+
+/** Sent to a whole channel when a thread or forum post in it gets a new message. */
+interface ThreadActivity {
+  channelId: string;
+  threadId: string;
+  threadName: string;
+  isForumPost: boolean;
+  lastMessageAt: number;
+  replyCount: number;
+  message: Message;
+}
+
+const WORK_ITEM_KINDS: WorkKind[] = ['tracker', 'board'];
+const WORK_ITEM_SOCKET_EVENTS = [
+  'tracker:issue-created', 'tracker:issue-updated', 'tracker:issue-deleted', 'tracker:settings-updated', 'tracker:watch-notification', 'tracker:watchers-updated',
+  'board:card-created', 'board:card-updated', 'board:card-deleted',
+  'board:cards-moved', 'board:lists-updated', 'board:list-deleted', 'board:settings-updated',
+  ...WORK_ITEM_KINDS.flatMap((kind) => [
+    `${kind}:comment-created`, `${kind}:comment-updated`, `${kind}:comment-deleted`, `${kind}:labels-updated`,
+  ]),
+];
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -195,6 +222,7 @@ export function useSocket() {
                   serverUserId: typeof next.id === 'string' ? next.id : (current.serverUserId ?? null),
                   role: typeof next.role === 'string' ? next.role : current.role,
                   permissions: typeof next.permissions === 'number' ? next.permissions : current.permissions,
+                  permissionKeys: Array.isArray(next.permissionKeys) ? next.permissionKeys : current.permissionKeys,
                   isOwner: typeof next.isOwner === 'boolean' ? next.isOwner : current.isOwner,
                   verified: typeof next.verified === 'boolean' ? next.verified : current.verified,
                   onboardingCompleted: typeof next.onboardingCompleted === 'boolean' ? next.onboardingCompleted : current.onboardingCompleted,
@@ -362,6 +390,7 @@ export function useSocket() {
       fetchTheaterRooms();
       void refreshServerIdentity();
       tryRestoreRealtimeReconnect();
+      void seedRealmReadState(serverUrl, token);
     }
 
     const onDisconnect = (reason: string) => {
@@ -441,10 +470,17 @@ export function useSocket() {
       }
 
       if (isPublishingScheduled) return;
+      // Thread and forum-post messages are announced by thread:activity instead, which reaches
+      // everyone in the channel rather than only the sockets that have the thread open.
+      if (msg.thread_id) return;
+      notifyChannelMessage(msg);
+    };
 
+    // Unread badge, desktop notification and sound for a message in a channel.
+    // threadName is set when the message was posted inside a thread or forum post.
+    const notifyChannelMessage = (msg: NotifiableMessage, threadName?: string) => {
       const currentUser = useAuthStore.getState().user;
       if (!currentUser || msg.user_id === currentUser.id || msg.message_type === 'system') return;
-      if (msg.thread_id) return;
       const channelId = msg.channel_id;
       const isAttachmentOnlyMessage =
         !!msg.attachment_url &&
@@ -492,7 +528,7 @@ export function useSocket() {
         // in streamer mode, plus the realm name so busy users know where.
         const hidePersonalInfo = settings.streamerMode && settings.streamerModeHidePI;
         const serverName = useServerStore.getState().servers.find((entry) => entry.url === serverUrl)?.name;
-        const where = `#${channelEntry?.name || 'channel'}${serverName ? `, ${serverName}` : ''}`;
+        const where = `#${channelEntry?.name || 'channel'}${threadName ? ` › ${threadName}` : ''}${serverName ? `, ${serverName}` : ''}`;
         showDesktopNotification({
           id: msg.id,
           sourceKind: 'server',
@@ -509,7 +545,7 @@ export function useSocket() {
           iconUrl: hidePersonalInfo ? undefined : resolveAvatarUrl(msg.avatar, serverUrl) ?? undefined,
         });
       }
-      if ((!window.electron || isBackground) && settings.notificationsEnabled && !soundsDisabled && !suppressBatchNotice && !isTheaterChannel) {
+      if ((!window.electron || isBackground) && settings.notificationsEnabled && !soundsDisabled && !suppressBatchNotice && !isTheaterChannel && !channelState.prefsByChannel[channelId]?.muted) {
         if (aliasMention && settings.soundMessageEveryone) {
           const volume = settings.soundVolumes?.['soundMessageEveryone'] ?? 60;
           playNotificationSound('message-everyone', volume);
@@ -576,7 +612,7 @@ export function useSocket() {
     socket.on('voice:join:ok', (payload: { channelId: string; users: VoiceSocketUser[]; you: string; startedAt?: number | null; liveUserIds?: string[] }) => {
       useVoiceStore.getState().handleUsers(payload);
       const settings = useSettingsStore.getState();
-      if (settings.notificationsEnabled && settings.soundVoiceUserJoined) {
+      if (settings.notificationsEnabled && settings.soundVoiceUserJoined && !useChannelStore.getState().prefsByChannel[payload.channelId]?.muted) {
         const volume = settings.soundVolumes?.['soundVoiceUserJoined'] ?? 60;
         playNotificationSound('voice-user-joined', volume);
       }
@@ -621,7 +657,7 @@ export function useSocket() {
     socket.on('voice:user-joined', (payload: { channelId: string; user: VoiceSocketUser }) => {
       useVoiceStore.getState().handleUserJoined(payload);
       const settings = useSettingsStore.getState();
-      if (settings.notificationsEnabled && settings.soundVoiceUserJoined) {
+      if (settings.notificationsEnabled && settings.soundVoiceUserJoined && !useChannelStore.getState().prefsByChannel[payload.channelId]?.muted) {
         const volume = settings.soundVolumes?.['soundVoiceUserJoined'] ?? 60;
         playNotificationSound('voice-user-joined', volume);
       }
@@ -629,7 +665,7 @@ export function useSocket() {
     socket.on('voice:user-left', (payload: { channelId: string; userId: string }) => {
       useVoiceStore.getState().handleUserLeft(payload);
       const settings = useSettingsStore.getState();
-      if (settings.notificationsEnabled && settings.soundVoiceUserLeft) {
+      if (settings.notificationsEnabled && settings.soundVoiceUserLeft && !useChannelStore.getState().prefsByChannel[payload.channelId]?.muted) {
         const volume = settings.soundVolumes?.['soundVoiceUserLeft'] ?? 60;
         playNotificationSound('voice-user-left', volume);
       }
@@ -660,7 +696,7 @@ export function useSocket() {
     socket.on('theater:user-joined', (payload: { channelId: string; user: import('../types').TheaterUser }) => {
       useTheaterStore.getState().handleUserJoined(payload);
       const settings = useSettingsStore.getState();
-      if (settings.notificationsEnabled && settings.soundVoiceUserJoined) {
+      if (settings.notificationsEnabled && settings.soundVoiceUserJoined && !useChannelStore.getState().prefsByChannel[payload.channelId]?.muted) {
         const volume = settings.soundVolumes?.['soundVoiceUserJoined'] ?? 60;
         playNotificationSound('voice-user-joined', volume);
       }
@@ -668,7 +704,7 @@ export function useSocket() {
     socket.on('theater:user-left', (payload: { channelId: string; userId: string }) => {
       useTheaterStore.getState().handleUserLeft(payload);
       const settings = useSettingsStore.getState();
-      if (settings.notificationsEnabled && settings.soundVoiceUserLeft) {
+      if (settings.notificationsEnabled && settings.soundVoiceUserLeft && !useChannelStore.getState().prefsByChannel[payload.channelId]?.muted) {
         const volume = settings.soundVolumes?.['soundVoiceUserLeft'] ?? 60;
         playNotificationSound('voice-user-left', volume);
       }
@@ -730,7 +766,7 @@ export function useSocket() {
     });
 
     // Category list updates
-    socket.on('category:list', (categories: any[]) => {
+    socket.on('category:list', (categories: Category[]) => {
       if (!Array.isArray(categories)) return;
       useChannelStore.getState().applyCategoryList(categories);
     });
@@ -804,10 +840,112 @@ export function useSocket() {
     // Forum post live sync
     socket.on('forum:created', (post: ForumPost) => {
       useThreadStore.getState().addForumPost(post);
+      // A new post has no message:new of its own, so announce it here.
+      notifyChannelMessage({
+        id: post.parent_message_id,
+        channel_id: post.channel_id,
+        user_id: post.created_by,
+        username: post.author_username,
+        display_name: post.author_display_name,
+        avatar: post.author_avatar,
+        content: post.preview_content,
+        created_at: post.created_at,
+        attachments: post.body_attachments ?? undefined,
+      }, post.name);
+    });
+    // Threads in ordinary channels appear, rename and disappear live.
+    socket.on('thread:created', (thread: Thread) => {
+      useThreadStore.getState().applyThread(thread);
+    });
+    socket.on('thread:updated', (thread: Thread) => {
+      useThreadStore.getState().applyThread(thread);
+    });
+    socket.on('thread:deleted', ({ id, channel_id }: { id: string; channel_id: string }) => {
+      useThreadStore.getState().removeThread(channel_id, id);
+    });
+    // A reply in a thread or forum post (realm servers that send thread:activity).
+    socket.on('thread:activity', (activity: ThreadActivity) => {
+      const threads = useThreadStore.getState();
+      threads.noteThreadActivity(activity.channelId, activity.threadId, activity.lastMessageAt, activity.replyCount);
+      // Only forum posts notify: replies there are the channel's activity. Threads in ordinary
+      // channels stay quiet, matching how the realm counts unread messages.
+      if (!activity.isForumPost) {
+        void threads.revealThread(activity.channelId, activity.threadId, activity.replyCount);
+        return;
+      }
+      notifyChannelMessage({ ...activity.message, channel_id: activity.channelId }, activity.threadName);
     });
     socket.on('forum:deleted', ({ id, channel_id }: { id: string; channel_id: string }) => {
       useThreadStore.getState().removeForumPost(channel_id, id);
     });
+
+    // Tracker issues and Board cards live sync
+    socket.on('tracker:issue-created', (issue: TrackerIssue) => {
+      useWorkItemStore.getState().applyIssue(issue, true);
+    });
+    socket.on('tracker:issue-updated', (issue: TrackerIssue) => {
+      useWorkItemStore.getState().applyIssue(issue);
+    });
+    socket.on('tracker:issue-deleted', ({ channelId, id }: { channelId: string; id: string }) => {
+      useWorkItemStore.getState().removeIssue(channelId, id);
+    });
+    socket.on('tracker:settings-updated', ({ channelId, settings }: { channelId: string; settings: TrackerSettings }) => {
+      useWorkItemStore.getState().setTrackerSettings(channelId, settings);
+    });
+    socket.on('tracker:watchers-updated', ({ issueId, watcher_count }: { issueId: string; watcher_count: number }) => {
+      useWorkItemStore.getState().setWatcherCount(issueId, watcher_count);
+    });
+    socket.on('tracker:watch-notification', (notice: { channelId: string; issueId: string; number: number; title: string; actorId: string; type: string; summary: string }) => {
+      const channelState = useChannelStore.getState();
+      if (channelState.prefsByChannel[notice.channelId]?.muted) return;
+      if (channelState.activeChannelId !== notice.channelId || isAppInBackground()) channelState.incrementUnread(notice.channelId, false);
+      const settings = useSettingsStore.getState();
+      if (!settings.notificationsEnabled) return;
+      const hidePersonalInfo = settings.streamerMode && settings.streamerModeHidePI;
+      showDesktopNotification({
+        id: `${notice.issueId}:${Date.now()}`,
+        sourceKind: 'server', sourceId: serverUrl, subsourceId: notice.channelId,
+        title: hidePersonalInfo ? 'Tracker issue updated' : `Issue #${notice.number}: ${notice.title}`,
+        body: hidePersonalInfo ? 'A watched issue changed' : notice.summary,
+      });
+      if ((!window.electron || isAppInBackground()) && !(settings.streamerMode && settings.streamerModeDisableSounds) && settings.soundMessageInServer) {
+        playNotificationSound('message-in-server', settings.soundVolumes?.soundMessageInServer ?? 60);
+      }
+    });
+    socket.on('board:card-created', (card: BoardCard) => {
+      useWorkItemStore.getState().applyCard(card);
+    });
+    socket.on('board:card-updated', (card: BoardCard) => {
+      useWorkItemStore.getState().applyCard(card);
+    });
+    socket.on('board:card-deleted', ({ channelId, id }: { channelId: string; id: string }) => {
+      useWorkItemStore.getState().removeCard(channelId, id);
+    });
+    socket.on('board:cards-moved', ({ channelId, lists }: { channelId: string; lists: Array<{ listId: string; cardIds: string[] }> }) => {
+      useWorkItemStore.getState().applyCardOrder(channelId, lists);
+    });
+    socket.on('board:lists-updated', ({ channelId, lists }: { channelId: string; lists: BoardList[] }) => {
+      useWorkItemStore.getState().setBoardLists(channelId, lists);
+    });
+    socket.on('board:settings-updated', ({ channelId, settings }: { channelId: string; settings: BoardSettings }) => {
+      useWorkItemStore.getState().setBoardSettings(channelId, settings);
+    });
+    socket.on('board:list-deleted', ({ channelId, listId }: { channelId: string; listId: string }) => {
+      useWorkItemStore.getState().removeBoardList(channelId, listId);
+    });
+    for (const kind of WORK_ITEM_KINDS) {
+      const onComment = ({ channelId, itemId, comment }: { channelId: string; itemId: string; comment: WorkItemComment }) => {
+        useWorkItemStore.getState().applyComment(kind, channelId, itemId, comment);
+      };
+      socket.on(`${kind}:comment-created`, onComment);
+      socket.on(`${kind}:comment-updated`, onComment);
+      socket.on(`${kind}:comment-deleted`, ({ channelId, itemId, commentId }: { channelId: string; itemId: string; commentId: string }) => {
+        useWorkItemStore.getState().removeComment(kind, channelId, itemId, commentId);
+      });
+      socket.on(`${kind}:labels-updated`, ({ channelId, labels }: { channelId: string; labels: WorkItemLabel[] }) => {
+        useWorkItemStore.getState().setLabels(kind, channelId, labels);
+      });
+    }
 
     // Bots
     socket.on('bots:commands_updated', () => {
@@ -862,6 +1000,11 @@ export function useSocket() {
       socket.off('voice:force-disconnect');
       socket.off('forum:created');
       socket.off('forum:deleted');
+      socket.off('thread:activity');
+      socket.off('thread:created');
+      socket.off('thread:updated');
+      socket.off('thread:deleted');
+      for (const event of WORK_ITEM_SOCKET_EVENTS) socket.off(event);
       socket.off('bots:commands_updated');
       socket.off('bot:dm');
       socket.off('bot:ephemeral');
@@ -965,7 +1108,8 @@ export function useSocket() {
 
         const settings = useSettingsStore.getState();
         const soundsDisabled = settings.streamerMode && settings.streamerModeDisableSounds;
-        if ((window.electron && !isAppInBackground()) || !settings.notificationsEnabled || soundsDisabled) return;
+        const muted = useServerStore.getState().snapshots[entry.url]?.prefsByChannel[msg.channel_id]?.muted;
+        if ((window.electron && !isAppInBackground()) || !settings.notificationsEnabled || soundsDisabled || muted) return;
 
         if (aliasMention && settings.soundMessageEveryone) {
           const volume = settings.soundVolumes?.['soundMessageEveryone'] ?? 60;
@@ -978,6 +1122,29 @@ export function useSocket() {
 
       bgSocket.on('message:new', onBgMessage);
       cleanups.push(() => bgSocket.off('message:new', onBgMessage));
+      const onBgTrackerWatch = (notice: { channelId: string; issueId: string; number: number; title: string; summary: string }) => {
+        useServerStore.setState((state) => {
+          const snapshot = state.snapshots[entry.url] ?? emptyServerSnapshot();
+          return { snapshots: { ...state.snapshots, [entry.url]: {
+            ...snapshot,
+            unreadByChannel: { ...snapshot.unreadByChannel, [notice.channelId]: (snapshot.unreadByChannel[notice.channelId] ?? 0) + 1 },
+          } } };
+        });
+        const settings = useSettingsStore.getState();
+        const muted = useServerStore.getState().snapshots[entry.url]?.prefsByChannel[notice.channelId]?.muted;
+        if (muted || !settings.notificationsEnabled) return;
+        const hidePersonalInfo = settings.streamerMode && settings.streamerModeHidePI;
+        showDesktopNotification({
+          id: `${notice.issueId}:${Date.now()}`, sourceKind: 'server', sourceId: entry.url, subsourceId: notice.channelId,
+          title: hidePersonalInfo ? 'Tracker issue updated' : `Issue #${notice.number}: ${notice.title}`,
+          body: hidePersonalInfo ? 'A watched issue changed' : notice.summary,
+        });
+        if ((!window.electron || isAppInBackground()) && !(settings.streamerMode && settings.streamerModeDisableSounds) && settings.soundMessageInServer) {
+          playNotificationSound('message-in-server', settings.soundVolumes?.soundMessageInServer ?? 60);
+        }
+      };
+      bgSocket.on('tracker:watch-notification', onBgTrackerWatch);
+      cleanups.push(() => bgSocket.off('tracker:watch-notification', onBgTrackerWatch));
 
       // Background realms only count live messages; seed what was missed (throttled per realm).
       const onBgConnect = () => { void seedRealmReadState(entry.url, entry.token); };

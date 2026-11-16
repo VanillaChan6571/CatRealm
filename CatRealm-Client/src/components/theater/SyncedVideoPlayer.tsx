@@ -5,7 +5,7 @@ import {
   VideoCameraIcon as VideoCameraIconOutline,
 } from '@heroicons/react/24/outline';
 import { VideoCameraIcon } from '@heroicons/react/24/solid';
-import { Clapperboard, Lock, Maximize, Minimize, Pause, Play, TriangleAlert, Volume1, Volume2, VolumeX } from 'lucide-react';
+import { Captions, CaptionsOff, Clapperboard, Lock, Maximize, Minimize, Pause, Play, TriangleAlert, Volume1, Volume2, VolumeX } from 'lucide-react';
 import { setTheaterFullscreenActive } from './TheaterVideoManager';
 import { useTheaterStore } from '../../stores/theaterStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -16,6 +16,13 @@ import { useViewedChannels } from '../../hooks/useViewedChannels';
 import { useLastAudibleVolume } from '../../hooks/useLastAudibleVolume';
 import { PERMISSIONS, hasChannelPermission } from '../../utils/permissions';
 import type { TheaterPlaybackState, TheaterQueueItem } from '../../types';
+import {
+  captionTrackLabel,
+  getCaptionTracks,
+  pickCaptionTrack,
+  setYouTubeCaptions,
+  type YouTubeCaptionTrack,
+} from './youtubeCaptions';
 
 interface ReactionBubble {
   id: string;
@@ -83,7 +90,6 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
   const state = useTheaterStore((s) => s.state);
   const control = useTheaterStore((s) => s.control);
   const reactions = useTheaterStore((s) => s.reactions);
-  const debugEvents = useTheaterStore((s) => s.debugEvents);
   const addDebugEvent = useTheaterStore((s) => s.addDebugEvent);
   const computeExpectedPositionMs = useTheaterStore((s) => s.computeExpectedPositionMs);
   const theaterServerUrl = useTheaterStore((s) => s.theaterServerUrl);
@@ -97,6 +103,26 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
   const toggleDeafen = useTheaterStore((s) => s.toggleDeafen);
   const leaveTheater = useTheaterStore((s) => s.leaveTheater);
   const debugTheaterStates = useSettingsStore((s) => s.debugTheaterStates);
+  // Events are always recorded, but only the open debug panel reads them here;
+  // with it closed they must not re-render the player.
+  const debugEvents = useTheaterStore((s) => (debugTheaterStates ? s.debugEvents : NO_DEBUG_EVENTS));
+  const theaterCaptionsMode = useSettingsStore((s) => s.theaterCaptionsMode);
+  const theaterCaptionsLanguage = useSettingsStore((s) => s.theaterCaptionsLanguage);
+  const captionsModeRef = useRef(theaterCaptionsMode);
+  const captionsLanguageRef = useRef(theaterCaptionsLanguage);
+  // Per-viewer caption state (never synced), tagged with the YouTube video it
+  // belongs to so a new video starts from empty without resetting state.
+  const [captionState, setCaptionState] = useState<{
+    videoId: string | null;
+    tracks: YouTubeCaptionTrack[];
+    active: YouTubeCaptionTrack | null;
+    /** A CC click found no tracks for this video. */
+    unavailable?: boolean;
+  }>({ videoId: null, tracks: [], active: null });
+  const captionsVideoIdRef = useRef<string | null>(null);
+  // The settings-based choice is made once per video; after that the CC button rules.
+  const captionsDecidedRef = useRef(false);
+  const captionsManualRequestRef = useRef(false);
   const theaterSidePanelRetracted = useUIStore((s) => s.theaterSidePanelRetracted);
   const toggleTheaterSidePanelRetracted = useUIStore((s) => s.toggleTheaterSidePanelRetracted);
   const openModal = useUIStore((s) => s.openModal);
@@ -293,22 +319,17 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
     };
   }, [hasPlayableMedia, showControls]);
 
+  // The seek bar and timestamp tick on their own (see usePlaybackClock). The
+  // whole player only needs to re-render on a timer for the "up next"
+  // countdown and the debug panel.
+  const playerNeedsClock = !!state?.playing && (!!state.pendingAutoAdvance || debugTheaterStates);
   useEffect(() => {
-    if (!state?.playing) return undefined;
+    if (!playerNeedsClock) return undefined;
     const timer = window.setInterval(() => {
       setRenderTick((tick) => tick + 1);
-    }, 250);
+    }, PLAYBACK_CLOCK_MS);
     return () => window.clearInterval(timer);
-  }, [state?.playing]);
-
-  const computeExpectedSeconds = useCallback((playbackState: TheaterPlaybackState | null, clampToDuration = true) => {
-    if (!playbackState) return 0;
-    const elapsed = playbackState.playing ? Math.max(0, Date.now() - playbackState.updated_at) : 0;
-    const expectedMs = Math.max(0, playbackState.position_ms + elapsed);
-    const durationMs = playbackState.duration_ms && playbackState.duration_ms > 0 ? playbackState.duration_ms : 0;
-    const normalizedMs = clampToDuration && durationMs > 0 ? Math.min(expectedMs, durationMs) : expectedMs;
-    return normalizedMs / 1000;
-  }, []);
+  }, [playerNeedsClock]);
 
   const syncYouTubePlayer = useCallback((
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -384,7 +405,7 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
         pushDebug(`sync recue video=${videoId} at=0`);
       }
     }
-  }, [computeExpectedSeconds, pushDebug]);
+  }, [pushDebug]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -416,10 +437,81 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
     return () => window.clearInterval(timer);
   }, [debugTheaterStates, youtubeVideoId]);
 
+  // Called whenever the captions module may have (re)loaded: picks the track
+  // the settings ask for the first time tracks are known for this video, or
+  // the one the viewer just requested with the CC button.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applyCaptionChoice = useCallback((player: any) => {
+    const videoId = captionsVideoIdRef.current;
+    const tracks = getCaptionTracks(player);
+    if (tracks.length === 0) return;
+    let track: YouTubeCaptionTrack | null;
+    if (captionsManualRequestRef.current) {
+      captionsManualRequestRef.current = false;
+      track = pickCaptionTrack(tracks, captionsLanguageRef.current) ?? tracks[0];
+    } else if (!captionsDecidedRef.current) {
+      track = captionsModeRef.current === 'auto'
+        ? pickCaptionTrack(tracks, captionsLanguageRef.current)
+        : null;
+    } else {
+      setCaptionState((prev) => ({ ...prev, videoId, tracks }));
+      return;
+    }
+    captionsDecidedRef.current = true;
+    setYouTubeCaptions(player, track);
+    setCaptionState({ videoId, tracks, active: track });
+  }, []);
+
+  // Keep the settings readable from player callbacks, and re-apply them to
+  // the current video when they change mid-video.
+  useEffect(() => {
+    captionsModeRef.current = theaterCaptionsMode;
+    captionsLanguageRef.current = theaterCaptionsLanguage;
+    if (!youtubeReadyRef.current || !ytPlayerRef.current) return;
+    captionsDecidedRef.current = false;
+    applyCaptionChoice(ytPlayerRef.current);
+  }, [theaterCaptionsMode, theaterCaptionsLanguage, applyCaptionChoice]);
+
+  const currentCaptions = captionState.videoId === youtubeVideoId ? captionState : null;
+  const captionTracks = currentCaptions?.tracks ?? [];
+  const activeCaptionTrack = currentCaptions?.active ?? null;
+  const captionsUnavailable = !!currentCaptions?.unavailable && captionTracks.length === 0;
+
+  const toggleCaptions = useCallback(() => {
+    const player = ytPlayerRef.current;
+    if (!player) return;
+    const videoId = captionsVideoIdRef.current;
+    captionsDecidedRef.current = true;
+    if (activeCaptionTrack) {
+      setYouTubeCaptions(player, null);
+      setCaptionState((prev) => ({ ...prev, videoId, active: null }));
+      return;
+    }
+    const tracks = getCaptionTracks(player);
+    if (tracks.length === 0) {
+      // Not loaded yet (e.g. captions were never shown): load the module and
+      // let onApiChange pick the track once YouTube reports the list.
+      captionsManualRequestRef.current = true;
+      try { player.loadModule?.('captions'); } catch { /* ignore */ }
+      window.setTimeout(() => {
+        if (captionsVideoIdRef.current !== videoId || getCaptionTracks(ytPlayerRef.current).length > 0) return;
+        captionsManualRequestRef.current = false;
+        setCaptionState({ videoId, tracks: [], active: null, unavailable: true });
+      }, 2500);
+      return;
+    }
+    const track = pickCaptionTrack(tracks, captionsLanguageRef.current) ?? tracks[0];
+    setYouTubeCaptions(player, track);
+    setCaptionState({ videoId, tracks, active: track });
+  }, [activeCaptionTrack]);
+
   // Load YouTube iframe API and create player when a YouTube item is active
   useEffect(() => {
     if (!youtubeVideoId) return;
     let destroyed = false;
+    captionsVideoIdRef.current = youtubeVideoId;
+    captionsDecidedRef.current = false;
+    captionsManualRequestRef.current = false;
 
     function initPlayer() {
       const wrapper = ytWrapperRef.current;
@@ -435,8 +527,24 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
       ytPlayerRef.current = new (window as any).YT.Player(div, {
         width: '100%',
         height: '100%',
-        playerVars: { autoplay: 0, controls: 0, modestbranding: 1, rel: 0, playsinline: 1 },
+        playerVars: {
+          autoplay: 0,
+          controls: 0,
+          modestbranding: 1,
+          rel: 0,
+          playsinline: 1,
+          // In 'auto' mode, load the captions module up front so the track
+          // list is known and the preferred language can be picked. In 'off'
+          // mode don't force it; if YouTube shows captions anyway, the module
+          // load fires onApiChange and they're hidden there.
+          cc_load_policy: captionsModeRef.current === 'auto' ? 1 : 0,
+          cc_lang_pref: captionsLanguageRef.current,
+        },
         events: {
+          onApiChange: () => {
+            if (destroyed) return;
+            applyCaptionChoice(ytPlayerRef.current);
+          },
           onReady: (event: { target: { seekTo: (s: number, b: boolean) => void; playVideo: () => void } }) => {
             if (destroyed) return;
             youtubeReadyRef.current = true;
@@ -480,6 +588,7 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
               return;
             }
             if (event.data === 1) {
+              applyCaptionChoice(ytPlayerRef.current);
               youtubePlaybackStartedRef.current = true;
               youtubeRecoveriesRef.current = 0;
               youtubeRecoveryWindowRef.current = 0;
@@ -569,7 +678,7 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
       const wrapper = ytWrapperRef.current;
       if (wrapper) wrapper.innerHTML = '';
     };
-  }, [youtubeVideoId, reportDurationMs, syncYouTubePlayer]);
+  }, [youtubeVideoId, reportDurationMs, syncYouTubePlayer, applyCaptionChoice]);
 
   // Apply sync from server state to video element or YouTube player
   useEffect(() => {
@@ -613,7 +722,7 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
       video.currentTime = expectedSec;
       if (state.playing) video.play().catch(() => {});
     }
-  }, [state, resolveVideoUrl, youtubeVideoId, computeExpectedSeconds, syncYouTubePlayer]);
+  }, [state, resolveVideoUrl, youtubeVideoId, syncYouTubePlayer]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -676,9 +785,6 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
   const durationSec = (state?.duration_ms && state.duration_ms > 0)
     ? state.duration_ms / 1000
     : (currentItem?.duration_seconds ?? 0);
-  const positionSec = state
-    ? computeExpectedSeconds(state)
-    : 0;
   const pendingAutoAdvance = state?.pendingAutoAdvance ?? null;
   const pendingDurationMs = pendingAutoAdvance
     ? Math.max(1, pendingAutoAdvance.endsAt - pendingAutoAdvance.startedAt)
@@ -754,14 +860,6 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
     setIsFullscreen(false);
     openModal('profileSettings', { initialTab: 'voice' });
   }, [openModal]);
-
-function formatTime(sec: number) {
-    const s = Math.max(0, Math.floor(sec));
-    const m = Math.floor(s / 60);
-    const h = Math.floor(m / 60);
-    if (h > 0) return `${h}:${String(m % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-    return `${m}:${String(s % 60).padStart(2, '0')}`;
-  }
 
   const player = (
     <div
@@ -916,17 +1014,12 @@ function formatTime(sec: number) {
       >
         {/* Seek bar */}
         {durationSec > 0 && (
-          <input
-            data-debug-name="Synced Video Seek Bar"
-            data-debug-file="src/components/theater/SyncedVideoPlayer.tsx"
-            type="range"
-            min={0}
-            max={durationSec}
-            step={1}
-            value={Math.min(positionSec, durationSec)}
-            onChange={handleSeek}
+          <TheaterSeekBar
+            state={state}
+            durationSec={durationSec}
+            ticking={controlsVisible}
             disabled={!canControl}
-            className="w-full accent-accent cursor-pointer disabled:cursor-default disabled:opacity-50"
+            onSeek={handleSeek}
           />
         )}
         <div className="flex flex-wrap items-center gap-2">
@@ -939,9 +1032,7 @@ function formatTime(sec: number) {
               {state?.playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </button>
           )}
-          <span className="text-xs text-text-muted font-mono">
-            {formatTime(positionSec)}{durationSec > 0 ? ` / ${formatTime(durationSec)}` : ''}
-          </span>
+          <TheaterTimeLabel state={state} durationSec={durationSec} ticking={controlsVisible} />
           <div className="flex items-center gap-2 min-w-[160px]">
             <button
               type="button"
@@ -965,6 +1056,26 @@ function formatTime(sec: number) {
             />
             <span className="w-9 text-right text-xs text-text-muted tabular-nums">{volumePct}%</span>
           </div>
+          {youtubeVideoId && (
+            <button
+              type="button"
+              onClick={toggleCaptions}
+              disabled={captionsUnavailable}
+              className={`h-8 px-2 text-sm transition-colors disabled:cursor-default disabled:opacity-40 ${
+                activeCaptionTrack ? 'text-accent' : 'text-text-primary hover:text-accent'
+              }`}
+              title={captionsUnavailable
+                ? 'No captions for this video'
+                : activeCaptionTrack
+                  ? `Captions: ${captionTrackLabel(activeCaptionTrack)} (click to turn off)`
+                  : 'Turn on captions'}
+              aria-pressed={!!activeCaptionTrack}
+              data-debug-name="Synced Video Captions Button"
+              data-debug-file="src/components/theater/SyncedVideoPlayer.tsx"
+            >
+              {activeCaptionTrack ? <Captions className="h-4 w-4" /> : <CaptionsOff className="h-4 w-4" />}
+            </button>
+          )}
           <button
             type="button"
             onClick={toggleFullscreen}
@@ -1070,6 +1181,79 @@ function formatTime(sec: number) {
   );
 
   return player;
+}
+
+const NO_DEBUG_EVENTS: never[] = [];
+const PLAYBACK_CLOCK_MS = 250;
+
+function computeExpectedSeconds(playbackState: TheaterPlaybackState | null, clampToDuration = true) {
+  if (!playbackState) return 0;
+  const elapsed = playbackState.playing ? Math.max(0, Date.now() - playbackState.updated_at) : 0;
+  const expectedMs = Math.max(0, playbackState.position_ms + elapsed);
+  const durationMs = playbackState.duration_ms && playbackState.duration_ms > 0 ? playbackState.duration_ms : 0;
+  const normalizedMs = clampToDuration && durationMs > 0 ? Math.min(expectedMs, durationMs) : expectedMs;
+  return normalizedMs / 1000;
+}
+
+function formatTime(sec: number) {
+  const s = Math.max(0, Math.floor(sec));
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}:${String(m % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Current synced position, re-read on a timer while the video plays. Lives in
+ * the small components below so the tick re-renders them, not the player, and
+ * stops entirely while the controls are hidden.
+ */
+function usePlaybackClock(state: TheaterPlaybackState | null, ticking: boolean) {
+  const [, setTick] = useState(0);
+  const active = ticking && !!state?.playing;
+  useEffect(() => {
+    if (!active) return undefined;
+    const timer = window.setInterval(() => setTick((tick) => tick + 1), PLAYBACK_CLOCK_MS);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  return computeExpectedSeconds(state);
+}
+
+function TheaterSeekBar({ state, durationSec, ticking, disabled, onSeek }: {
+  state: TheaterPlaybackState | null;
+  durationSec: number;
+  ticking: boolean;
+  disabled: boolean;
+  onSeek: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const positionSec = usePlaybackClock(state, ticking);
+  return (
+    <input
+      data-debug-name="Synced Video Seek Bar"
+      data-debug-file="src/components/theater/SyncedVideoPlayer.tsx"
+      type="range"
+      min={0}
+      max={durationSec}
+      step={1}
+      value={Math.min(positionSec, durationSec)}
+      onChange={onSeek}
+      disabled={disabled}
+      className="w-full accent-accent cursor-pointer disabled:cursor-default disabled:opacity-50"
+    />
+  );
+}
+
+function TheaterTimeLabel({ state, durationSec, ticking }: {
+  state: TheaterPlaybackState | null;
+  durationSec: number;
+  ticking: boolean;
+}) {
+  const positionSec = usePlaybackClock(state, ticking);
+  return (
+    <span className="text-xs text-text-muted font-mono">
+      {formatTime(positionSec)}{durationSec > 0 ? ` / ${formatTime(durationSec)}` : ''}
+    </span>
+  );
 }
 
 function describeYouTubeState(state: number | null | undefined) {

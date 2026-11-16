@@ -257,28 +257,28 @@ mod windows_toast {
         let input = InMemoryRandomAccessStream::new()?;
         let writer = DataWriter::CreateDataWriter(&input)?;
         writer.WriteBytes(bytes)?;
-        writer.StoreAsync()?.get()?;
+        writer.StoreAsync()?.join()?;
         writer.DetachStream()?;
         input.Seek(0)?;
 
-        let decoder = BitmapDecoder::CreateAsync(&input)?.get()?;
+        let decoder = BitmapDecoder::CreateAsync(&input)?.join()?;
         let bitmap = decoder
             .GetSoftwareBitmapConvertedAsync(BitmapPixelFormat::Bgra8, BitmapAlphaMode::Premultiplied)?
-            .get()?;
+            .join()?;
         let (width, height) = (decoder.PixelWidth()?.max(1), decoder.PixelHeight()?.max(1));
         let scale = (AVATAR_PX as f64 / width.max(height) as f64).min(1.0);
 
         let output = InMemoryRandomAccessStream::new()?;
-        let encoder = BitmapEncoder::CreateAsync(BitmapEncoder::PngEncoderId()?, &output)?.get()?;
+        let encoder = BitmapEncoder::CreateAsync(BitmapEncoder::PngEncoderId()?, &output)?.join()?;
         encoder.SetSoftwareBitmap(&bitmap)?;
         let transform = encoder.BitmapTransform()?;
         transform.SetScaledWidth(((width as f64 * scale).round() as u32).max(1))?;
         transform.SetScaledHeight(((height as f64 * scale).round() as u32).max(1))?;
-        encoder.FlushAsync()?.get()?;
+        encoder.FlushAsync()?.join()?;
 
         let size = output.Size()? as u32;
         let reader = DataReader::CreateDataReader(&output.GetInputStreamAt(0)?)?;
-        reader.LoadAsync(size)?.get()?;
+        reader.LoadAsync(size)?.join()?;
         let mut png = vec![0u8; size as usize];
         reader.ReadBytes(&mut png)?;
         Ok(png)

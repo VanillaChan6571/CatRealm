@@ -47,7 +47,34 @@ function startWorker(): Promise<void> {
   return workerReady;
 }
 
+// ── Idle shutdown ────────────────────────────────────────────────────────────
+// Every loaded model reserves a 128 MB workspace on top of its files, and a WASM heap never
+// shrinks, so a worker left running holds hundreds of MB for the rest of the session. Terminating
+// it is the only way to give that back; results stay in the translation cache, and the next
+// message that needs translating starts a fresh worker from the installed packs.
+
+const IDLE_SHUTDOWN_MS = 60_000;
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+/** Batches between "picked up by flush" and "settled", including main-thread model loading. */
+let activeBatches = 0;
+
+function cancelIdleShutdown() {
+  if (idleTimer === null) return;
+  clearTimeout(idleTimer);
+  idleTimer = null;
+}
+
+function scheduleIdleShutdown() {
+  cancelIdleShutdown();
+  if (!worker || activeBatches > 0 || queues.size > 0) return;
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    if (worker && activeBatches === 0 && queues.size === 0 && pending.size === 0) failAll(new Error('Translation stopped'));
+  }, IDLE_SHUTDOWN_MS);
+}
+
 function failAll(error: Error) {
+  cancelIdleShutdown();
   for (const entry of pending.values()) entry.reject(error);
   pending.clear();
   worker?.terminate();
@@ -89,6 +116,8 @@ const queues = new Map<Direction, Job[]>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function flushDirection(direction: Direction, jobs: Job[]) {
+  activeBatches += 1;
+  cancelIdleShutdown();
   try {
     const [from, to] = direction.split('-') as [TranslationLanguage, TranslationLanguage];
     const hops = route(from, to);
@@ -106,6 +135,9 @@ async function flushDirection(direction: Direction, jobs: Job[]) {
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     for (const job of jobs) job.reject(err);
+  } finally {
+    activeBatches -= 1;
+    scheduleIdleShutdown();
   }
 }
 
@@ -123,6 +155,7 @@ export function translateWithBergamot(text: string, from: TranslationLanguage, t
     const queue = queues.get(direction) ?? [];
     queue.push({ lines: text.split('\n'), resolve, reject });
     queues.set(direction, queue);
+    cancelIdleShutdown();
     flushTimer ??= setTimeout(flush, 30);
   });
 }

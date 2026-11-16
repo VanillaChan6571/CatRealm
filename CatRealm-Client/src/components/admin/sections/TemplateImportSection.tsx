@@ -3,16 +3,13 @@ import { Upload, CheckCircle, AlertCircle, Download, Link } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../../lib/api';
 import {
-  parseDiscordTemplate,
   generateImportPreview,
   type ParsedTemplate,
 } from '../../../utils/discordTemplateParser';
 import { TemplateImportConfirmModal } from '../TemplateImportConfirmModal';
-import { useAuthStore } from '../../../stores/authStore';
 
 export function TemplateImportSection() {
   const { t } = useTranslation();
-  const user = useAuthStore((s) => s.user);
   const [templateUrl, setTemplateUrl] = useState('');
   const [templateJson, setTemplateJson] = useState('');
   const [parsedTemplate, setParsedTemplate] = useState<ParsedTemplate | null>(null);
@@ -44,7 +41,7 @@ export function TemplateImportSection() {
       setTemplateJson(templateJsonStr);
 
       // Auto-validate the fetched template
-      const parsed = parseDiscordTemplate(templateJsonStr);
+      const parsed = await api.post('/api/admin/preview-template', { template });
       setParsedTemplate(parsed);
       setError(null);
     } catch (err: any) {
@@ -56,13 +53,13 @@ export function TemplateImportSection() {
     }
   };
 
-  const handleValidate = () => {
+  const handleValidate = async () => {
     try {
       setValidationErrors([]);
       setParsedTemplate(null);
       setError(null);
 
-      const parsed = parseDiscordTemplate(templateJson);
+      const parsed = await api.post('/api/admin/preview-template', { template: JSON.parse(templateJson) });
       setParsedTemplate(parsed);
     } catch (err: any) {
       setValidationErrors([err.message]);
@@ -308,7 +305,6 @@ export function TemplateImportSection() {
         open={showConfirmModal}
         onClose={() => setShowConfirmModal(false)}
         onConfirm={handleConfirmImport}
-        isLocalAccount={user?.accountType === 'local'}
       />
     </div>
   );

@@ -16,7 +16,7 @@ import { useTheaterStore } from '@/stores/theaterStore';
 import { getSocket } from '@/lib/socket';
 import { createAuthenticatedApi } from '@/lib/api';
 import { useExpressionLookup } from '@/lib/expressionCache';
-import { hasChannelPermission, PERMISSIONS } from '@/utils/permissions';
+import { hasChannelPermissionKey } from '@/utils/permissions';
 import { formatMessageTimestamp } from '@/utils/formatTime';
 import type { Message } from '@/types';
 
@@ -45,9 +45,9 @@ export function TheaterChatPanel({ serverId, channelId }: { serverId: string; ch
   const bottomInset = useSharedValue(0);
   const lookup = useExpressionLookup(serverUrl);
   const owner = !!(realmUser?.isOwner || realmUser?.role === 'owner');
-  const canRead = owner || hasChannelPermission(realmUser?.permissions, channel?.effective_permissions, PERMISSIONS.READ_CHAT_HISTORY);
+  const canRead = owner || hasChannelPermissionKey(realmUser?.permissionKeys, channel?.effective_permission_keys, 'READ_CHAT_HISTORY', realmUser?.permissions, channel?.effective_permissions);
   const canSend = canRead && (owner
-    || hasChannelPermission(realmUser?.permissions, channel?.effective_permissions, PERMISSIONS.SEND_MESSAGES));
+    || hasChannelPermissionKey(realmUser?.permissionKeys, channel?.effective_permission_keys, 'SEND_MESSAGES', realmUser?.permissions, channel?.effective_permissions));
   const rows = useMemo(() => messages.filter((m) => !m.thread_id && !blocked.has(m.user_id)).slice().reverse(), [messages, blocked]);
   const fetchPage = useCallback((before?: string) => {
     if (canRead && serverUrl && token) void fetchMessages(channelId, before, { serverUrl, token });

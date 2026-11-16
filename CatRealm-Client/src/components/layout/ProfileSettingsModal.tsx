@@ -13,6 +13,7 @@ import { useCustomThemeStore } from '../../stores/customThemeStore';
 import { usePresenceStore } from '../../stores/presenceStore';
 import { syncCentralProfileToJoinedServers, syncCentralProfileToServer, useServerStore } from '../../stores/serverStore';
 import { getServerAvatarOverride } from '../../lib/serverProfileAvatar';
+import { shouldDeferPassiveLocalNetworkRequest } from '../../lib/localNetworkAccess';
 import { useContentSocialStore } from '../../stores/contentSocialStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { useVersionStore } from '../../stores/versionStore';
@@ -477,6 +478,26 @@ export function ProfileSettingsModal() {
     return scheduleRendererMemoryReclaim(250);
   }, [activeModal, scheduleRendererMemoryReclaim]);
 
+  const loadServerProfileAssets = useCallback((server: { url: string; token: string }) => {
+    axios.get(`${server.url}/api/profile/me`, {
+      headers: { Authorization: `Bearer ${server.token}` },
+    })
+      .then((res) => {
+        setServerAvatars((prev) => ({ ...prev, [server.url]: getServerAvatarOverride(res.data) }));
+        setServerBanners((prev) => ({ ...prev, [server.url]: res.data.banner ?? null }));
+      })
+      .catch(() => {
+        setServerAvatars((prev) => ({ ...prev, [server.url]: null }));
+        setServerBanners((prev) => ({ ...prev, [server.url]: null }));
+      });
+  }, [setServerAvatars, setServerBanners]);
+
+  const selectServerProfile = (url: string) => {
+    setSelectedServerUrl(url);
+    const server = servers.find((entry) => entry.url === url);
+    if (server && shouldDeferPassiveLocalNetworkRequest(url)) loadServerProfileAssets(server);
+  };
+
   useEffect(() => {
     if (activeModal !== 'profileSettings') return;
     setProfileError(null);
@@ -542,37 +563,17 @@ export function ProfileSettingsModal() {
       setGitHash('unknown');
     }
 
-    // For central accounts, set default selected server and fetch all server avatars
+    // Load public realms here; a local realm loads only after the user selects it.
     if (isCentral && servers.length > 0) {
-      // Default to currently connected server, or first server
-      const defaultServer = serverUrl || servers[0].url;
+      const defaultServer = serverUrl
+        || servers.find((server) => !shouldDeferPassiveLocalNetworkRequest(server.url))?.url
+        || null;
       setSelectedServerUrl(defaultServer);
 
-      // Fetch avatars for all servers
       servers.forEach((server) => {
-        axios.get(`${server.url}/api/profile/me`, {
-          headers: { Authorization: `Bearer ${server.token}` },
-        })
-          .then((res) => {
-            setServerAvatars((prev) => ({
-              ...prev,
-              [server.url]: getServerAvatarOverride(res.data),
-            }));
-            setServerBanners((prev) => ({
-              ...prev,
-              [server.url]: res.data.banner ?? null,
-            }));
-          })
-          .catch(() => {
-            setServerAvatars((prev) => ({
-              ...prev,
-              [server.url]: null,
-            }));
-            setServerBanners((prev) => ({
-              ...prev,
-              [server.url]: null,
-            }));
-          });
+        if (server.url === serverUrl || !shouldDeferPassiveLocalNetworkRequest(server.url)) {
+          loadServerProfileAssets(server);
+        }
       });
     }
   }, [activeModal, isCentral, servers.length, serverUrl]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1950,7 +1951,7 @@ If you encounter issues or have questions:
                 user={user}
                 servers={servers}
                 selectedServerUrl={selectedServerUrl}
-                setSelectedServerUrl={setSelectedServerUrl}
+                setSelectedServerUrl={selectServerProfile}
                 serverAvatars={serverAvatars}
                 serverBanners={serverBanners}
                 uploadingServerAvatar={uploadingServerAvatar}

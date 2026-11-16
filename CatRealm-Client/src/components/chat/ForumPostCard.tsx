@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { ForumPost } from '../../types';
+import { uploadThumbnailUrl } from '../../utils/uploadThumbnail';
 import { AvatarImage } from '../ui/AvatarImage';
 import { resolveAvatarUrl } from '../../utils/avatar';
 import { formatTimestamp } from '../../utils/formatTime';
@@ -13,6 +15,26 @@ interface Props {
   viewMode?: 'list' | 'gallery';
   onArchive?: () => void;
   onDelete?: () => void;
+}
+
+/**
+ * Cover art is shown small (64 px in the list), so load the server's thumbnail instead of
+ * decoding the full-size original; posts older than thumbnails fall back to the original.
+ */
+function ForumCoverImage({ src }: { src: string }) {
+  const thumbnail = uploadThumbnailUrl(src);
+  const [failedThumbnail, setFailedThumbnail] = useState<string | null>(null);
+  const useThumbnail = thumbnail !== null && failedThumbnail !== thumbnail;
+  return (
+    <img
+      src={useThumbnail ? thumbnail : src}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className="w-full h-full object-cover"
+      onError={useThumbnail ? () => setFailedThumbnail(thumbnail) : undefined}
+    />
+  );
 }
 
 const ReplyIcon = () => (
@@ -73,7 +95,7 @@ export function ForumPostCard({ post, onOpen, canManage, viewMode = 'list', onAr
         {/* Cover image */}
         <div className="relative aspect-video bg-bg-input flex items-center justify-center overflow-hidden shrink-0">
           {post.cover_image ? (
-            <img src={resolveCover(post.cover_image)} alt="" className="w-full h-full object-cover" />
+            <ForumCoverImage src={resolveCover(post.cover_image)} />
           ) : (
             <svg className="w-10 h-10 text-text-muted/30" fill="none" stroke="currentColor" strokeWidth="1" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 3h18M3 21h18M12 3v18" />
@@ -134,7 +156,7 @@ export function ForumPostCard({ post, onOpen, canManage, viewMode = 'list', onAr
         {/* Cover image thumbnail (list mode) */}
         {post.cover_image && (
           <div className="shrink-0 w-16 h-16 rounded-md overflow-hidden bg-bg-input">
-            <img src={resolveCover(post.cover_image)} alt="" className="w-full h-full object-cover" />
+            <ForumCoverImage src={resolveCover(post.cover_image)} />
           </div>
         )}
 

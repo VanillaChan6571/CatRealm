@@ -5,6 +5,7 @@ mod native_voice;
 mod screen_publish;
 mod obs_overlay;
 mod settings;
+mod startup_timing;
 mod webview_lifecycle;
 mod webview_permissions;
 #[cfg(target_os = "windows")]
@@ -188,6 +189,8 @@ fn configure_linux_webview_gpu(settings: &Settings) {
 }
 
 pub fn run() {
+    startup_timing::begin();
+
     #[cfg(target_os = "linux")]
     configure_linux_media_backend();
 
@@ -208,6 +211,7 @@ pub fn run() {
         ))
         .setup(|app| {
             commands::diagnostics::init_client_debug_log(app.handle());
+            startup_timing::mark("setup_start", None);
             let settings_path = app.path().app_config_dir()?.join("desktop-settings.json");
             let settings = Settings::load(&settings_path);
 
@@ -233,8 +237,10 @@ pub fn run() {
 
             // Background updater: initial check shortly after launch, then
             // periodic checks (Windows-only; a no-op elsewhere).
+            startup_timing::mark("state_ready", None);
             commands::updates::start_periodic_updater(app.handle().clone());
             commands::notifications::register_app_identity(app.handle());
+            startup_timing::mark("app_identity_registered", None);
 
             let window_icon = app.default_window_icon().unwrap().clone();
             let popup_app = app.handle().clone();
@@ -253,10 +259,16 @@ pub fn run() {
                     commands::app::handle_new_window_request(&popup_app, &url);
                     tauri::webview::NewWindowResponse::Deny
                 })
-                .on_page_load(|window, _| {
+                .on_page_load(|window, payload| {
                     commands::app::reset_ad_frame_guard(window.app_handle());
+                    let name = match payload.event() {
+                        tauri::webview::PageLoadEvent::Started => "page_load_started",
+                        tauri::webview::PageLoadEvent::Finished => "page_load_finished",
+                    };
+                    startup_timing::mark(name, Some(serde_json::json!({ "url": payload.url().as_str() })));
                 })
                 .build()?;
+            startup_timing::mark("main_window_built", None);
             app_security::install_main_document_guard(&main_window)?;
             #[cfg(target_os = "linux")]
             set_linux_taskbar_icon(&main_window, &window_icon);
@@ -288,6 +300,7 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+            startup_timing::mark("setup_done", None);
 
             Ok(())
         })
@@ -315,6 +328,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app::get_app_version,
+            startup_timing::startup_mark,
             commands::notifications::desktop_notification_show,
             commands::notifications::desktop_notification_dismiss,
             commands::app::quit_app,

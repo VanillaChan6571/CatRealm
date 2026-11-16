@@ -9,7 +9,8 @@
 import { useEffect } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import axios from 'axios';
-import type { ActivityType, Message, Channel, Category, OnlineUser, GroupChatReaction, Reaction } from '@/types';
+import type { ActivityType, Message, Channel, Category, OnlineUser, GroupChatReaction, Reaction, BoardCard, BoardList, BoardSettings, TrackerIssue, TrackerSettings, WorkItemComment, WorkItemLabel } from '@/types';
+import { useWorkItemStore, type WorkKind } from '@/stores/workItemStore';
 import { useChannelStore } from '@/stores/channelStore';
 import { AUTH_BASE, createAuthenticatedApi } from '@/lib/api';
 import { useNowPlayingStore } from '@/stores/nowPlayingStore';
@@ -35,9 +36,20 @@ import { fetchDMKeyManifest, loadConversationSecretForCurrentDevice, syncTrusted
 import { getLocalDeviceId } from '@/lib/deviceIdentity';
 import { useDMKeyReverificationStore } from '@/stores/dmKeyReverificationStore';
 import { captureAccountSession } from '@/lib/accountSession';
-import { markRealmChannelRead, recountRealmUnread, syncActiveRealmReadState, syncRealmUnreadCounts } from '@/lib/realmReadState';
+import { isRealmChannelMuted, markRealmChannelRead, recountRealmUnread, syncActiveRealmReadState, syncRealmUnreadCounts } from '@/lib/realmReadState';
 
 const SUSPENSION_RESYNC_THRESHOLD_MS = 5000;
+const WORK_ITEM_KINDS: WorkKind[] = ['tracker', 'board'];
+// Every Tracker/Board event, so cleanup removes exactly what was registered.
+const WORK_ITEM_EVENTS = [
+  'tracker:issue-created', 'tracker:issue-updated', 'tracker:issue-deleted', 'tracker:settings-updated',
+  'tracker:watchers-updated', 'tracker:watch-notification',
+  'board:card-created', 'board:card-updated', 'board:card-deleted', 'board:cards-moved',
+  'board:lists-updated', 'board:settings-updated', 'board:list-deleted',
+  ...WORK_ITEM_KINDS.flatMap((kind) => [
+    `${kind}:comment-created`, `${kind}:comment-updated`, `${kind}:comment-deleted`, `${kind}:labels-updated`,
+  ]),
+];
 const channelTypingExpiry = new Map<string, ReturnType<typeof setTimeout>>();
 
 // E2EE key-recovery throttles. Module-level so socket effect remounts don't
@@ -268,6 +280,7 @@ export function useSocket() {
       const channelId = msg.channel_id;
       const activeChannelId = useChannelStore.getState().activeChannelId;
       const settings = useSettingsStore.getState();
+      const channelMuted = isRealmChannelMuted(socketUrl, channelId);
 
       if (activeChannelId === channelId) {
         useChannelStore.getState().resetCounts(channelId);
@@ -278,7 +291,7 @@ export function useSocket() {
             subsourceId: channelId,
           }).catch(() => {});
         }
-        if (settings.notificationsEnabled && settings.soundMessageInChannel) {
+        if (!channelMuted && settings.notificationsEnabled && settings.soundMessageInChannel) {
           const vol = settings.soundVolumes?.soundMessageInChannel ?? 100;
           void playNotificationSound('message-in-channel', vol);
         }
@@ -292,7 +305,7 @@ export function useSocket() {
       const isEveryone = /@everyone\b|@here\b/i.test(content);
       useChannelStore.getState().incrementUnread(channelId, useAuthStore.getState().user?.accountType === 'central' ? false : isMention);
 
-      if (!settings.notificationsEnabled) return;
+      if (!settings.notificationsEnabled || channelMuted) return;
       if (isMention && settings.soundMessageMention) {
         void playNotificationSound('message-mention', settings.soundVolumes?.soundMessageMention ?? 100);
       } else if (isEveryone && settings.soundMessageEveryone) {
@@ -437,7 +450,7 @@ export function useSocket() {
     socket.on('voice:user-joined', (payload) => {
       const wasInChannel = useVoiceStore.getState().channelId === payload.channelId;
       useVoiceStore.getState().handleUserJoined(payload);
-      if (wasInChannel) {
+      if (wasInChannel && !isRealmChannelMuted(socketUrl, payload.channelId)) {
         const settings = useSettingsStore.getState();
         if (settings.notificationsEnabled && settings.soundVoiceUserJoined) {
           void playNotificationSound('voice-user-joined', settings.soundVolumes?.soundVoiceUserJoined ?? 100);
@@ -447,7 +460,7 @@ export function useSocket() {
     socket.on('voice:user-left', (payload) => {
       const wasInChannel = useVoiceStore.getState().channelId === payload.channelId;
       useVoiceStore.getState().handleUserLeft(payload);
-      if (wasInChannel) {
+      if (wasInChannel && !isRealmChannelMuted(socketUrl, payload.channelId)) {
         const settings = useSettingsStore.getState();
         if (settings.notificationsEnabled && settings.soundVoiceUserLeft) {
           void playNotificationSound('voice-user-left', settings.soundVolumes?.soundVoiceUserLeft ?? 100);
@@ -493,6 +506,53 @@ export function useSocket() {
       useTheaterStore.getState().handleUserState(payload);
     });
 
+    // ── Tracker issues and Board cards live sync ─────────────────────────────
+    const workItems = () => useWorkItemStore.getState();
+    socket.on('tracker:issue-created', (issue: TrackerIssue) => workItems().applyIssue(issue, true));
+    socket.on('tracker:issue-updated', (issue: TrackerIssue) => workItems().applyIssue(issue));
+    socket.on('tracker:issue-deleted', ({ channelId, id }: { channelId: string; id: string }) => workItems().removeIssue(channelId, id));
+    socket.on('tracker:settings-updated', ({ channelId, settings }: { channelId: string; settings: TrackerSettings }) => {
+      workItems().setTrackerSettings(channelId, settings);
+    });
+    socket.on('tracker:watchers-updated', ({ issueId, watcher_count }: { issueId: string; watcher_count: number }) => {
+      workItems().setWatcherCount(issueId, watcher_count);
+    });
+    // A watched issue changed: mark the tracker channel unread unless it is open or muted.
+    socket.on('tracker:watch-notification', (notice: { channelId: string }) => {
+      if (!notice?.channelId || isRealmChannelMuted(socketUrl, notice.channelId)) return;
+      const channelState = useChannelStore.getState();
+      if (channelState.activeChannelId === notice.channelId && AppState.currentState === 'active') return;
+      channelState.incrementUnread(notice.channelId, false);
+    });
+    socket.on('board:card-created', (card: BoardCard) => workItems().applyCard(card));
+    socket.on('board:card-updated', (card: BoardCard) => workItems().applyCard(card));
+    socket.on('board:card-deleted', ({ channelId, id }: { channelId: string; id: string }) => workItems().removeCard(channelId, id));
+    socket.on('board:cards-moved', ({ channelId, lists }: { channelId: string; lists: Array<{ listId: string; cardIds: string[] }> }) => {
+      workItems().applyCardOrder(channelId, lists);
+    });
+    socket.on('board:lists-updated', ({ channelId, lists }: { channelId: string; lists: BoardList[] }) => {
+      workItems().setBoardLists(channelId, lists);
+    });
+    socket.on('board:settings-updated', ({ channelId, settings }: { channelId: string; settings: BoardSettings }) => {
+      workItems().setBoardSettings(channelId, settings);
+    });
+    socket.on('board:list-deleted', ({ channelId, listId }: { channelId: string; listId: string }) => {
+      workItems().removeBoardList(channelId, listId);
+    });
+    for (const kind of WORK_ITEM_KINDS) {
+      const onComment = ({ channelId, itemId, comment }: { channelId: string; itemId: string; comment: WorkItemComment }) => {
+        workItems().applyComment(kind, channelId, itemId, comment);
+      };
+      socket.on(`${kind}:comment-created`, onComment);
+      socket.on(`${kind}:comment-updated`, onComment);
+      socket.on(`${kind}:comment-deleted`, ({ channelId, itemId, commentId }: { channelId: string; itemId: string; commentId: string }) => {
+        workItems().removeComment(kind, channelId, itemId, commentId);
+      });
+      socket.on(`${kind}:labels-updated`, ({ channelId, labels }: { channelId: string; labels: WorkItemLabel[] }) => {
+        workItems().setLabels(kind, channelId, labels);
+      });
+    }
+
     return () => {
       debugLog('useSocket', 'disconnect:server-socket', { socketUrl });
       recountRealmUnread(socketUrl);
@@ -527,6 +587,8 @@ export function useSocket() {
       socket.off('theater:host-changed');
       socket.off('theater:room-users');
       socket.off('theater:user-state');
+      // Tracker / Board
+      for (const event of WORK_ITEM_EVENTS) socket.off(event);
       disconnectSocket(socketUrl);
     };
   }, [socketUrl, socketToken, activeServerId]);

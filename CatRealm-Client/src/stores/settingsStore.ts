@@ -33,11 +33,21 @@ export const VOICE_BG_MAX_COLORS = 6;
 export const MOTION_INTENSITIES = ['snappy', 'middle', 'lively'] as const;
 const DEFAULT_LANGUAGE: AppLanguage = detectAppLanguage();
 
+export type TheaterCaptionsMode = 'auto' | 'off';
+export const THEATER_CAPTION_MODES: readonly TheaterCaptionsMode[] = ['auto', 'off'];
+/** Caption languages offered for Theater YouTube videos (ISO 639-1 codes). */
+export const THEATER_CAPTION_LANGUAGES = [
+  'en', 'es', 'fr', 'de', 'pt', 'it', 'nl', 'pl', 'ru', 'uk', 'tr', 'ar', 'hi', 'id', 'vi', 'th', 'ja', 'ko', 'zh',
+] as const;
+
 interface SettingsState {
   playGifAvatars: boolean;
   showAvatarBackground: boolean;
   enableImageThumbnailing: boolean;
   disableEmbedAutoplay: boolean;
+  /** 'auto' shows Theater YouTube captions when a track in theaterCaptionsLanguage exists; 'off' never does. */
+  theaterCaptionsMode: TheaterCaptionsMode;
+  theaterCaptionsLanguage: string;
   emoteSizePx: 24 | 32 | 48 | 64 | 96 | 128 | 256 | 512;
   voiceInputDeviceId: string | null;
   voiceInputMode: 'voice_activity' | 'push_to_talk';
@@ -205,6 +215,8 @@ interface SettingsState {
   setShowAvatarBackground: (value: boolean) => void;
   setEnableImageThumbnailing: (value: boolean) => void;
   setDisableEmbedAutoplay: (value: boolean) => void;
+  setTheaterCaptionsMode: (value: TheaterCaptionsMode) => void;
+  setTheaterCaptionsLanguage: (value: string) => void;
   setEmoteSizePx: (value: 24 | 32 | 48 | 64 | 96 | 128 | 256 | 512) => void;
   setVoiceInputDeviceId: (value: string | null) => void;
   setVoiceInputMode: (value: 'voice_activity' | 'push_to_talk') => void;
@@ -265,13 +277,15 @@ const STORAGE_KEY = 'catrealm.settings';
 const SCREEN_SHARE_VIEWER_QUALITIES = ['auto', 'high', 'medium', 'low'] as const;
 const SCREEN_SHARE_DESKTOP_CAPTURE_MODES = ['auto', 'monitor-dxgi', 'window-wgc'] as const;
 
-type SettingsData = Omit<SettingsState, 'setAutoTryHttpRealmGateway' | 'setPlayGifAvatars' | 'setShowAvatarBackground' | 'setEnableImageThumbnailing' | 'setDisableEmbedAutoplay' | 'setEmoteSizePx' | 'setVoiceInputDeviceId' | 'setVoiceInputMode' | 'setVoiceOutputDeviceId' | 'setVoiceCallE2EEEnabled' | 'setReconnectToRealtimeChannels' | 'setVoiceUserVolume' | 'setVoiceUserVolumes' | 'clearVoiceUserVolumes' | 'setScreenshareFps' | 'setScreenshareResolution' | 'setScreenshareAudio' | 'setScreenshareDegradationPreference' | 'setScreenshareQualityPreset' | 'setScreenshareCodecPreference' | 'setScreenShareViewerQuality' | 'setScreenShareSimulcastEnabled' | 'setScreenShareHardwareEncoding' | 'setScreenShareEncoderBackend' | 'setScreenShareDesktopCaptureMode' | 'setScreenShareNativeWhipEnabled' | 'setScreenShareNativeProfile' | 'setScreenShareGpu' | 'setScreenShareNativeWhipSimulcastEnabled' | 'setScreenshareWizardCompletedAt' | 'setVoiceMuted' | 'setVoiceDeafened' | 'setNotificationsEnabled' | 'setSoundSetting' | 'setSoundVolume' | 'setNoiseGateEnabled' | 'setNoiseGateThreshold' | 'setRnnoiseEnabled' | 'setTheme' | 'setMotionIntensity' | 'setHeavyAnimationsEnabled' | 'setLanguage' | 'setTimeFormat' | 'setStreamerMode' | 'setStreamerModeAutoDetect' | 'setStreamerModeHidePI' | 'setStreamerModeDisableSounds' | 'setDebugServerStates' | 'setDebugCallingStates' | 'setDebugTheaterStates' | 'setDebugUIHoverInspector' | 'setDebugFpsOverlay' | 'setDebugGameActivity' | 'setForceMobileViewOnDesktop' | 'setOpenOnStartup' | 'setMinimizeToTray' | 'setOpenLinksInApp' | 'setGameActivityEnabled' | 'setDevBuilds' | 'setUpdateChannel' | 'setVoiceDebugConsoleEnabled' | 'setObsOverlayEnabled' | 'setObsOverlayPort' | 'setObsOverlayShowNames' | 'setObsOverlayAvatarSize' | 'setObsOverlayGrayscaleWhenSilent' | 'setObsOverlayHideWhenSilent' | 'setObsOverlaySquareIcons' | 'setObsOverlayReactiveAvatars' | 'setCatLabTextPreview' | 'setCatLabFullProfileButton' | 'setCatLabGifPicker' | 'setCatLabAudioTracks' | 'setCatLabAutoTranslate' | 'setCatLabAutoCompressUploads' | 'setVoiceBgMode' | 'setVoiceBgColors' | 'setVoiceBgPattern' | 'setVoiceBgAnimated' | 'setVoiceBgScene' | 'setVoiceBgImageUpdatedAt'>;
+type SettingsData = Omit<SettingsState, 'setAutoTryHttpRealmGateway' | 'setPlayGifAvatars' | 'setShowAvatarBackground' | 'setEnableImageThumbnailing' | 'setDisableEmbedAutoplay' | 'setTheaterCaptionsMode' | 'setTheaterCaptionsLanguage' | 'setEmoteSizePx' | 'setVoiceInputDeviceId' | 'setVoiceInputMode' | 'setVoiceOutputDeviceId' | 'setVoiceCallE2EEEnabled' | 'setReconnectToRealtimeChannels' | 'setVoiceUserVolume' | 'setVoiceUserVolumes' | 'clearVoiceUserVolumes' | 'setScreenshareFps' | 'setScreenshareResolution' | 'setScreenshareAudio' | 'setScreenshareDegradationPreference' | 'setScreenshareQualityPreset' | 'setScreenshareCodecPreference' | 'setScreenShareViewerQuality' | 'setScreenShareSimulcastEnabled' | 'setScreenShareHardwareEncoding' | 'setScreenShareEncoderBackend' | 'setScreenShareDesktopCaptureMode' | 'setScreenShareNativeWhipEnabled' | 'setScreenShareNativeProfile' | 'setScreenShareGpu' | 'setScreenShareNativeWhipSimulcastEnabled' | 'setScreenshareWizardCompletedAt' | 'setVoiceMuted' | 'setVoiceDeafened' | 'setNotificationsEnabled' | 'setSoundSetting' | 'setSoundVolume' | 'setNoiseGateEnabled' | 'setNoiseGateThreshold' | 'setRnnoiseEnabled' | 'setTheme' | 'setMotionIntensity' | 'setHeavyAnimationsEnabled' | 'setLanguage' | 'setTimeFormat' | 'setStreamerMode' | 'setStreamerModeAutoDetect' | 'setStreamerModeHidePI' | 'setStreamerModeDisableSounds' | 'setDebugServerStates' | 'setDebugCallingStates' | 'setDebugTheaterStates' | 'setDebugUIHoverInspector' | 'setDebugFpsOverlay' | 'setDebugGameActivity' | 'setForceMobileViewOnDesktop' | 'setOpenOnStartup' | 'setMinimizeToTray' | 'setOpenLinksInApp' | 'setGameActivityEnabled' | 'setDevBuilds' | 'setUpdateChannel' | 'setVoiceDebugConsoleEnabled' | 'setObsOverlayEnabled' | 'setObsOverlayPort' | 'setObsOverlayShowNames' | 'setObsOverlayAvatarSize' | 'setObsOverlayGrayscaleWhenSilent' | 'setObsOverlayHideWhenSilent' | 'setObsOverlaySquareIcons' | 'setObsOverlayReactiveAvatars' | 'setCatLabTextPreview' | 'setCatLabFullProfileButton' | 'setCatLabGifPicker' | 'setCatLabAudioTracks' | 'setCatLabAutoTranslate' | 'setCatLabAutoCompressUploads' | 'setVoiceBgMode' | 'setVoiceBgColors' | 'setVoiceBgPattern' | 'setVoiceBgAnimated' | 'setVoiceBgScene' | 'setVoiceBgImageUpdatedAt'>;
 
 const DEFAULT_SETTINGS: SettingsData = {
   playGifAvatars: true,
   showAvatarBackground: false,
   enableImageThumbnailing: true,
   disableEmbedAutoplay: false,
+  theaterCaptionsMode: 'auto',
+  theaterCaptionsLanguage: 'en',
   emoteSizePx: 128,
   voiceInputDeviceId: null,
   voiceInputMode: 'voice_activity',
@@ -487,6 +501,12 @@ function loadSettings(): SettingsData {
     if (!LANGUAGE_OPTIONS.includes(result.language as AppLanguage)) {
       result.language = DEFAULT_LANGUAGE;
     }
+    if (!THEATER_CAPTION_MODES.includes(result.theaterCaptionsMode)) {
+      result.theaterCaptionsMode = 'auto';
+    }
+    if (!(THEATER_CAPTION_LANGUAGES as readonly string[]).includes(result.theaterCaptionsLanguage)) {
+      result.theaterCaptionsLanguage = 'en';
+    }
     if (typeof result.autoTryHttpRealmGateway !== 'boolean') {
       result.autoTryHttpRealmGateway = false;
     }
@@ -603,6 +623,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     setDisableEmbedAutoplay: (value) => {
       set({ disableEmbedAutoplay: value });
       saveSettings({ ...getSnapshot(), disableEmbedAutoplay: value });
+    },
+    setTheaterCaptionsMode: (value) => {
+      set({ theaterCaptionsMode: value });
+      saveSettings({ ...getSnapshot(), theaterCaptionsMode: value });
+    },
+    setTheaterCaptionsLanguage: (value) => {
+      set({ theaterCaptionsLanguage: value });
+      saveSettings({ ...getSnapshot(), theaterCaptionsLanguage: value });
     },
     setEmoteSizePx: (value) => {
       set({ emoteSizePx: value });

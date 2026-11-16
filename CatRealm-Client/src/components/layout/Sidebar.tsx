@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Cog6ToothIcon } from '@heroicons/react/24/outline';
 import { MicrophoneIcon } from '@heroicons/react/24/solid';
-import { BellOff, Bot as BotIcon, Clapperboard, Crown, Hash, Image as ImageIcon, Megaphone, MessageSquare, Pin, Shield, ShieldCheck } from 'lucide-react';
+import { BellOff, Bot as BotIcon, ChevronDown, CircleDot, Clapperboard, Crown, Hash, Image as ImageIcon, Megaphone, MessageSquare, Pin, Shield, ShieldCheck, SquareKanban } from 'lucide-react';
 import { useBotStore } from '../../stores/botStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useChannelStore } from '../../stores/channelStore';
@@ -16,6 +16,7 @@ import { useFriendStore } from '../../stores/friendStore';
 import { PERMISSIONS, hasPermission } from '../../utils/permissions';
 import type { Channel, Category } from '../../types';
 import { useThreadStore } from '../../stores/threadStore';
+import { ThreadSidebarRow } from '../chat/ThreadSidebarRow';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useTheaterStore } from '../../stores/theaterStore';
 import { AvatarImage } from '../ui/AvatarImage';
@@ -32,6 +33,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useBlockedUsersStore } from '../../stores/blockedUsersStore';
 import { useViewedChannels } from '../../hooks/useViewedChannels';
 import { useViewedPermissions } from '../../hooks/useViewedPermissions';
+import { markChannelRead } from '../../hooks/useMarkChannelReadWhileOpen';
 import { usePinnedStore, pinKey, type PinnedItem } from '../../stores/pinnedStore';
 import { DesktopUpdateBanner } from '../ui/DesktopUpdateBanner';
 
@@ -64,7 +66,7 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
   const channels = useViewedChannels();
   const viewed = useViewedPermissions();
   const { activeChannelId, setActiveChannel, prefsByChannel, setChannelPrefs, duplicateChannel, unreadByChannel, mentionByChannel, categories, refreshCategoriesIfStale, reorderChannels, reorderCategories, moveChannelCategory } = useChannelStore();
-  const { threadsByChannel, fetchThreads, setActiveThread } = useThreadStore();
+  const { threadsByChannel, fetchThreads, setActiveThread, activeThreadId } = useThreadStore();
   const botDmConversations = useBotStore((s) => s.conversations);
   const botDmsOpen = useBotStore((s) => s.botDmsOpen);
   const openBotDms = useBotStore((s) => s.openBotDms);
@@ -137,6 +139,8 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
   const openModal = useUIStore((s) => s.openModal);
   const openDrawer = useUIStore((s) => s.openDrawer);
   const voiceChatOpen = useUIStore((s) => s.voiceChatOpen);
+  const theaterSidePanelRetracted = useUIStore((s) => s.theaterSidePanelRetracted);
+  const theaterSidePanelTab = useUIStore((s) => s.theaterSidePanelTab);
   const incomingRequests = useFriendStore((s) => s.incoming);
   const canManageServerSettings = !viewed.isRoleView && hasPermission(viewed.permissions, PERMISSIONS.MANAGE_SERVER);
   const canManageChannels = !viewed.isRoleView && hasPermission(viewed.permissions, PERMISSIONS.MANAGE_CHANNELS);
@@ -611,7 +615,7 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
             <button
               className="w-full text-left px-3 py-1.5 text-text-secondary hover:bg-bg-hover/50"
               onClick={() => {
-                setChannelPrefs(contextMenu.channel!.id, { lastReadAt: Math.floor(Date.now() / 1000) });
+                markChannelRead(contextMenu.channel!.id);
                 setContextMenu(null);
               }}
             >
@@ -1165,6 +1169,10 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
                         ? <MessageSquare className="h-4 w-4" />
                         : channel.type === 'theater'
                           ? <Clapperboard className="h-4 w-4" />
+                          : channel.type === 'tracker'
+                            ? <CircleDot className="h-4 w-4" />
+                            : channel.type === 'board'
+                              ? <SquareKanban className="h-4 w-4" />
                           : isServerRulesChannel(channel)
                             ? <ShieldCheck className="h-4 w-4" />
                             : <Hash className="h-4 w-4" />}
@@ -1239,6 +1247,37 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
                   <MessageSquare className="h-3.5 w-3.5" />
                 </span>
               )}
+              {channel.type === 'theater' && (() => {
+                // Same shortcut voice channels have: jump straight to this theater's text chat.
+                const chatShowing = activeChannelId === channel.id && !theaterSidePanelRetracted && theaterSidePanelTab === 'chat';
+                const toggleTheaterChat = () => {
+                  if (chatShowing) {
+                    useUIStore.getState().setTheaterSidePanelRetracted(true);
+                    return;
+                  }
+                  const alreadyOpen = activeChannelId === channel.id;
+                  useUIStore.getState().showTheaterChat(alreadyOpen ? null : channel.id);
+                  if (!alreadyOpen) setActiveChannel(channel.id);
+                };
+                return (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); toggleTheaterChat(); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleTheaterChat();
+                      }
+                    }}
+                    className="ml-auto text-text-muted hover:text-text-primary text-xs"
+                    title={chatShowing ? 'Hide theater text chat' : 'Open theater text chat'}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                  </span>
+                );
+              })()}
               {channel.type !== 'forum' && (threadsByChannel[channel.id]?.length ?? 0) > 0 && (
                 <span
                   role="button"
@@ -1254,10 +1293,12 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
                       setThreadCollapse((s) => ({ ...s, [channel.id]: !s[channel.id] }));
                     }
                   }}
-                  className="ml-2 text-text-muted hover:text-text-primary cursor-pointer"
+                  className={`${channel.type === 'voice' || channel.type === 'theater' ? 'ml-1' : 'ml-auto'} shrink-0 rounded p-0.5 text-text-muted hover:bg-bg-hover hover:text-text-primary cursor-pointer`}
                   title={threadCollapse[channel.id] ? 'Show threads' : 'Hide threads'}
+                  aria-expanded={!threadCollapse[channel.id]}
                 >
-                  {threadCollapse[channel.id] ? '>' : 'v'}
+                  {/* Points down while the threads are listed, right when they are folded away. */}
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${threadCollapse[channel.id] ? '-rotate-90' : ''}`} />
                 </span>
               )}
               {prefsByChannel[channel.id]?.muted && (
@@ -1396,13 +1437,17 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
               </div>
             )}
             {channel.type !== 'forum' && !threadCollapse[channel.id] && arrayFromRecord(threadsByChannel, channel.id).map((thread) => (
-              <button
+              <ThreadSidebarRow
                 key={thread.id}
-                onClick={() => setActiveThread(thread)}
-                className="w-full text-left px-6 py-1 text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover/40 transition-colors"
-              >
-                ↳ {thread.name}
-              </button>
+                thread={thread}
+                channel={channel}
+                active={activeThreadId === thread.id}
+                onOpen={() => {
+                  // Open the thread's own channel first; the chat area keeps a thread that belongs to it.
+                  if (activeChannelId !== channel.id) setActiveChannel(channel.id);
+                  setActiveThread(thread);
+                }}
+              />
             ))}
           </div>
         ))}

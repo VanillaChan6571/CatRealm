@@ -87,7 +87,8 @@ export function TheaterChannel({ channel }: TheaterChannelProps) {
   const serverUrl = user?.accountType === 'central' ? activeServerUrl : authServerUrl;
 
   const [settings, setSettings] = useState<TheaterSettings | null>(null);
-  const [sidePanelTab, setSidePanelTab] = useState<'queue' | 'chat'>('queue');
+  const sidePanelTab = useUIStore((s) => s.theaterSidePanelTab);
+  const setSidePanelTab = useUIStore((s) => s.setTheaterSidePanelTab);
   const [reactionPanelOpen, setReactionPanelOpen] = useState(false);
   const joinedRef = useRef(false);
   const videoSlotRef = useCallback((el: HTMLDivElement | null) => {
@@ -168,9 +169,14 @@ export function TheaterChannel({ channel }: TheaterChannelProps) {
     return () => window.clearTimeout(timeout);
   }, [sidePanelVisible]);
 
+  // A theater opens on its queue, unless it was opened from the sidebar's chat icon.
   useEffect(() => {
+    if (useUIStore.getState().theaterChatRequestedFor === channel.id) {
+      useUIStore.setState({ theaterChatRequestedFor: null });
+      return;
+    }
     setSidePanelTab('queue');
-  }, [channel.id]);
+  }, [channel.id, setSidePanelTab]);
 
   useEffect(() => {
     async function fetchSettings() {
@@ -224,20 +230,28 @@ export function TheaterChannel({ channel }: TheaterChannelProps) {
           <Clapperboard className="h-5 w-5 text-text-muted" />
           <h2 className="font-semibold text-sm text-text-primary flex-1">{channel.name}</h2>
         </div>
-        <div className="flex flex-1 items-center justify-center">
-          <div className="flex flex-col items-center gap-5 text-center px-6 max-w-sm">
-            <Clapperboard className="h-16 w-16 text-text-muted" />
-            <div>
-              <h3 className="text-lg font-semibold text-text-primary">{channel.name}</h3>
-              <p className="text-sm text-text-muted mt-1">Synchronized video watching with other members</p>
+        <div className="flex min-h-0 flex-1">
+          <div className="flex flex-1 items-center justify-center">
+            <div className="flex flex-col items-center gap-5 text-center px-6 max-w-sm">
+              <Clapperboard className="h-16 w-16 text-text-muted" />
+              <div>
+                <h3 className="text-lg font-semibold text-text-primary">{channel.name}</h3>
+                <p className="text-sm text-text-muted mt-1">Synchronized video watching with other members</p>
+              </div>
+              <button
+                onClick={handleJoin}
+                className="px-6 py-2.5 rounded-xl bg-accent text-white text-sm font-semibold hover:bg-accent/90 transition-colors shadow-lg"
+              >
+                Join Theater
+              </button>
             </div>
-            <button
-              onClick={handleJoin}
-              className="px-6 py-2.5 rounded-xl bg-accent text-white text-sm font-semibold hover:bg-accent/90 transition-colors shadow-lg"
-            >
-              Join Theater
-            </button>
           </div>
+          {/* The sidebar's chat icon opens the theater's text chat without joining the showing. */}
+          {sidePanelVisible && sidePanelTab === 'chat' && (
+            <div className="w-80 shrink-0 border-l border-border p-3 xl:w-96">
+              <TheaterChatPanel />
+            </div>
+          )}
         </div>
       </div>
     );

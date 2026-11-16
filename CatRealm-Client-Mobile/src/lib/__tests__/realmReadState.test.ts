@@ -9,6 +9,7 @@ jest.mock('@/stores/authStore', () => ({ useAuthStore: { getState: () => ({ user
 
 import { useChannelStore } from '@/stores/channelStore';
 import {
+  isRealmChannelMuted,
   markRealmChannelRead,
   recountRealmUnread,
   syncActiveRealmReadState,
@@ -34,6 +35,8 @@ test('active realm: highlights unread channels, clears read ones, preloads them'
   expect(useRealmUnreadStore.getState().byServer[realm.serverUrl]).toBe(1);
   expect(mockFetchMessages).toHaveBeenCalledWith('a', undefined, realm);
   expect(mockFetchMessages).toHaveBeenCalledTimes(1);
+  expect(isRealmChannelMuted(realm.serverUrl, 'b')).toBe(true);
+  expect(isRealmChannelMuted(realm.serverUrl, 'a')).toBe(false);
 
   // Leaving after reading it locally recounts without a request.
   useChannelStore.getState().resetCounts('a');

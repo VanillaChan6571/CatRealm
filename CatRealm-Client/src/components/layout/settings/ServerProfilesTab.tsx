@@ -63,6 +63,7 @@ export function ServerProfilesTab(props: ServerProfilesTabProps) {
             onChange={(e) => setSelectedServerUrl(e.target.value)}
             className="w-full bg-bg-input border border-border rounded px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
           >
+            <option value="" disabled>{t('serverProfiles.selectServer')}</option>
             {servers.map((server) => (
               <option key={server.url} value={server.url}>
                 {server.name} ({new URL(server.url).hostname})

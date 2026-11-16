@@ -10,6 +10,7 @@ import { clearAllDMStorage } from '../messaging/persistence/dmStorage';
 import { usePinnedStore } from './pinnedStore';
 import { adoptCentralSessionDevice } from '../lib/centralDeviceCredentials';
 import { clearLocalConversationSecrets } from '../lib/deviceIdentity';
+import { shouldDeferPassiveLocalNetworkRequest } from '../lib/localNetworkAccess';
 
 // Callback for resetting serverStore on logout (set by serverStore to avoid circular dep)
 let onLogoutCallback: ((keepServers: boolean) => void) | null = null;
@@ -44,6 +45,7 @@ interface AuthState {
   centralRegPending: CentralRegPending | null;
   error: string | null;
   loading: boolean;
+  deferredLocalServerUrl: string | null;
 
   setServerUrl: (url: string) => Promise<void>;
   localLogin: (username: string, password: string) => Promise<void>;
@@ -53,7 +55,8 @@ interface AuthState {
   centralRegisterConfirm: (totpCode: string) => Promise<void>;
   clearCentralReg: () => void;
   logout: () => void;
-  restoreSession: () => void;
+  restoreSession: (allowLocalNetwork?: boolean) => void;
+  resumeLocalSession: () => void;
   claimAdmin: (adminToken: string) => Promise<void>;
   updateUser: (patch: Partial<User>) => void;
   applyServerAuthRefresh: (payload: { serverUrl?: string | null; token?: string | null; user?: Partial<User> | null }) => void;
@@ -144,6 +147,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   centralRegPending: null,
   error: null,
   loading: false,
+  deferredLocalServerUrl: null,
 
   setServerUrl: async (url: string) => {
     let serverUrl = url.replace(/\/+$/, '');
@@ -279,12 +283,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       centralRegPending: null,
       error: null,
       loading: false,
+      deferredLocalServerUrl: null,
     });
     clearServers();
     onLogoutCallback?.(false);
   },
 
-  restoreSession: () => {
+  restoreSession: (allowLocalNetwork = false) => {
     const session = loadSession();
     if (!session) return;
 
@@ -315,6 +320,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const user = parseTokenUser(payload);
 
+    if (user.accountType === 'local' && session.serverUrl && !allowLocalNetwork
+      && shouldDeferPassiveLocalNetworkRequest(session.serverUrl)) {
+      // A saved local login must not trigger Chrome's network permission on page load.
+      set({ deferredLocalServerUrl: session.serverUrl });
+      return;
+    }
+
     if (user.accountType === 'central') {
       // Guard: if a server token was mistakenly stored as the central session, force re-login
       if (payload.type !== 'central') {
@@ -337,6 +349,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         user,
         syncKey: session.syncKey ?? null,
         isAuthenticated: true,
+        deferredLocalServerUrl: null,
       });
       // Server list will be loaded by serverStore separately
       loadCentralProfile('auth:restore-session', user.id);
@@ -355,6 +368,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         user: restoredUser,
         syncKey: null,
         isAuthenticated: true,
+        deferredLocalServerUrl: null,
       });
 
       // Fetch server info in background
@@ -365,6 +379,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     }
   },
+
+  resumeLocalSession: () => get().restoreSession(true),
 
   claimAdmin: async (adminToken: string) => {
     set({ loading: true, error: null });
@@ -448,6 +464,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             serverUserId: typeof nextUserPatch.id === 'string' ? nextUserPatch.id : (currentUser.serverUserId ?? null),
             role: typeof nextUserPatch.role === 'string' ? nextUserPatch.role : currentUser.role,
             permissions: typeof nextUserPatch.permissions === 'number' ? nextUserPatch.permissions : currentUser.permissions,
+            permissionKeys: Array.isArray(nextUserPatch.permissionKeys) ? nextUserPatch.permissionKeys : currentUser.permissionKeys,
             isOwner: typeof nextUserPatch.isOwner === 'boolean' ? nextUserPatch.isOwner : currentUser.isOwner,
             verified: typeof nextUserPatch.verified === 'boolean' ? nextUserPatch.verified : currentUser.verified,
             onboardingCompleted: typeof nextUserPatch.onboardingCompleted === 'boolean'
@@ -519,6 +536,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       centralRegPending: null,
       error: error ?? 'Your CatRealm session expired. Please log in again.',
       loading: false,
+      deferredLocalServerUrl: null,
     });
     onLogoutCallback?.(true);
   },
@@ -534,6 +552,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       centralRegPending: null,
       error: null,
       loading: false,
+      deferredLocalServerUrl: null,
     });
     clearSession();
   },

@@ -3,6 +3,7 @@ import { getSocket } from '../../lib/socket';
 import { writeClipboardText } from '../../lib/clipboard';
 import { useAuthStore } from '../../stores/authStore';
 import { useServerStore } from '../../stores/serverStore';
+import { useChannelStore } from '../../stores/channelStore';
 import { useTheaterStore } from '../../stores/theaterStore';
 import { useMediaStore } from '../../stores/mediaStore';
 import { useViewedChannels } from '../../hooks/useViewedChannels';
@@ -144,6 +145,14 @@ export function TheaterStatusPanel() {
       : ['-']),
   ].join('\n');
 
+  const returnToTheater = () => {
+    if (user?.accountType === 'central' && theaterServerUrl && activeServerUrl !== theaterServerUrl) {
+      useServerStore.getState().switchServer(theaterServerUrl);
+      if (useServerStore.getState().activeServerUrl !== theaterServerUrl) return;
+    }
+    useChannelStore.getState().setActiveChannel(theaterChannelId);
+  };
+
   const copyAll = async () => {
     const ok = await writeClipboardText(debugText);
     if (!ok) return;
@@ -160,7 +169,6 @@ export function TheaterStatusPanel() {
 
   return (
     <div
-      onDoubleClick={() => setExpanded(true)}
       data-debug-name="Theater Status Panel"
       data-debug-file="src/components/layout/TheaterStatusPanel.tsx"
       className={`bg-bg-elevated border-t border-border px-3 py-2 transition-all duration-300 ease-out overflow-hidden ${expanded ? 'max-h-[22rem]' : 'max-h-24'}`}
@@ -168,9 +176,17 @@ export function TheaterStatusPanel() {
       <div className="flex items-start gap-2">
         <button
           type="button"
-          onClick={() => setExpanded((value) => !value)}
-          onDoubleClick={() => setExpanded(true)}
+          onClick={(event) => {
+            // Triple click toggles the debug readout; any other click returns to the channel.
+            if (event.detail === 3) {
+              setExpanded((value) => !value);
+              return;
+            }
+            if (event.detail > 1) return;
+            returnToTheater();
+          }}
           className="min-w-0 flex-1 text-left"
+          title="Go to theater channel"
         >
           <div className={`text-[10px] ${pingToneClass}`}>
             {mediaBanner}{elapsed !== null ? ` - ${formatElapsed(elapsed)}` : ''}

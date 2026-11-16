@@ -1,3 +1,5 @@
+import { passiveImageUrl } from './localNetworkAccess';
+
 const COMPACT_EMOTE_TOKEN_REGEX = /:(https?:\/\/[^\s:]+(?::\d{1,5})?):(?:(sticker):)?([a-z0-9_-]{1,64})(?::([a-z0-9_-]{3,128}))?:|:(?:(sticker):)?([a-z0-9_-]{1,64})(?::([a-z0-9_-]{3,128}))?:/gi;
 const LEGACY_EXPRESSION_TOKEN_REGEX = /\[\[(emote|sticker):([^|\]]+)\|([^\]]+)\]\]/g;
 
@@ -76,8 +78,8 @@ export function presenceDotClass(status?: 'online' | 'away' | 'sleeping' | 'invi
 
 export function resolveServerIcon(serverUrl: string, icon: string | null | undefined): string | undefined {
   if (!icon) return undefined;
-  if (/^https?:\/\//i.test(icon)) return icon;
-  return `${serverUrl}${icon}`;
+  const absoluteUrl = /^https?:\/\//i.test(icon) ? icon : `${serverUrl}${icon}`;
+  return passiveImageUrl(absoluteUrl) ?? undefined;
 }
 
 export function hasBigIntPermission(permissions: number | undefined, bit: bigint): boolean {

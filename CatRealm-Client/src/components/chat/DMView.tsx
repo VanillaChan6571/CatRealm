@@ -19,6 +19,12 @@ import { AUTH_BASE, createAuthenticatedApi } from '../../lib/authApi';
 import { createApi } from '../../lib/api';
 import { buildDmContextText, dmContextPreviewText, parseDmContextText } from '../../lib/dmContext';
 import { getInitialDmConversation } from '../../lib/dmSelection';
+import {
+  type EmoteSuggestionSource,
+  buildDefaultEmojiTypeaheadEntries,
+  buildEmoteSuggestions,
+  parseEmoteSuggestionQuery,
+} from '../../lib/emoteSuggestions';
 import { Clock3, Lock, X, Zap } from 'lucide-react';
 import {
   buildExpressionToken,
@@ -510,9 +516,10 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
       isPersonal,
     }),
   });
-  const personalEmoteItems = personalManifest
-    ? [...personalManifest['anim-emotes'], ...personalManifest.emotes]
-    : [];
+  const personalEmoteItems = useMemo(
+    () => (personalManifest ? [...personalManifest['anim-emotes'], ...personalManifest.emotes] : []),
+    [personalManifest]
+  );
 
   const searchableDefaultEmojiEntries = useMemo(
     () =>
@@ -553,8 +560,8 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
     toSearchTerms: toEmojiSearchTerms,
   });
   const defaultEmojiTypeaheadEntries = useMemo(
-    () => searchableDefaultEmojiEntries.filter((entry) => entry.alias.length > 0),
-    [searchableDefaultEmojiEntries]
+    () => buildDefaultEmojiTypeaheadEntries(emojiMetadataLookup),
+    [emojiMetadataLookup]
   );
 
   const resolveExpressionAssetUrl = useCallback((
@@ -766,15 +773,6 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [pickerOpen, emojiMetadataLookup]);
-
-  // Re-run typeahead filter when metadata arrives while suggestions are visible.
-  useEffect(() => {
-    if (!emoteSuggestOpen || !emojiMetadataLookup) return;
-    const caret = composerRef.current?.getCaretPlainOffset() ?? messageText.length;
-    updateEmoteSuggestions(messageText, caret);
-  // Only re-run when the lookup changes (i.e. metadata just loaded).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emojiMetadataLookup]);
 
   useEffect(() => {
     if (!editingMessageId) return;
@@ -1050,106 +1048,75 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
     requestAnimationFrame(() => composerRef.current?.focus());
   }, [messageText, emoteSuggestAnchor]);
 
-  const updateEmoteSuggestions = useCallback((value: string, caret: number): boolean => {
-    const upto = value.slice(0, caret);
-    const colon = upto.lastIndexOf(':');
-    if (colon === -1) {
-      setEmoteSuggestOpen(false);
-      return false;
-    }
-    const before = colon === 0 ? ' ' : upto[colon - 1];
-    if (before && !/\s/.test(before)) {
-      setEmoteSuggestOpen(false);
-      return false;
-    }
-    const query = upto.slice(colon + 1);
-    if (!query || query.includes(' ') || query.includes('\n') || query.includes(':') || query.length < 2) {
-      setEmoteSuggestOpen(false);
-      return false;
-    }
-
-    const q = query.toLowerCase();
-    const next: EmoteSuggestion[] = [];
-    const seen = new Set<string>();
-
+  // Custom-emote sources for the `:` typeahead: personal first, then every loaded realm
+  // manifest in the picker's stable order (not in whatever order the fetches finished).
+  const userId = user?.id ?? null;
+  const emoteSuggestionSources = useMemo((): EmoteSuggestionSource[] => {
+    const sources: EmoteSuggestionSource[] = [];
     if (canUsePersonalEmotes && personalEmoteItems.length > 0) {
-      personalEmoteItems
-        .filter((entry) => entry.name.toLowerCase().includes(q))
-        .slice(0, 8)
-        .forEach((entry) => {
-          const label = `:${entry.name}:`;
-          if (seen.has(label)) return;
-          seen.add(label);
-          // Personal emotes: renderer resolves via ownerId + authOrigin — no server URL needed.
-          const ownerId = entry.owner_id || user?.id || null;
-          next.push({
-            label,
-            insert: buildCompactExpressionToken('emote', normalizeExpressionName(entry.name), undefined, ownerId),
-            previewImage: entry.absolute_url || (/^https?:\/\//i.test(entry.file_url) ? entry.file_url : `${AUTH_BASE}${entry.file_url}`),
-          });
-        });
+      sources.push({
+        key: PERSONAL_PICKER_SERVER_URL,
+        items: personalEmoteItems,
+        // Personal emotes: renderer resolves via ownerId + authOrigin — no server URL needed.
+        buildInsert: (entry) => buildCompactExpressionToken('emote', normalizeExpressionName(entry.name), undefined, entry.owner_id || userId || null),
+        buildPreview: (entry) => entry.absolute_url || (/^https?:\/\//i.test(entry.file_url) ? entry.file_url : `${AUTH_BASE}${entry.file_url}`),
+      });
     }
 
-    // Include emotes from all loaded server manifests, not just the active server.
     // Known servers (in visibleExpressionServers) use compact :name: form; truly external
     // servers keep the full :serverUrl:name: form so the renderer can fetch them.
+    const knownRealms = visibleExpressionServers.filter((e) => !e.isDefault && !e.isPersonal);
     const knownOrigins = new Set(
-      visibleExpressionServers
-        .filter((e) => !e.isDefault && !e.isPersonal)
-        .map((e) => normalizeServerOrigin(e.url))
-        .filter(Boolean) as string[]
+      knownRealms.map((e) => normalizeServerOrigin(e.url)).filter(Boolean) as string[]
     );
-    for (const [serverEntryUrl, state] of Object.entries(expressionStateByServer)) {
-      if (!state.data) continue;
+    const orderedUrls = [
+      ...knownRealms.map((e) => e.url),
+      ...Object.keys(expressionStateByServer).filter((url) => !knownRealms.some((e) => e.url === url)).sort(),
+    ];
+    const realmSources = orderedUrls.flatMap((serverEntryUrl): EmoteSuggestionSource[] => {
+      const manifest = expressionStateByServer[serverEntryUrl]?.data;
+      if (!manifest) return [];
       const serverOrigin = normalizeServerOrigin(serverEntryUrl);
       const isKnown = !!(serverOrigin && knownOrigins.has(serverOrigin));
-      const serverEmotes = [...state.data.emotes, ...state.data['anim-emotes']];
-      serverEmotes
-        .filter((entry) => entry.name.toLowerCase().includes(q))
-        .slice(0, 8)
-        .forEach((entry) => {
-          const label = `:${entry.name}:`;
-          if (seen.has(label)) return;
-          seen.add(label);
-          next.push({
-            label,
-            insert: isKnown
-              ? buildCompactExpressionToken('emote', normalizeExpressionName(entry.name))
-              : buildExpressionToken('emote', entry.name, '', serverEntryUrl, null),
-            previewImage: entry.absolute_url || (/^https?:\/\//i.test(entry.file_url) ? entry.file_url : `${serverEntryUrl}${entry.file_url}`),
-          });
-        });
+      return [{
+        key: serverEntryUrl,
+        items: [...manifest.emotes, ...manifest['anim-emotes']],
+        buildInsert: (entry) => (isKnown
+          ? buildCompactExpressionToken('emote', normalizeExpressionName(entry.name))
+          : buildExpressionToken('emote', entry.name, '', serverEntryUrl, null)),
+        buildPreview: (entry) => entry.absolute_url || (/^https?:\/\//i.test(entry.file_url) ? entry.file_url : `${serverEntryUrl}${entry.file_url}`),
+      }];
+    });
+    return [...sources, ...realmSources];
+  }, [canUsePersonalEmotes, personalEmoteItems, visibleExpressionServers, expressionStateByServer, userId]);
+
+  const updateEmoteSuggestions = useCallback((value: string, caret: number): boolean => {
+    const parsed = parseEmoteSuggestionQuery(value, caret, 2);
+    if (!parsed) {
+      setEmoteSuggestOpen(false);
+      return false;
     }
-
-    defaultEmojiTypeaheadEntries
-      .filter((entry) => entry.searchIndex.includes(q) || entry.alias.includes(q))
-      .slice(0, 10)
-      .forEach((entry) => {
-        const label = `:${entry.alias}:`;
-        if (seen.has(label)) return;
-        seen.add(label);
-        next.push({
-          label,
-          insert: entry.emoji,
-          previewEmoji: entry.emoji,
-        });
-      });
-
-    const items = next.slice(0, 12);
+    const items = buildEmoteSuggestions({
+      query: parsed.query,
+      sources: emoteSuggestionSources,
+      defaultEntries: defaultEmojiTypeaheadEntries,
+    });
     setEmoteSuggestItems(items);
     setEmoteSuggestIndex(0);
-    setEmoteSuggestAnchor(colon);
+    setEmoteSuggestAnchor(parsed.anchor);
     setEmoteSuggestOpen(items.length > 0);
     return items.length > 0;
-  }, [
-    canUsePersonalEmotes,
-    personalEmoteItems,
-    expressionStateByServer,
-    visibleExpressionServers,
-    currentServerUrl,
-    defaultEmojiTypeaheadEntries,
-    user?.id,
-  ]);
+  }, [emoteSuggestionSources, defaultEmojiTypeaheadEntries]);
+
+  // Realm manifests and Unicode emoji metadata load asynchronously; refresh an
+  // in-progress `:query` when either lands so new matches show without another keystroke.
+  useEffect(() => {
+    const caret = composerRef.current?.getCaretPlainOffset() ?? messageText.length;
+    if (!parseEmoteSuggestionQuery(messageText, caret, 2)) return;
+    updateEmoteSuggestions(messageText, caret);
+  // Only re-run when the suggestion sources change, not on every keystroke.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emoteSuggestionSources, defaultEmojiTypeaheadEntries]);
 
   const updateMentionSuggestions = useCallback((value: string, caret: number) => {
     const upto = value.slice(0, caret);

@@ -4,6 +4,7 @@ import { createAuthenticatedApi } from '@/lib/api';
 import i18n from '@/i18n';
 import { useAuthStore } from './authStore';
 import { detectAppLanguage, LANGUAGE_OPTIONS, type AppLanguage } from '@/i18n/languages';
+import { defaultSmoothImageLoading } from '@/lib/imageLoading';
 
 export const EMOTE_SIZE_OPTIONS = [24, 32, 48, 64, 96, 128, 256, 512] as const;
 export type EmoteSizePx = (typeof EMOTE_SIZE_OPTIONS)[number];
@@ -83,6 +84,7 @@ type PersistedSettings = {
   ugcVideoCapMb?: number;
   screenShareViewerQuality?: string;
   catLabAutoTranslate?: boolean;
+  smoothImageLoading?: boolean;
 } & Partial<Record<SoundSettingKey, boolean>>;
 
 interface SettingsState extends Record<SoundSettingKey, boolean> {
@@ -100,6 +102,8 @@ interface SettingsState extends Record<SoundSettingKey, boolean> {
   screenShareViewerQuality: ScreenShareViewerQuality;
   /** Cat Lab: translate messages on-device (see lib/translation). */
   catLabAutoTranslate: boolean;
+  /** Android: fade images in and re-fetch them at their laid-out size. Off by default on Samsung. */
+  smoothImageLoading: boolean;
   hydrated: boolean;
   hydrate: () => Promise<void>;
   setEmoteSizePx: (value: EmoteSizePx) => void;
@@ -116,6 +120,7 @@ interface SettingsState extends Record<SoundSettingKey, boolean> {
   setUgcVideoCapMb: (value: number) => void;
   setScreenShareViewerQuality: (value: ScreenShareViewerQuality) => void;
   setCatLabAutoTranslate: (value: boolean) => void;
+  setSmoothImageLoading: (value: boolean) => void;
 }
 
 function coerceEmoteSize(value: unknown): EmoteSizePx {
@@ -146,7 +151,7 @@ type SoundPrefsPayload = {
 } & Partial<Record<SoundSettingKey, boolean>>;
 
 function extractSoundPrefs(snapshot: PersistedSettings): SoundPrefsPayload {
-  const { emoteSizePx: _e, theme: _t, language: _l, playGifAvatars: _p, disableEmbedAutoplay: _d, showAvatarBackground: _s, theaterChatPreviews: _c, catLabAutoTranslate: _a, ...rest } = snapshot;
+  const { emoteSizePx: _e, theme: _t, language: _l, playGifAvatars: _p, disableEmbedAutoplay: _d, showAvatarBackground: _s, theaterChatPreviews: _c, catLabAutoTranslate: _a, smoothImageLoading: _i, ...rest } = snapshot;
   return rest;
 }
 
@@ -178,6 +183,7 @@ function getPersistedSnapshot(state: SettingsState): PersistedSettings {
     ugcVideoCapMb: state.ugcVideoCapMb,
     screenShareViewerQuality: state.screenShareViewerQuality,
     catLabAutoTranslate: state.catLabAutoTranslate,
+    smoothImageLoading: state.smoothImageLoading,
     ...soundFlags,
   };
 }
@@ -196,6 +202,7 @@ const baseState = {
   ugcVideoCapMb: 250,
   screenShareViewerQuality: 'auto' as ScreenShareViewerQuality,
   catLabAutoTranslate: false,
+  smoothImageLoading: defaultSmoothImageLoading(),
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -260,6 +267,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ugcVideoCapMb: typeof merged.ugcVideoCapMb === 'number' && merged.ugcVideoCapMb > 0 ? merged.ugcVideoCapMb : 250,
         screenShareViewerQuality,
         catLabAutoTranslate: parsed.catLabAutoTranslate === true,
+        // Device-specific, so read from local storage only, never from synced prefs.
+        smoothImageLoading: typeof parsed.smoothImageLoading === 'boolean' ? parsed.smoothImageLoading : defaultSmoothImageLoading(),
         ...soundFlags,
         hydrated: true,
       });
@@ -326,6 +335,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
   setCatLabAutoTranslate: (value) => {
     set({ catLabAutoTranslate: value });
+    void persistSettings(getPersistedSnapshot(get()));
+  },
+  setSmoothImageLoading: (value) => {
+    set({ smoothImageLoading: value });
     void persistSettings(getPersistedSnapshot(get()));
   },
   setScreenShareViewerQuality: (value) => {

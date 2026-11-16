@@ -314,6 +314,59 @@ export const PERMISSION_CATEGORIES = {
       },
     ],
   },
+  workItems: {
+    title: 'Tracker & Board Permissions',
+    permissions: [
+      {
+        key: 'CREATE_ISSUES',
+        label: 'Create Issues',
+        description: 'Open new issues in tracker channels',
+        bit: 0, // Named-only permission
+      },
+      {
+        key: 'COMMENT_ON_ISSUES',
+        label: 'Comment on Issues',
+        description: 'Comment on issues in tracker channels',
+        bit: 0,
+      },
+      {
+        key: 'ASSIGN_ISSUES',
+        label: 'Assign Issues',
+        description: 'Assign members to issues',
+        bit: 0,
+      },
+      {
+        key: 'MANAGE_ISSUES',
+        label: 'Manage Issues',
+        description: 'Edit, close and delete any issue, and manage tracker labels',
+        bit: 0,
+      },
+      {
+        key: 'CREATE_CARDS',
+        label: 'Create Cards',
+        description: 'Add and move cards in board channels',
+        bit: 0,
+      },
+      {
+        key: 'COMMENT_ON_CARDS',
+        label: 'Comment on Cards',
+        description: 'Comment on cards in board channels',
+        bit: 0,
+      },
+      {
+        key: 'ASSIGN_CARDS',
+        label: 'Assign Cards',
+        description: 'Assign members to cards',
+        bit: 0,
+      },
+      {
+        key: 'MANAGE_BOARDS',
+        label: 'Manage Boards',
+        description: 'Manage lists and labels, and edit, archive and delete any card',
+        bit: 0,
+      },
+    ],
+  },
   discordImportOnly: {
     title: 'Discord Import Only (Display Only - No Function)',
     description: 'These permissions are recognized during Discord template imports but do not have any functionality in CatRealm at this time.',
@@ -380,6 +433,7 @@ export const CHANNEL_OVERWRITE_CATEGORY_KEYS: Array<keyof typeof PERMISSION_CATE
   'userGeneral',
   'helperGeneral',
   'modGeneral',
+  'workItems',
   'adminGeneral',
   'coOwner',
 ];

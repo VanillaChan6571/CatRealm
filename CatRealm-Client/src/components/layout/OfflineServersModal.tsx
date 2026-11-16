@@ -6,6 +6,7 @@ import { useServerStore } from '../../stores/serverStore';
 import { isServerOwnerToken } from '../../utils/serverOwnership';
 import { httpRealmGatewayApplies, isHttpGatewayCandidateUrl, savedRealmHttpOrigin } from '../../lib/httpRealmGateway';
 import { getSocket } from '../../lib/socket';
+import { resolveServerIcon } from '../../lib/serverIcon';
 
 // Extract first letter from server name, skipping emojis
 function getServerInitial(name: string): string {
@@ -161,6 +162,7 @@ export function OfflineServersModal() {
               {offlineServers.map((server) => {
                 const isOwner = isServerOwnerToken(server.token);
                 const letter = getServerInitial(server.name);
+                const icon = resolveServerIcon(server);
                 const canUseGateway = isCentral && httpRealmGatewayApplies()
                   && !!savedRealmHttpOrigin(server.url);
 
@@ -172,8 +174,8 @@ export function OfflineServersModal() {
                     {/* Server icon */}
                     <div className="relative shrink-0">
                       <div className="w-12 h-12 rounded-xl bg-bg-elevated flex items-center justify-center text-lg font-bold text-text-secondary">
-                        {server.icon ? (
-                          <img src={server.icon} alt={server.name} className="w-full h-full rounded-xl object-cover" />
+                        {icon ? (
+                          <img src={icon} alt={server.name} className="w-full h-full rounded-xl object-cover" />
                         ) : (
                           letter
                         )}

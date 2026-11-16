@@ -3,6 +3,8 @@ import { Compass, SquarePlus } from 'lucide-react';
 import { useServerStore, normalizeServerPrefs } from '../../../stores/serverStore';
 import { useUIStore } from '../../../stores/uiStore';
 import { useNotificationStore } from '../../../messaging/notifications/notificationStore';
+import { resolveServerIcon } from '../../../lib/serverIcon';
+import { shouldDeferPassiveLocalNetworkRequest } from '../../../lib/localNetworkAccess';
 
 function getServerInitial(name: string): string {
   const cleaned = name.replace(/[\p{Emoji}\p{Emoji_Component}\s]/gu, '');
@@ -65,12 +67,8 @@ export function MobileServerList({ onOpenServer, onDiscover }: MobileServerListP
         const status = serverStatus[server.url] ?? 'idle';
         const isOffline = status === 'disconnected' || status === 'reconnecting';
         const isActive = server.url === activeServerUrl;
-        const resolvedIcon = server.icon
-          ?? (server.info.serverIcon
-            ? (/^https?:\/\//i.test(server.info.serverIcon)
-                ? server.info.serverIcon
-                : `${server.url}${server.info.serverIcon}`)
-            : null);
+        const resolvedIcon = resolveServerIcon(server, isActive);
+        const deferredLocalServer = shouldDeferPassiveLocalNetworkRequest(server.url) && !isActive;
 
         return (
           <button
@@ -96,7 +94,7 @@ export function MobileServerList({ onOpenServer, onDiscover }: MobileServerListP
             <div className="min-w-0 flex-1">
               <div className="truncate text-[15px] font-semibold text-text-primary">{server.name}</div>
               <div className={`truncate text-xs ${isOffline ? 'text-danger' : 'text-text-muted'}`}>
-                {isOffline ? t('mobile.serverOffline') : server.url.replace(/^https?:\/\//, '')}
+                {deferredLocalServer ? 'Local server · tap to connect' : isOffline ? t('mobile.serverOffline') : server.url.replace(/^https?:\/\//, '')}
               </div>
             </div>
             {!isOffline && showMentions && (

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { MotionIntensity } from '../../../stores/settingsStore';
 import { VoiceBackgroundSection } from './VoiceBackgroundSection';
 import { MyReactiveAvatarSection } from './MyReactiveAvatarSection';
+import { TheaterCaptionsSection } from './TheaterCaptionsSection';
 
 const MOTION_OPTIONS: { id: MotionIntensity; label: string; desc: string }[] = [
   { id: 'snappy', label: 'Snappy', desc: 'Quick and crisp — minimal movement, fastest response.' },
@@ -335,6 +336,8 @@ export function AppearanceTab(props: AppearanceTabProps) {
           </span>
         </label>
       </div>
+
+      <TheaterCaptionsSection />
     </div>
   );
 }

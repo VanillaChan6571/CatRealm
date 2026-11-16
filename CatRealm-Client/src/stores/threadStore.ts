@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Thread, ForumPost } from '../types';
+import type { Thread, ForumPost, Message } from '../types';
 import { createApi } from '../lib/api';
 import { getSocket } from '../lib/socket';
 
@@ -11,14 +11,29 @@ interface ThreadState {
   activeThread: Thread | null;
   forumPostsByChannel: Record<string, ForumPost[]>;
 
+  /** The message a thread is about to be started from; shows the create-thread dialog. */
+  threadDraftSource: Message | null;
+  startThreadDraft: (message: Message) => void;
+  cancelThreadDraft: () => void;
+
   fetchThreads: (channelId: string) => Promise<void>;
-  createThread: (channelId: string, messageId: string, name?: string) => Promise<Thread>;
+  createThread: (channelId: string, messageId: string, name?: string, firstMessage?: string) => Promise<Thread>;
+  /** Live updates from the realm: a thread was created or renamed, or deleted. */
+  applyThread: (thread: Thread) => void;
+  removeThread: (channelId: string, threadId: string) => void;
   renameThread: (threadId: string, name: string) => Promise<Thread>;
   deleteThread: (threadId: string) => Promise<void>;
   setActiveThread: (thread: Thread | null) => void;
   fetchForumPosts: (channelId: string) => Promise<void>;
   createForumPost: (channelId: string, title: string, body: string, coverImage?: string | null, attachments?: Array<{ url: string; mime?: string | null; size?: number | null }>) => Promise<ForumPost>;
   addForumPost: (post: ForumPost) => void;
+  /** A thread or forum post got a message: refresh its reply count and last-activity time. */
+  noteThreadActivity: (channelId: string, threadId: string, lastMessageAt: number, replyCount: number) => void;
+  /**
+   * Adds a thread that just got a message to its channel's loaded list if it is missing:
+   * an empty thread only its creator could see, or one that had auto-hidden.
+   */
+  revealThread: (channelId: string, threadId: string, replyCount: number) => Promise<void>;
   removeForumPost: (channelId: string, postId: string) => void;
   reset: () => void;
   getSnapshot: () => Pick<ThreadState, 'threadsByChannel'>;
@@ -30,6 +45,38 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   activeThreadId: null,
   activeThread: null,
   forumPostsByChannel: {},
+  threadDraftSource: null,
+
+  startThreadDraft: (message) => set({ threadDraftSource: message }),
+  cancelThreadDraft: () => set({ threadDraftSource: null }),
+
+  applyThread: (thread) => {
+    set((s) => {
+      const existing = s.threadsByChannel[thread.channel_id];
+      const list = Array.isArray(existing) ? existing : [];
+      const known = list.some((t) => t.id === thread.id);
+      return {
+        threadsByChannel: {
+          ...s.threadsByChannel,
+          [thread.channel_id]: known ? list.map((t) => (t.id === thread.id ? { ...t, ...thread } : t)) : [thread, ...list],
+        },
+        activeThread: s.activeThread?.id === thread.id ? { ...s.activeThread, ...thread } : s.activeThread,
+      };
+    });
+  },
+
+  removeThread: (channelId, threadId) => {
+    set((s) => {
+      const existing = s.threadsByChannel[channelId];
+      return {
+        threadsByChannel: Array.isArray(existing)
+          ? { ...s.threadsByChannel, [channelId]: existing.filter((t) => t.id !== threadId) }
+          : s.threadsByChannel,
+        activeThreadId: s.activeThreadId === threadId ? null : s.activeThreadId,
+        activeThread: s.activeThread?.id === threadId ? null : s.activeThread,
+      };
+    });
+  },
 
   fetchThreads: async (channelId) => {
     const api = createApi();
@@ -40,18 +87,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     }));
   },
 
-  createThread: async (channelId, messageId, name) => {
+  createThread: async (channelId, messageId, name, firstMessage) => {
     const api = createApi();
-    const res = await api.post('/api/threads', { channelId, messageId, name });
+    const res = await api.post('/api/threads', { channelId, messageId, name, ...(firstMessage ? { firstMessage } : {}) });
     const thread: Thread = res.data;
-    set((s) => ({
-      threadsByChannel: {
-        ...s.threadsByChannel,
-        [channelId]: [thread, ...(Array.isArray(s.threadsByChannel[channelId]) ? s.threadsByChannel[channelId] : [])],
-      },
-      activeThreadId: thread.id,
-      activeThread: thread,
-    }));
+    // The realm also announces the thread over the socket; whichever arrives first adds it.
+    get().applyThread(thread);
+    set({ activeThreadId: thread.id, activeThread: thread });
     const socket = getSocket();
     if (socket) socket.emit('thread:join', thread.id);
     return thread;
@@ -76,18 +118,14 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   deleteThread: async (threadId) => {
     const api = createApi();
     await api.delete(`/api/threads/${threadId}`);
-    set((s) => {
-      const channelId = s.activeThread?.channel_id;
-      const updated = { ...s.threadsByChannel };
-      if (channelId) {
-        updated[channelId] = (Array.isArray(updated[channelId]) ? updated[channelId] : []).filter((t) => t.id !== threadId);
-      }
-      return {
-        threadsByChannel: updated,
-        activeThreadId: s.activeThreadId === threadId ? null : s.activeThreadId,
-        activeThread: s.activeThread?.id === threadId ? null : s.activeThread,
-      };
-    });
+    // The thread may not be the open one (deleted from the sidebar), so look in every channel.
+    for (const [channelId, threads] of Object.entries(get().threadsByChannel)) {
+      if (Array.isArray(threads) && threads.some((t) => t.id === threadId)) get().removeThread(channelId, threadId);
+    }
+    set((s) => ({
+      activeThreadId: s.activeThreadId === threadId ? null : s.activeThreadId,
+      activeThread: s.activeThread?.id === threadId ? null : s.activeThread,
+    }));
   },
 
   setActiveThread: (thread) => {
@@ -150,6 +188,40 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         forumPostsByChannel: {
           ...s.forumPostsByChannel,
           [post.channel_id]: [post, ...existing],
+        },
+      };
+    });
+  },
+
+  revealThread: async (channelId, threadId, replyCount) => {
+    const loaded = get().threadsByChannel[channelId];
+    // An unloaded list will include the thread when it is fetched.
+    if (!Array.isArray(loaded) || loaded.some((t) => t.id === threadId)) return;
+    try {
+      const res = await createApi().get<Thread>(`/api/threads/${threadId}`);
+      get().applyThread({ ...res.data, reply_count: replyCount });
+    } catch { /* deleted meanwhile, or no longer readable */ }
+  },
+
+  noteThreadActivity: (channelId, threadId, lastMessageAt, replyCount) => {
+    set((s) => {
+      const threads = s.threadsByChannel[channelId];
+      if (Array.isArray(threads) && threads.some((t) => t.id === threadId)) {
+        return {
+          threadsByChannel: {
+            ...s.threadsByChannel,
+            [channelId]: threads.map((t) => (t.id === threadId ? { ...t, reply_count: replyCount } : t)),
+          },
+        };
+      }
+      const existing = s.forumPostsByChannel[channelId];
+      if (!Array.isArray(existing) || !existing.some((p) => p.id === threadId)) return s;
+      return {
+        forumPostsByChannel: {
+          ...s.forumPostsByChannel,
+          [channelId]: existing.map((p) => (p.id === threadId
+            ? { ...p, last_message_at: Math.max(lastMessageAt, p.last_message_at ?? 0), reply_count: replyCount }
+            : p)),
         },
       };
     });

@@ -70,6 +70,8 @@ export function CreateChannelModal() {
             <option value="voice">🔊 {t('channels.voice')}</option>
             <option value="announcement">📢 Announcement</option>
             <option value="forum">💬 Forum</option>
+            <option value="tracker">🐞 Tracker (Issues)</option>
+            <option value="board">📋 Board (Lists &amp; Cards)</option>
             <option value="theater">🎬 {t('channels.theater')}</option>
           </select>
         </div>

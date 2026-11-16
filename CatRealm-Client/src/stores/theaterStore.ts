@@ -3,6 +3,7 @@ import { getSocket } from '../lib/socket';
 import { useServerStore } from './serverStore';
 import { useAuthStore } from './authStore';
 import { useSettingsStore } from './settingsStore';
+import { useChannelStore } from './channelStore';
 import { useUIStore } from './uiStore';
 import { clearRealtimeReconnectTarget, getRealtimeReconnectTarget } from '../lib/realtimeReconnect';
 import { playNotificationSound } from '../lib/notificationSounds';
@@ -346,7 +347,7 @@ export const useTheaterStore = create<TheaterState>((set, get) => ({
       useUIStore.getState().clearRealtimeReconnectPrompt();
       get().addDebugEvent(`join ack channel=${channelId} livekit users=${ack.users?.length ?? 0} host=${ack.state?.host_user_id ?? '-'} playing=${ack.state?.playing ? '1' : '0'}`);
       const settings = useSettingsStore.getState();
-      if (settings.notificationsEnabled && settings.soundVoiceUserJoined) {
+      if (settings.notificationsEnabled && settings.soundVoiceUserJoined && !useChannelStore.getState().prefsByChannel[channelId]?.muted) {
         const volume = settings.soundVolumes?.['soundVoiceUserJoined'] ?? 60;
         playNotificationSound('voice-user-joined', volume);
       }

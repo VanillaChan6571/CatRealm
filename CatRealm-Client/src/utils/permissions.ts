@@ -106,6 +106,14 @@ export function hasPermission(permissions: number | undefined, permission: numbe
   return (userBits & permissionBits) === permissionBits;
 }
 
+export function hasPermissionKey(permissionKeys: readonly string[] | undefined, key: string, legacyPermissions?: number) {
+  if (Array.isArray(permissionKeys)) {
+    return permissionKeys.includes('ADMINISTRATOR') || permissionKeys.includes(key);
+  }
+  const legacyBit = (PERMISSIONS as Record<string, number | object>)[key];
+  return typeof legacyBit === 'number' && hasPermission(legacyPermissions, legacyBit);
+}
+
 export function hasChannelPermission(
   userPermissions: number | undefined,
   channelPermissions: number | undefined,

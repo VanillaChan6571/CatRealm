@@ -2,11 +2,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   FAILED_LOOKUP_RETRY_MS,
   LOOKUP_REFETCH_COOLDOWN_MS,
+  loadServerEmoteLookup,
   loadPersonalExpressionLookup,
   makePersonalLookupKey,
   markExpressionLookupStale,
   personalLookupCache,
 } from '../messageTokenParser';
+import { useServerStore } from '../../../stores/serverStore';
 
 const origin = 'https://auth.example';
 
@@ -29,8 +31,27 @@ beforeEach(() => {
 
 afterEach(() => {
   personalLookupCache.clear();
+  useServerStore.setState({ activeServerUrl: null });
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+it('does not fetch a local expression manifest while viewing a message on the hosted site', async () => {
+  vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'catrealm.app' }, electron: undefined });
+  const fetchManifest = vi.fn();
+  vi.stubGlobal('fetch', fetchManifest);
+
+  expect(await loadServerEmoteLookup('https://192.168.1.5:3000', ['wave'])).toBeNull();
+  expect(await loadPersonalExpressionLookup('https://192.168.1.5:3000', 'owner', ['wave'])).toBeNull();
+  expect(fetchManifest).not.toHaveBeenCalled();
+});
+
+it('does not render a local asset URL returned by a public expression manifest', async () => {
+  vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'catrealm.app' }, electron: undefined });
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(manifestWith([{ name: 'wave', url: 'https://192.168.1.5/wave.png' }])));
+
+  const lookup = await loadPersonalExpressionLookup(origin, 'owner-with-local-asset', ['wave']);
+  expect(lookup?.has('wave')).toBe(false);
 });
 
 it('refetches an owner manifest when a message needs a sticker uploaded after it was cached', async () => {

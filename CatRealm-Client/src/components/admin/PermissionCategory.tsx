@@ -10,7 +10,8 @@ interface PermissionCategoryProps {
   title: string;
   permissions: Permission[];
   rolePermissions: number;
-  onToggle: (bit: number) => void;
+  rolePermissionKeys?: string[];
+  onToggle: (key: string, bit: number) => void;
   disabled?: boolean;
 }
 
@@ -26,12 +27,14 @@ export function PermissionCategory({
   title,
   permissions,
   rolePermissions,
+  rolePermissionKeys,
   onToggle,
   disabled = false,
 }: PermissionCategoryProps) {
   const roleBits = toPermissionBits(rolePermissions);
 
-  const hasPermission = (bit: number) => {
+  const hasPermission = (key: string, bit: number) => {
+    if (Array.isArray(rolePermissionKeys)) return rolePermissionKeys.includes(key);
     const mask = toPermissionBits(bit);
     if (mask === 0n) return false;
     return (roleBits & mask) === mask;
@@ -44,7 +47,7 @@ export function PermissionCategory({
       </h3>
       <div className="space-y-2">
         {permissions.map((perm) => {
-          const isEnabled = hasPermission(perm.bit);
+          const isEnabled = hasPermission(perm.key, perm.bit);
 
           return (
             <div
@@ -60,7 +63,7 @@ export function PermissionCategory({
 
               <button
                 type="button"
-                onClick={() => !disabled && onToggle(perm.bit)}
+                onClick={() => !disabled && onToggle(perm.key, perm.bit)}
                 disabled={disabled}
                 className={`
                   relative inline-flex h-6 w-11 items-center rounded-full transition-colors

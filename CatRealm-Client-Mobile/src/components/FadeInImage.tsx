@@ -2,6 +2,8 @@ import { useCallback, useState } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Image as ExpoImage, type ImageLoadEventData } from 'expo-image';
 import { ImagePlaceholder } from './ImagePlaceholder';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { imageLoadingProps } from '@/lib/imageLoading';
 
 /** Fade length for images arriving over their placeholder. */
 export const IMAGE_FADE_MS = 250;
@@ -45,6 +47,8 @@ export function FadeInImage({ uri, style, radius = 0, mark = true, contentFit = 
   accessibilityLabel?: string;
 }) {
   const { loaded, transition, markLoaded } = useImageReveal(uri);
+  const smoothImageLoading = useSettingsStore((s) => s.smoothImageLoading);
+  const loadingProps = imageLoadingProps(smoothImageLoading, transition);
   // A failed banner falls back to the plain box instead of loading forever.
   const [failedUri, setFailedUri] = useState<string | null>(null);
 
@@ -52,7 +56,7 @@ export function FadeInImage({ uri, style, radius = 0, mark = true, contentFit = 
     <View style={[styles.box, { borderRadius: radius }, style]}>
       {!loaded && failedUri !== uri && <ImagePlaceholder radius={radius} mark={mark} />}
       <ExpoImage source={{ uri }} style={[StyleSheet.absoluteFill, { borderRadius: radius }]} contentFit={contentFit}
-        cachePolicy="disk" recyclingKey={uri} transition={transition} accessibilityIgnoresInvertColors
+        cachePolicy="disk" recyclingKey={uri} transition={loadingProps.transition} allowDownscaling={loadingProps.allowDownscaling} accessibilityIgnoresInvertColors
         accessibilityLabel={accessibilityLabel}
         onLoad={(event) => { markLoaded(); onLoad?.(event); }} onError={() => setFailedUri(uri)} />
     </View>

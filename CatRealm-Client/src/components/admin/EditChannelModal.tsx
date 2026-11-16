@@ -9,6 +9,7 @@ import { api } from '../../lib/api';
 import { isHttpGatewayRealm } from '../../lib/httpRealmGateway';
 import { useServerStore } from '../../stores/serverStore';
 import { CHANNEL_OVERWRITE_CATEGORY_KEYS, PERMISSION_CATEGORIES } from './permissionDefinitions';
+import { MediaPolicySection, ThreadPolicySection } from './PolicySections';
 import { PERMISSIONS } from '../../utils/permissions';
 import type { Channel, Role } from '../../types';
 import { WebhookManager } from './WebhookManager';
@@ -20,6 +21,8 @@ interface PermissionOverwrite {
   target_id: string;
   allow: number;
   deny: number;
+  allowKeys?: string[];
+  denyKeys?: string[];
 }
 
 interface PermissionTarget {
@@ -71,7 +74,18 @@ interface ChannelSettingsResponse {
   domains?: string[];
 }
 
-type Section = 'basic' | 'permissions' | 'webhooks';
+type Section = 'basic' | 'permissions' | 'threads' | 'media' | 'webhooks';
+
+const SECTION_TITLES: Record<Section, string> = {
+  basic: 'Basic Settings', permissions: 'Permissions', threads: 'Thread Settings', media: 'Media Settings', webhooks: 'Webhooks',
+};
+const SECTION_HINTS: Record<Section, string> = {
+  basic: 'Edit naming, category, slowmode, and voice defaults for this channel.',
+  permissions: 'Use permissions to customize this channel.',
+  threads: 'Slowmode inside threads and how long quiet threads stay listed.',
+  media: 'Marks the realm adds to media posted in this channel, whatever client sends it.',
+  webhooks: 'Manage inbound and outbound integrations for this channel.',
+};
 type TargetKey = `role:${string}` | `user:${string}`;
 
 type DraftState = {
@@ -101,14 +115,6 @@ type DraftState = {
 
 const DEFAULT_CHANNEL_NAME_EMOJIS = ['🐱', '🌙', '⭐', '✨', '💬', '🎨', '🎵', '🔥'];
 const BITRATE_OPTIONS = [8000, 32000, 64000, 96000, 128000, 256000, 384000];
-const AUTO_ARCHIVE_OPTIONS = [
-  { value: 60, label: '1 Hour' },
-  { value: 1440, label: '24 Hours' },
-  { value: 4320, label: '3 Days' },
-  { value: 10080, label: '7 Days' },
-  { value: 0, label: 'Never' },
-];
-
 function toPermissionBits(value: number | undefined): bigint {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 0n;
   const normalized = Math.trunc(value);
@@ -133,8 +139,10 @@ function normalizeOverwrites(overwrites: PermissionOverwrite[]) {
       target_id: overwrite.target_id,
       allow: Math.trunc(overwrite.allow || 0),
       deny: Math.trunc(overwrite.deny || 0),
+      allowKeys: overwrite.allowKeys,
+      denyKeys: overwrite.denyKeys,
     }))
-    .filter((overwrite) => overwrite.allow !== 0 || overwrite.deny !== 0)
+    .filter((overwrite) => overwrite.allow !== 0 || overwrite.deny !== 0 || overwrite.allowKeys?.length || overwrite.denyKeys?.length)
     .sort((a, b) => (
       overwriteKey(a.target_type, a.target_id).localeCompare(overwriteKey(b.target_type, b.target_id))
     ));
@@ -180,14 +188,15 @@ function setPermissionState(
   targetType: 'role' | 'user',
   targetId: string,
   bit: number,
-  state: 'allow' | 'deny' | 'inherit'
+  state: 'allow' | 'deny' | 'inherit',
+  key: string = 'VIEW_CHANNELS'
 ) {
   const mask = toPermissionBits(bit);
   const next = [...overwrites];
   const index = next.findIndex((overwrite) => overwrite.target_type === targetType && overwrite.target_id === targetId);
   const current = index >= 0
     ? { ...next[index] }
-    : { target_type: targetType, target_id: targetId, allow: 0, deny: 0 };
+    : { target_type: targetType, target_id: targetId, allow: 0, deny: 0, allowKeys: [], denyKeys: [] };
   let allowBits = toPermissionBits(current.allow);
   let denyBits = toPermissionBits(current.deny);
 
@@ -198,8 +207,14 @@ function setPermissionState(
 
   current.allow = Number(allowBits);
   current.deny = Number(denyBits);
+  if (current.allowKeys || current.denyKeys) {
+    current.allowKeys = (current.allowKeys || []).filter((item) => item !== key);
+    current.denyKeys = (current.denyKeys || []).filter((item) => item !== key);
+    if (state === 'allow') current.allowKeys.push(key);
+    if (state === 'deny') current.denyKeys.push(key);
+  }
 
-  if (current.allow === 0 && current.deny === 0) {
+  if (current.allow === 0 && current.deny === 0 && !current.allowKeys?.length && !current.denyKeys?.length) {
     if (index >= 0) next.splice(index, 1);
     return next;
   }
@@ -208,7 +223,12 @@ function setPermissionState(
   return next;
 }
 
-function getPermissionState(overwrite: PermissionOverwrite | undefined, bit: number): 'allow' | 'deny' | 'inherit' {
+function getPermissionState(overwrite: PermissionOverwrite | undefined, bit: number, key: string = 'VIEW_CHANNELS'): 'allow' | 'deny' | 'inherit' {
+  if (overwrite?.allowKeys || overwrite?.denyKeys) {
+    if (overwrite.allowKeys?.includes(key)) return 'allow';
+    if (overwrite.denyKeys?.includes(key)) return 'deny';
+    return 'inherit';
+  }
   const mask = toPermissionBits(bit);
   if (!overwrite || mask === 0n) return 'inherit';
   if ((toPermissionBits(overwrite.allow) & mask) === mask) return 'allow';
@@ -544,6 +564,8 @@ export function EditChannelModal() {
         target_id: addTargetId,
         allow: 0,
         deny: 0,
+        allowKeys: [],
+        denyKeys: [],
       });
     }
     if (isPrivateChannel) {
@@ -575,6 +597,8 @@ export function EditChannelModal() {
           target_id: overwrite.target_id,
           allow: overwrite.allow,
           deny: overwrite.deny,
+          allowKeys: overwrite.allowKeys,
+          denyKeys: overwrite.denyKeys,
         })),
       });
       setCategorySyncNotice('Category permissions copied into the draft. Apply to save them.');
@@ -583,9 +607,9 @@ export function EditChannelModal() {
     }
   };
 
-  const togglePermission = (bit: number) => {
+  const togglePermission = (key: string, bit: number) => {
     if (!draft || !selectedTarget) return;
-    const currentState = getPermissionState(selectedOverwrite, bit);
+    const currentState = getPermissionState(selectedOverwrite, bit, key);
     const nextState = currentState === 'inherit' ? 'allow' : currentState === 'allow' ? 'deny' : 'inherit';
     setDraft({
       ...draft,
@@ -594,7 +618,8 @@ export function EditChannelModal() {
         selectedTarget.targetType,
         selectedTarget.id,
         bit,
-        nextState
+        nextState,
+        key
       ),
     });
   };
@@ -679,6 +704,8 @@ export function EditChannelModal() {
           targetId: overwrite.target_id,
           allow: overwrite.allow,
           deny: overwrite.deny,
+          allowKeys: overwrite.allowKeys,
+          denyKeys: overwrite.denyKeys,
         })),
       });
 
@@ -753,6 +780,32 @@ export function EditChannelModal() {
                 >
                   Permissions
                 </button>
+                {supportsThreads && (
+                <button
+                  type="button"
+                  onClick={() => setSection('threads')}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
+                    section === 'threads'
+                      ? 'bg-bg-hover text-text-primary'
+                      : 'text-text-secondary hover:bg-bg-hover/40 hover:text-text-primary'
+                  }`}
+                >
+                  Thread Settings
+                </button>
+                )}
+                {draft.type !== 'voice' && (
+                <button
+                  type="button"
+                  onClick={() => setSection('media')}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
+                    section === 'media'
+                      ? 'bg-bg-hover text-text-primary'
+                      : 'text-text-secondary hover:bg-bg-hover/40 hover:text-text-primary'
+                  }`}
+                >
+                  Media Settings
+                </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setSection('webhooks')}
@@ -772,16 +825,12 @@ export function EditChannelModal() {
         <div className="min-w-0 space-y-5 overflow-x-hidden overflow-y-auto pr-3 pb-8">
           <div>
             <div className="text-lg font-semibold text-text-primary">
-              {isSystemRulesChannel ? 'Rename System Channel' : section === 'basic' ? 'Basic Settings' : section === 'permissions' ? 'Permissions' : 'Webhooks'}
+              {isSystemRulesChannel ? 'Rename System Channel' : SECTION_TITLES[section]}
             </div>
             <div className="mt-1 text-sm text-text-muted">
               {isSystemRulesChannel
                 ? 'Realm Rules is a system channel. Only its display name can be changed.'
-                : section === 'basic'
-                ? 'Edit naming, category, slowmode, and voice defaults for this channel.'
-                : section === 'permissions'
-                  ? 'Use permissions to customize this channel.'
-                  : 'Manage inbound and outbound integrations for this channel.'}
+                : SECTION_HINTS[section]}
             </div>
           </div>
 
@@ -902,18 +951,13 @@ export function EditChannelModal() {
                 </div>
 
                 {supportsThreads && (
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-semibold uppercase text-text-secondary">Thread Auto-Archive</label>
-                    <select
-                      value={draft.threadAutoArchive}
-                      onChange={(event) => setDraft({ ...draft, threadAutoArchive: Number(event.target.value) })}
-                      className="w-full rounded-md border border-border bg-bg-input px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
-                    >
-                      {AUTO_ARCHIVE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSection('threads')}
+                    className="self-start text-xs text-accent hover:underline"
+                  >
+                    Thread slowmode and auto-hide are under Thread Settings →
+                  </button>
                 )}
 
                 {draft.type === 'theater' && (
@@ -960,7 +1004,7 @@ export function EditChannelModal() {
 
                     <div className="flex flex-col gap-2">
                       <label className="text-xs font-semibold uppercase text-text-secondary">Domain Allowlist</label>
-                      <div className="text-xs text-text-muted">Restrict video sources to specific domains. Leave empty to allow all.</div>
+                      <div className="text-xs text-text-muted">YouTube always works. Other sites must be added here — the realm downloads from them itself, so only add domains you trust.</div>
                       {draft.theaterDomains.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
                           {draft.theaterDomains.map((domain) => (
@@ -1066,7 +1110,6 @@ export function EditChannelModal() {
                 <div className="rounded-xl border border-border bg-bg-input/40 px-4 py-3 text-sm text-text-muted">
                   <span className="font-medium text-text-primary">Current Draft:</span>{' '}
                   {categoryName} • {draft.slowmode === 0 ? 'Slowmode Off' : `Slowmode ${draft.slowmode}s`} •{' '}
-                  {AUTO_ARCHIVE_OPTIONS.find((option) => option.value === draft.threadAutoArchive)?.label ?? '24 Hours'} •{' '}
                   {draft.allowDisplayName ? 'Display-preserving name' : 'Slugified name'} •{' '}
                   {draft.nsfw ? 'NSFW' : 'SFW'}
                 </div>
@@ -1365,12 +1408,12 @@ export function EditChannelModal() {
                               <h3 className="mb-3 text-sm font-semibold text-text-primary">{category.title}</h3>
                               <div className="space-y-2">
                                 {category.permissions.map((permission) => {
-                                  const state = getPermissionState(selectedOverwrite, permission.bit);
+                                  const state = getPermissionState(selectedOverwrite, permission.bit, permission.key);
                                   return (
                                     <button
-                                      key={permission.bit}
+                                      key={permission.key}
                                       type="button"
-                                      onClick={() => togglePermission(permission.bit)}
+                                      onClick={() => togglePermission(permission.key, permission.bit)}
                                       className="flex w-full items-center justify-between gap-4 rounded-lg border border-transparent bg-transparent px-3 py-3 text-left transition-colors hover:border-border/60 hover:bg-bg-hover/20"
                                     >
                                       <div>
@@ -1398,6 +1441,12 @@ export function EditChannelModal() {
               </div>
           </div>
         )}
+
+        {section === 'threads' && (
+          <ThreadPolicySection scope="channel" id={modalData.id} showAutoHide={draft.type !== 'forum'} />
+        )}
+
+        {section === 'media' && <MediaPolicySection scope="channel" id={modalData.id} />}
 
         {section === 'webhooks' && (
           <WebhookManager

@@ -2,7 +2,7 @@
   "expo": {
     "name": "CatRealm",
     "slug": "catrealm-mobile",
-    "version": "1.9.4",
+    "version": "1.9.5",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "catrealm",

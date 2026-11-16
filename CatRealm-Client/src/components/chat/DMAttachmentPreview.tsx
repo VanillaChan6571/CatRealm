@@ -32,6 +32,8 @@ import { useUIStore } from '../../stores/uiStore';
 import { useContentSocialStore } from '../../stores/contentSocialStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { AutoSizingChatImage } from './AutoSizingChatImage';
+import { InlineChatVideo } from './InlineChatVideo';
+import type { MediaViewerPlayback } from '../../lib/chatMedia';
 import { getNsfwSubtagLabels, shouldBlurAttachmentForNsfwTags } from '../../utils/nsfw';
 
 type DMAttachmentPreviewProps = {
@@ -181,7 +183,7 @@ export function DMAttachmentPreview({
   const isSpoilerOnly = !mediaRevealed && !!(message.nsfwTags?.includes('spoiler')) && (message.nsfwTags?.length ?? 0) === 1;
   const nsfwSubtagLabels = getNsfwSubtagLabels(message.nsfwTags);
 
-  const openMediaViewer = () => {
+  const openMediaViewer = (playback?: MediaViewerPlayback) => {
     openModal('mediaViewer', {
       url,
       type: mime || null,
@@ -190,6 +192,7 @@ export function DMAttachmentPreview({
       avatarUrl: senderAvatarUrl ?? null,
       createdAt: message.createdAt ? Math.floor(message.createdAt / 1000) : null,
       size: message.attachmentSize ?? null,
+      playback,
     });
   };
 
@@ -235,20 +238,15 @@ export function DMAttachmentPreview({
   if (mime.startsWith('video/')) {
     return (
       <div className="relative inline-block max-w-xl">
-        <video
+        <InlineChatVideo
           src={url}
-          controls
-          preload="metadata"
-          className={`mt-2 max-w-xl max-h-96 rounded-lg border border-border bg-black cursor-zoom-in transition-all ${
+          wrapperClassName="mt-2"
+          className={`max-w-xl max-h-96 rounded-lg border border-border bg-black transition-all ${
             shouldBlurAttachment ? 'blur-md brightness-50' : ''
           }`}
-          onClick={() => {
-            if (shouldBlurAttachment) {
-              setMediaRevealed(true);
-              return;
-            }
-            openMediaViewer();
-          }}
+          onExpand={openMediaViewer}
+          downloadName={message.attachmentName ?? null}
+          hideControls={shouldBlurAttachment}
         />
         {shouldBlurAttachment && (
           <button

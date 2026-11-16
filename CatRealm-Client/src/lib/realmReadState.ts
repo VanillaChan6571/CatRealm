@@ -8,7 +8,7 @@ import { useServerStore, type ServerSnapshot } from '../stores/serverStore';
  * afterwards. Each realm's `GET /api/channels/read-state` compares its latest message per
  * channel with the read position MessageList already saves; realms without it return 404.
  */
-type ChannelReadState = { unread: boolean; unreadCount?: number; muted: boolean };
+type ChannelReadState = { unread: boolean; unreadCount?: number; muted: boolean; lastReadAt?: number };
 
 const THROTTLE_MS = 30_000;
 const lastSeededAt = new Map<string, number>();
@@ -46,6 +46,20 @@ export function mergeReadState(
   return next;
 }
 
+function mergeChannelPrefs(
+  current: ServerSnapshot['prefsByChannel'],
+  channels: Record<string, ChannelReadState>,
+): ServerSnapshot['prefsByChannel'] {
+  const next = { ...current };
+  for (const [id, state] of Object.entries(channels)) {
+    next[id] = {
+      muted: state.muted,
+      lastReadAt: Math.max(current[id]?.lastReadAt ?? 0, state.lastReadAt ?? 0),
+    };
+  }
+  return next;
+}
+
 /** Fetch a realm's read state and fold it into the open channel list or that realm's snapshot. */
 export async function seedRealmReadState(serverUrl: string, token: string | null | undefined): Promise<void> {
   if (unsupported.has(serverUrl) || Date.now() - (lastSeededAt.get(serverUrl) ?? 0) < THROTTLE_MS) return;
@@ -63,7 +77,10 @@ export async function seedRealmReadState(serverUrl: string, token: string | null
   // Decentral accounts have no activeServerUrl; their only realm is the open one.
   if (!servers.activeServerUrl || servers.activeServerUrl === serverUrl) {
     const channelState = useChannelStore.getState();
-    useChannelStore.setState({ unreadByChannel: mergeReadState(channelState.unreadByChannel, channels, channelState.activeChannelId) });
+    useChannelStore.setState({
+      unreadByChannel: mergeReadState(channelState.unreadByChannel, channels, channelState.activeChannelId),
+      prefsByChannel: mergeChannelPrefs(channelState.prefsByChannel, channels),
+    });
     return;
   }
   useServerStore.setState((state) => {
@@ -71,7 +88,11 @@ export async function seedRealmReadState(serverUrl: string, token: string | null
     return {
       snapshots: {
         ...state.snapshots,
-        [serverUrl]: { ...snapshot, unreadByChannel: mergeReadState(snapshot.unreadByChannel, channels, null) },
+        [serverUrl]: {
+          ...snapshot,
+          unreadByChannel: mergeReadState(snapshot.unreadByChannel, channels, null),
+          prefsByChannel: mergeChannelPrefs(snapshot.prefsByChannel, channels),
+        },
       },
     };
   });

@@ -43,6 +43,11 @@ import {
 } from './LiveKitScreenShare';
 import { ForumChannel } from './ForumChannel';
 import { ForumPostView } from './ForumPostView';
+import { ThreadView } from './ThreadView';
+import { CreateThreadModal } from './CreateThreadModal';
+import { slideIn } from './threadSwap';
+import { TrackerChannel } from '../workitems/TrackerChannel';
+import { BoardChannel } from '../workitems/BoardChannel';
 import { TheaterChannel } from '../theater/TheaterChannel';
 import { ServerRulesChannel } from '../onboarding/ServerRulesChannel';
 import { useViewedChannels } from '../../hooks/useViewedChannels';
@@ -100,6 +105,15 @@ export function ChatArea() {
   const fetchPins = useMessageStore((s) => s.fetchPins);
   const fetchThreads = useThreadStore((s) => s.fetchThreads);
   const setActiveThread = useThreadStore((s) => s.setActiveThread);
+  const activeThread = useThreadStore((s) => s.activeThread);
+  const channelContentRef = useRef<HTMLDivElement>(null);
+  // Leaving a thread slides the channel back in from the left (the thread slid in from the right).
+  const openThreadId = activeThread?.id ?? null;
+  const previousThreadIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (previousThreadIdRef.current && !openThreadId) slideIn(channelContentRef.current, 'left');
+    previousThreadIdRef.current = openThreadId;
+  }, [openThreadId]);
   const voiceChannelId = useVoiceStore((s) => s.activeChannelId);
   const pendingVoiceChannelId = useVoiceStore((s) => s.pendingChannelId);
   const selfVoiceUserId = useVoiceStore((s) => s.selfVoiceUserId);
@@ -268,7 +282,8 @@ export function ChatArea() {
     if (activeChannelId) {
       if (canViewPins) fetchPins(activeChannelId);
       fetchThreads(activeChannelId);
-      setActiveThread(null);
+      // Opening a thread from the sidebar switches channel first; keep a thread that belongs here.
+      if (useThreadStore.getState().activeThread?.channel_id !== activeChannelId) setActiveThread(null);
     }
   }, [activeChannelId, canViewPins, fetchPins, fetchThreads, setActiveThread]);
 
@@ -1066,6 +1081,15 @@ export function ChatArea() {
     );
   }
 
+  // Keyed by channel so an open issue or card never carries over to another channel.
+  if (channel.type === 'tracker') {
+    return <TrackerChannel key={channel.id} channel={channel} />;
+  }
+
+  if (channel.type === 'board') {
+    return <BoardChannel key={channel.id} channel={channel} />;
+  }
+
   if (isRealmRulesChannel(channel)) {
     return <ServerRulesChannel />;
   }
@@ -1076,8 +1100,15 @@ export function ChatArea() {
     !allowNsfw &&
     temporaryNsfwChannelId !== channel.id;
 
+  const threadHere = activeThread && activeThread.channel_id === channel.id ? activeThread : null;
+
   return (
     <div ref={chatAreaRef} className="flex-1 flex flex-col bg-bg-chat min-w-0 min-h-0 relative">
+      {/* An open thread takes the channel's place; the channel stays mounted underneath
+          (inert, so it cannot take focus or typing) and keeps its scroll position. */}
+      {threadHere && <ThreadView key={threadHere.id} thread={threadHere} channel={channel} />}
+      <CreateThreadModal />
+      <div ref={channelContentRef} className="flex min-h-0 min-w-0 flex-1 flex-col" inert={!!threadHere}>
       {/* Channel header */}
       <div className="h-12 px-4 flex items-center gap-2 border-b border-border shadow-sm shrink-0">
         <span className="text-text-muted font-bold text-lg">#</span>
@@ -1242,6 +1273,7 @@ export function ChatArea() {
         </div>
       )}
       {renderVoiceAudioBridges()}
+      </div>
     </div>
   );
 }

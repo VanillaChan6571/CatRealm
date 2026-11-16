@@ -5,11 +5,11 @@ import { useUIStore } from '../../stores/uiStore';
 import { usePresenceStore } from '../../stores/presenceStore';
 import { nowPlayingActivityText, useNowPlayingStore } from '../../stores/nowPlayingStore';
 import { MemberList } from './MemberList';
+import { useMemberListVisible } from '../../hooks/useMemberListVisible';
 import { ChatArea } from '../chat/ChatArea';
 import { BotDmsView } from '../bots/BotDmsView';
 import { useBotStore } from '../../stores/botStore';
 import { ClaimAdminBanner } from '../admin/ClaimAdminBanner';
-import { ThreadPanel } from '../chat/ThreadPanel';
 import { createApi } from '../../lib/api';
 import {
   readCentralPresenceCache,
@@ -37,7 +37,8 @@ export function ServerView({ mobile = false }: ServerViewProps) {
   const updateUser = useAuthStore((s) => s.updateUser);
   const updateOnlineUser = usePresenceStore((s) => s.updateOnlineUser);
   const ownNowPlaying = useNowPlayingStore((s) => (user?.id ? s.byUserId[user.id] ?? null : null));
-  const memberListOpen = useUIStore((s) => s.memberListOpen);
+  // Slides away in Tracker/Board channels; see useMemberListVisible.
+  const memberListOpen = useMemberListVisible();
   const botDmsOpen = useBotStore((s) => s.botDmsOpen);
 
   useEffect(() => {
@@ -292,9 +293,6 @@ export function ServerView({ mobile = false }: ServerViewProps) {
         <ClaimAdminBanner />
         {botDmsOpen ? <BotDmsView /> : <ChatArea />}
       </div>
-
-      {/* Thread panel */}
-      <ThreadPanel />
 
       {/* Member list */}
       {mobile && memberListOpen && (

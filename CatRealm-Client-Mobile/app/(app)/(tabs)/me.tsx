@@ -10,24 +10,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from '@/components/SafeAreaView';
 import { useRouter } from 'expo-router';
 import { useNavigationState } from "expo-router/react-navigation";
-import * as DocumentPicker from 'expo-document-picker';
+import { pickImage } from '@/lib/pickImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Bell,
   ChevronRight,
   Compass,
-  HardDrive,
-  Languages,
   LogOut,
-  FlaskConical,
-  Mic,
   Pencil,
-  Palette,
   Plus,
-  Server,
-  ShieldCheck,
-  SlidersHorizontal,
-  Smile,
   SquareCheck,
   SquarePen,
   UserPen,
@@ -48,26 +38,8 @@ import { createApi, createAuthenticatedApi } from '@/lib/api';
 import { appendFormDataFile } from '@/lib/formData';
 import { resolveMediaUrl } from '@/utils/mediaUrl';
 import { AddAccountSheet } from '@/components/AddAccountSheet';
+import { settingsNavItems } from '@/components/settings/settingsSections';
 import type { UserStatus } from '@/types';
-
-type SettingsSection =
-  | 'profile'
-  | 'server-profiles'
-  | 'account-security'
-  | 'voice'
-  | 'notifications'
-  | 'appearance'
-  | 'emotes-settings'
-  | 'content-social'
-  | 'storage'
-  | 'language'
-  | 'cat-lab';
-
-type SettingsItem = {
-  id: SettingsSection;
-  label: string;
-  Icon: typeof Bell;
-};
 
 const STATUSES: { value: UserStatus; label: string; selectable?: boolean }[] = [
   { value: 'online', label: 'Online' },
@@ -294,19 +266,11 @@ export default function MeTab() {
 
   const handleUploadMedia = async (kind: 'avatar' | 'banner') => {
     if (!profileEditMode || uploadingMedia) return;
-    const picked = await DocumentPicker.getDocumentAsync({
-      type: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
-      copyToCacheDirectory: true,
-    });
-    if (picked.canceled || !picked.assets?.[0]) return;
+    const image = await pickImage(kind);
+    if (!image) return;
 
-    const asset = picked.assets[0];
     const formData = new FormData();
-    await appendFormDataFile(formData, kind, {
-      uri: asset.uri,
-      type: asset.mimeType ?? 'image/jpeg',
-      name: asset.name ?? `${kind}.jpg`,
-    });
+    await appendFormDataFile(formData, kind, { uri: image.uri, type: image.mimeType, name: image.name });
 
     setUploadingMedia(kind);
     setEditMessage(null);
@@ -348,29 +312,16 @@ export default function MeTab() {
     }
   };
 
-  const settingsItems: SettingsItem[] = [
-    ...(user?.accountType === 'central'
-      ? [{ id: 'server-profiles' as const, label: t('settings.navServerProfiles'), Icon: Server }]
-      : []),
-    ...(user?.accountType === 'central'
-      ? [{ id: 'account-security' as const, label: t('settings.navAccountSecurity'), Icon: ShieldCheck }]
-      : []),
-    { id: 'voice', label: t('settings.navVoice'), Icon: Mic },
-    { id: 'notifications', label: t('settings.navNotifications'), Icon: Bell },
-    { id: 'appearance', label: t('settings.navAppearance'), Icon: Palette },
-    { id: 'emotes-settings', label: t('settings.navEmotesSettings'), Icon: Smile },
-    { id: 'content-social', label: t('settings.navContentSocial'), Icon: SlidersHorizontal },
-    { id: 'storage', label: t('settings.navStorage'), Icon: HardDrive },
-    { id: 'language', label: t('settings.navLanguage'), Icon: Languages },
-    ...(user?.accountType === 'central'
-      ? [{ id: 'cat-lab' as const, label: t('settings.navCatLab'), Icon: FlaskConical }]
-      : []),
-  ];
+  const settingsItems = settingsNavItems(t, user?.accountType === 'central', { includeProfile: false });
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bgApp }} edges={['top']}>
       <ScrollView
         ref={scrollRef}
+        // iOS: inset by the keyboard and scroll the focused field into view (Android resizes the window).
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         onScroll={tourScroller.onScroll}
         scrollEventThrottle={64}
         contentContainerStyle={{ paddingBottom: insets.bottom + (profileEditMode ? 112 : 96) }}

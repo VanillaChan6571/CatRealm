@@ -344,6 +344,7 @@ export function MessageReactionsSheet({
         animationType="fade"
         onRequestClose={onClose}
         statusBarTranslucent
+        supportedOrientations={['portrait', 'portrait-upside-down', 'landscape', 'landscape-left', 'landscape-right']}
       >
         <View style={styles.desktopScrim}>
           <RNPressable style={StyleSheet.absoluteFill} onPress={onClose} />

@@ -1,6 +1,7 @@
 import { memo, useState, useRef, useEffect, useMemo } from 'react';
 import { reactionDisplayName } from '../../messaging/chatlib/messageTokenParser';
-import type { Message } from '../../types';
+import type { Message, Thread } from '../../types';
+import { createApi } from '../../lib/api';
 import { useAuthStore } from '../../stores/authStore';
 import { useMessageStore } from '../../stores/messageStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -35,6 +36,8 @@ import { getRolePrimaryColor } from '../../lib/roleStyles';
 import { isArchiveMime } from '../../lib/archiveFiles';
 import { formatDmAttachmentSize } from './DMAttachmentPreview';
 import { AutoSizingChatImage } from './AutoSizingChatImage';
+import { InlineChatVideo } from './InlineChatVideo';
+import type { MediaViewerPlayback } from '../../lib/chatMedia';
 import { SafetyReportModal, type SafetyReportTarget } from './SafetyReportModal';
 import { hiddenSafetyArtifactKeys, hideSafetyAttachments, hideSafetyLinks, reportableSafetyArtifacts } from '../../lib/safetyReporting';
 
@@ -85,15 +88,54 @@ interface MessageItemProps {
 
 // Memoized: the list re-renders on every store update (older-page fetches,
 // loading flags), and re-parsing every message on each one stalls scrolling.
+// A thread announcement names its thread as "thread:<id>" in attachment_type.
+function announcedThreadId(message: Message): string | null {
+  const ref = message.attachment_type;
+  return message.message_type === 'system' && typeof ref === 'string' && ref.startsWith('thread:') ? ref.slice('thread:'.length) : null;
+}
+
+// Opens the announced thread. If it is not in the list yet, the list is refreshed once;
+// if it is gone (deleted, or empty and hidden), fall back to the message it grew from.
+async function openAnnouncedThread(message: Message, threadId: string) {
+  const store = useThreadStore.getState();
+  const find = () => (useThreadStore.getState().threadsByChannel[message.channel_id] ?? []).find((t) => t.id === threadId);
+  let thread = find();
+  if (!thread) {
+    await store.fetchThreads(message.channel_id).catch(() => {});
+    thread = find();
+  }
+  // Not listed: it may have auto-hidden after going quiet. Ask the realm for it directly.
+  if (!thread) {
+    thread = await createApi().get<Thread>(`/api/threads/${threadId}`).then((res) => res.data).catch(() => undefined);
+  }
+  if (thread) store.setActiveThread(thread);
+  else if (message.attachment_url) requestChatMessageJump({ channelId: message.channel_id, messageId: message.attachment_url });
+}
+
 export const MessageItem = memo(function MessageItem({ message, showHeader, isHighlighted, isScheduled }: MessageItemProps) {
   if (message.message_type === 'system') {
+    const threadId = announcedThreadId(message);
+    if (threadId) {
+      return (
+        <SystemMessageRow
+          messageType="system"
+          systemType={message.system_type ?? null}
+          systemData={message.system_data ?? null}
+          text={message.content?.startsWith('🧶') ? message.content.slice(2).trimStart() : message.content}
+          icon="🧶"
+          actionLabel="Open thread"
+          onAction={() => { void openAnnouncedThread(message, threadId); }}
+        />
+      );
+    }
     return (
       <SystemMessageRow
         messageType="system"
         systemType={message.system_type ?? null}
         systemData={message.system_data ?? null}
-        text={message.content}
-        icon="🛠"
+        // Thread announcements carry their own yarn icon in the text.
+        text={message.content?.startsWith('🧶') ? message.content.slice(2).trimStart() : message.content}
+        icon={message.content?.startsWith('🧶') ? '🧶' : '🛠'}
         actionLabel={message.attachment_url ? 'Jump' : undefined}
         onAction={message.attachment_url ? (() => requestChatMessageJump({
           channelId: message.channel_id,
@@ -125,7 +167,7 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
     s.onlineUsers.find((u) => u.id === message.user_id) ?? null
   );
   const [pinError, setPinError] = useState<string | null>(null);
-  const createThread = useThreadStore((s) => s.createThread);
+  const startThreadDraft = useThreadStore((s) => s.startThreadDraft);
   const activeChannelId = useChannelStore((s) => s.activeChannelId);
   const timeFormat = useSettingsStore((s) => s.timeFormat);
   const enableImageThumbnailing = useSettingsStore((s) => s.enableImageThumbnailing);
@@ -397,7 +439,7 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
 
         // The viewer pages through media only; archives open as downloads.
         const viewerAttachments = gridAttachments.filter((a) => !isArchiveMime(a.mime || a.type));
-        const handleOpen = () => {
+        const handleOpen = (playback?: MediaViewerPlayback) => {
           if (shouldBlurAttachment) { setMediaRevealed(true); return; }
           openModal('mediaViewer', {
             url: fullUrl,
@@ -417,16 +459,19 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
               size: a.size ?? null,
             })),
             index: Math.max(0, viewerAttachments.indexOf(att)),
+            playback,
           });
         };
         return (
           <div key={idx} className="relative shrink-0">
             {isVideo ? (
-              <video
+              <InlineChatVideo
                 src={fullUrl}
-                controls
-                className={`max-h-48 max-w-xs rounded border border-border cursor-zoom-in transition-all ${shouldBlurAttachment ? 'blur-md brightness-50' : ''}`}
-                onClick={handleOpen}
+                className={`max-h-48 max-w-xs rounded border border-border bg-black transition-all ${shouldBlurAttachment ? 'blur-md brightness-50' : ''}`}
+                onExpand={handleOpen}
+                onModify={canEdit && !isPending ? handleEdit : undefined}
+                downloadName={att.name ?? null}
+                hideControls={shouldBlurAttachment}
               />
             ) : (
               <AutoSizingChatImage
@@ -438,7 +483,7 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
                 placeholderHeight={144}
                 className={`object-contain rounded border border-border bg-bg-input cursor-zoom-in transition-all ${shouldBlurAttachment ? 'blur-md brightness-50' : ''}`}
                 loading="lazy"
-                onClick={handleOpen}
+                onClick={() => handleOpen()}
               />
             )}
             {shouldBlurAttachment && (
@@ -504,7 +549,7 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
     reply: () => dispatchMessageReply(message),
     forward: () => dispatchMessageForward(message),
     pin: handlePinToggle,
-    thread: () => { void createThread(message.channel_id, message.id, `Thread: ${message.username}`); },
+    thread: () => startThreadDraft(message),
     edit: handleEdit,
     delete: handleDelete,
     copy: () => { void writeClipboardText(message.content ?? ''); },

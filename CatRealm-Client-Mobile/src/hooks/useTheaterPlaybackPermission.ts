@@ -7,7 +7,7 @@ export function useTheaterPlaybackPermission(serverId: string | null, channelId:
   const selfId = useTheaterStore((s) => s.selfTheaterUserId);
   const hostId = useTheaterStore((s) => s.hostUserId ?? s.playbackState?.host_user_id ?? null);
   const joined = useTheaterStore((s) => !!channelId && s.channelId === channelId && s.serverId === serverId);
-  const permissions = useServerStore((s) => serverId
-    ? s.channels[serverId]?.find((channel) => channel.id === channelId)?.effective_permissions : undefined);
-  return joined && canControlTheater(realmUser, permissions, hostId, selfId);
+  const channel = useServerStore((s) => serverId
+    ? s.channels[serverId]?.find((item) => item.id === channelId) : undefined);
+  return joined && canControlTheater(realmUser, channel?.effective_permissions, hostId, selfId, channel?.effective_permission_keys);
 }

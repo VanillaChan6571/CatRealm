@@ -9,7 +9,6 @@ import { useAuthStore } from '../../stores/authStore';
 import { createApi } from '../../lib/api';
 import { AUTH_BASE, createAuthenticatedApi } from '../../lib/authApi';
 import { PERMISSIONS, hasPermission, hasChannelPermission } from '../../utils/permissions';
-import { useThreadStore } from '../../stores/threadStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUIStore } from '../../stores/uiStore';
 import { useVoiceStore } from '../../stores/voiceStore';
@@ -33,6 +32,12 @@ import {
   sanitizeExpressionTokens,
   resolveServerIcon,
 } from '../../lib/expressions';
+import {
+  type EmoteSuggestionSource,
+  buildDefaultEmojiTypeaheadEntries,
+  buildEmoteSuggestions,
+  parseEmoteSuggestionQuery,
+} from '../../lib/emoteSuggestions';
 import {
   type DefaultEmojiCategory,
   type EmojiMetadataLookup,
@@ -253,12 +258,11 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
   const authOrigin = useMemo(() => normalizeServerOrigin(AUTH_BASE), []);
   const activeChannel = channels.find((entry) => entry.id === activeChannelId);
   const channelPermissions = activeChannel?.effective_permissions;
-  const activeThread = useThreadStore((s) => s.activeThread);
   const canSendChannelMessages = hasChannelPermission(viewed.permissions, channelPermissions, PERMISSIONS.SEND_MESSAGES);
   const canSendThreadMessages = hasChannelPermission(viewed.permissions, channelPermissions, PERMISSIONS.SEND_MESSAGES_IN_THREADS);
   const canSendForumPosts = hasChannelPermission(viewed.permissions, channelPermissions, PERMISSIONS.SEND_MESSAGES_IN_POSTS);
   const canBypassSlowmode = hasChannelPermission(viewed.permissions, channelPermissions, PERMISSIONS.BYPASS_SLOWMODE);
-  const canSendInCurrentContext = (threadId !== null ? true : !!activeThread?.id)
+  const canSendInCurrentContext = threadId !== null
     ? canSendThreadMessages
     : activeChannel?.type === 'forum'
       ? canSendForumPosts
@@ -301,7 +305,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
 
   const currentServerUrl = activeServerUrl || serverUrl || null;
   const activeDraftKey = activeChannelId
-    ? `${activeChannelId}:${threadId !== null ? threadId : (activeThread?.id ?? 'main')}`
+    ? `${activeChannelId}:${threadId ?? 'main'}`
     : null;
   const activeDraftKeyRef = useRef<string | null>(activeDraftKey);
   const applyAttachmentDraftUpdate = useCallback((
@@ -405,15 +409,10 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
       ?? null,
     [visibleExpressionServers, currentServerUrl, authOrigin]
   );
-  const currentServerManifest = currentExpressionServer
-    ? expressionStateByServer[currentExpressionServer.url]?.data ?? null
-    : null;
-  const currentServerEmoteItems = currentServerManifest
-    ? [...currentServerManifest.emotes, ...currentServerManifest['anim-emotes']]
-    : [];
-  const personalEmoteItems = personalManifest
-    ? [...personalManifest['anim-emotes'], ...personalManifest.emotes]
-    : [];
+  const personalEmoteItems = useMemo(
+    () => (personalManifest ? [...personalManifest['anim-emotes'], ...personalManifest.emotes] : []),
+    [personalManifest]
+  );
 
   const searchableDefaultEmojiEntries = useMemo(
     () =>
@@ -444,8 +443,8 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
     [emojiMetadataLookup]
   );
   const defaultEmojiTypeaheadEntries = useMemo(
-    () => searchableDefaultEmojiEntries.filter((entry) => entry.alias.length > 0),
-    [searchableDefaultEmojiEntries]
+    () => buildDefaultEmojiTypeaheadEntries(emojiMetadataLookup),
+    [emojiMetadataLookup]
   );
 
   // Slash-command typeahead: active only while typing the first token of a
@@ -635,89 +634,73 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
     composerCoreRef.current?.focus();
   }, [content, emoteSuggestAnchor]);
 
-  const updateEmoteSuggestions = useCallback((value: string, caret: number): boolean => {
-    const upto = value.slice(0, caret);
-    const colon = upto.lastIndexOf(':');
-    if (colon === -1) {
-      setEmoteSuggestOpen(false);
-      return false;
-    }
-    const before = colon === 0 ? ' ' : upto[colon - 1];
-    if (before && !/\s/.test(before)) {
-      setEmoteSuggestOpen(false);
-      return false;
-    }
-    const query = upto.slice(colon + 1);
-    if (!query || query.includes(' ') || query.includes('\n') || query.includes(':') || query.length < 2) {
-      setEmoteSuggestOpen(false);
-      return false;
-    }
-
-    const q = query.toLowerCase();
-    const next: EmoteSuggestion[] = [];
-    const seen = new Set<string>();
-
+  // Custom-emote sources for the `:` typeahead: personal, this realm, then every other
+  // joined realm (only with Use External Emojis), in the picker's stable order.
+  const emoteSuggestionSources = useMemo((): EmoteSuggestionSource[] => {
+    const sources: EmoteSuggestionSource[] = [];
     if (canUsePersonalEmotes && personalEmoteItems.length > 0) {
-      personalEmoteItems
-        .filter((entry) => entry.name.toLowerCase().includes(q))
-        .slice(0, 8)
-        .forEach((entry) => {
-          const label = `:${entry.name}:`;
-          if (seen.has(label)) return;
-          seen.add(label);
-          next.push({
-            label,
-            insert: buildExpressionToken('emote', entry.name, '', AUTH_BASE, currentServerUrl, entry.owner_id || user?.id || null),
-            previewImage: entry.absolute_url || (/^https?:\/\//i.test(entry.file_url) ? entry.file_url : `${AUTH_BASE}${entry.file_url}`),
-          });
-        });
-    }
-
-    if (currentExpressionServer && currentServerEmoteItems.length > 0) {
-      currentServerEmoteItems
-        .filter((entry) => entry.name.toLowerCase().includes(q))
-        .slice(0, 8)
-        .forEach((entry) => {
-          const label = `:${entry.name}:`;
-          if (seen.has(label)) return;
-          seen.add(label);
-          next.push({
-            label,
-            insert: buildExpressionToken('emote', entry.name, '', currentExpressionServer.url, currentServerUrl),
-            previewImage: entry.absolute_url || (/^https?:\/\//i.test(entry.file_url) ? entry.file_url : `${currentExpressionServer.url}${entry.file_url}`),
-          });
-        });
-    }
-
-    defaultEmojiTypeaheadEntries
-      .filter((entry) => entry.searchIndex.includes(q) || entry.alias.includes(q))
-      .slice(0, 10)
-      .forEach((entry) => {
-        const label = `:${entry.alias}:`;
-        if (seen.has(label)) return;
-        seen.add(label);
-        next.push({
-          label,
-          insert: entry.emoji,
-          previewEmoji: entry.emoji,
-        });
+      sources.push({
+        key: PERSONAL_PICKER_SERVER_URL,
+        items: personalEmoteItems,
+        buildInsert: (entry) => buildExpressionToken('emote', entry.name, '', AUTH_BASE, currentServerUrl, entry.owner_id || user?.id || null),
+        buildPreview: (entry) => entry.absolute_url || (/^https?:\/\//i.test(entry.file_url) ? entry.file_url : `${AUTH_BASE}${entry.file_url}`),
       });
-
-    const items = next.slice(0, 12);
-    setEmoteSuggestItems(items);
-    setEmoteSuggestIndex(0);
-    setEmoteSuggestAnchor(colon);
-    setEmoteSuggestOpen(items.length > 0);
-    return items.length > 0;
+    }
+    const realmEntries = [
+      ...(currentExpressionServer ? [currentExpressionServer] : []),
+      ...(canUseExternalEmojis
+        ? visibleExpressionServers.filter((entry) => !entry.isDefault && !entry.isPersonal && entry.url !== currentExpressionServer?.url)
+        : []),
+    ];
+    for (const entry of realmEntries) {
+      const manifest = expressionStateByServer[entry.url]?.data;
+      if (!manifest) continue;
+      sources.push({
+        key: entry.url,
+        items: [...manifest.emotes, ...manifest['anim-emotes']],
+        buildInsert: (item) => buildExpressionToken('emote', item.name, '', entry.url, currentServerUrl),
+        buildPreview: (item) => item.absolute_url || (/^https?:\/\//i.test(item.file_url) ? item.file_url : `${entry.url}${item.file_url}`),
+      });
+    }
+    return sources;
   }, [
     canUsePersonalEmotes,
+    canUseExternalEmojis,
     personalEmoteItems,
     currentExpressionServer,
-    currentServerEmoteItems,
+    visibleExpressionServers,
+    expressionStateByServer,
     currentServerUrl,
-    defaultEmojiTypeaheadEntries,
     user?.id,
   ]);
+
+  const updateEmoteSuggestions = useCallback((value: string, caret: number): boolean => {
+    const parsed = parseEmoteSuggestionQuery(value, caret, 2);
+    if (!parsed) {
+      setEmoteSuggestOpen(false);
+      return false;
+    }
+    const items = buildEmoteSuggestions({
+      query: parsed.query,
+      sources: emoteSuggestionSources,
+      defaultEntries: defaultEmojiTypeaheadEntries,
+    });
+    setEmoteSuggestItems(items);
+    setEmoteSuggestIndex(0);
+    setEmoteSuggestAnchor(parsed.anchor);
+    setEmoteSuggestOpen(items.length > 0);
+    return items.length > 0;
+  }, [emoteSuggestionSources, defaultEmojiTypeaheadEntries]);
+
+  // Manifests load asynchronously; refresh an in-progress `:query` when one lands so
+  // other realms' emotes appear without needing another keystroke.
+  useEffect(() => {
+    const caret = composerCoreRef.current?.getCaretPlainOffset() ?? content.length;
+    if (!parseEmoteSuggestionQuery(content, caret, 2)) return;
+    updateEmoteSuggestions(content, caret);
+  // Only re-run when the available emote sources change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emoteSuggestionSources]);
 
   const handleChange = useCallback(
     (value: string, caret: number) => {
@@ -904,12 +887,21 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
     }
   }, [user?.accountType, token]);
 
+  // Load this realm's manifest, plus every other realm's when external emotes are allowed:
+  // the `:` typeahead offers them too, so they can't wait until the user happens to open
+  // that realm's tab in the picker.
   useEffect(() => {
-    if (!currentExpressionServer || currentExpressionServer.isDefault) return;
-    const state = expressionStateByServer[currentExpressionServer.url];
-    if (state?.loading || state?.data || state?.error) return;
-    void loadManifest(currentExpressionServer);
-  }, [currentExpressionServer, expressionStateByServer, loadManifest]);
+    const entries = [
+      ...(currentExpressionServer ? [currentExpressionServer] : []),
+      ...(canUseExternalEmojis ? visibleExpressionServers : []),
+    ];
+    for (const entry of entries) {
+      if (entry.isDefault || entry.isPersonal) continue;
+      const state = expressionStateByServer[entry.url];
+      if (state?.loading || state?.data || state?.error) continue;
+      void loadManifest(entry);
+    }
+  }, [currentExpressionServer, canUseExternalEmojis, visibleExpressionServers, expressionStateByServer, loadManifest]);
 
   useEffect(() => {
     void loadPersonalManifest();
@@ -984,12 +976,12 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
   // isn't cleared.
   const sendGif = useCallback((gifUrl: string) => {
     if (!activeChannelId || !canSendInCurrentContext || slowmodeSendBlocked) return;
-    const effectiveThreadId = threadId !== null ? threadId : (activeThread?.id ?? null);
+    const effectiveThreadId = threadId;
     sendMessage(activeChannelId, gifUrl, undefined, effectiveThreadId, replyingTo?.id, forwardingFrom?.id, undefined, undefined, null);
     setReplyingTo(null);
     setForwardingFrom(null);
     setPickerOpen(false);
-  }, [activeChannelId, canSendInCurrentContext, slowmodeSendBlocked, threadId, activeThread, replyingTo, forwardingFrom, sendMessage]);
+  }, [activeChannelId, canSendInCurrentContext, slowmodeSendBlocked, threadId, replyingTo, forwardingFrom, sendMessage]);
 
   const handleSend = useCallback(() => {
     if (!activeChannelId) return;
@@ -1021,7 +1013,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
           botId: matched.botId,
           command: matched.name,
           channelId: activeChannelId,
-          threadId: threadId !== null ? threadId : (activeThread?.id ?? null),
+          threadId: threadId,
           replyToId: replyingTo?.id ?? null,
           options,
         }).then((result) => {
@@ -1072,7 +1064,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
       channelId: activeChannelId,
       messageText: effectiveMessageText,
       readyAttachments,
-      effectiveThreadId: threadId !== null ? threadId : (activeThread?.id ?? null),
+      effectiveThreadId: threadId,
       replyToId: replyingTo?.id,
       forwardFromId: forwardingFrom?.id,
       draftKey: activeDraftKey,
@@ -1108,7 +1100,6 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
     allowText,
     attachments,
     threadId,
-    activeThread,
     activeDraftKey,
     hasUploading,
     replyingTo,
@@ -1212,7 +1203,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
       activeChannelId,
       '',
       { url: uploadResult.url, mime: uploadResult.mime || 'audio/webm', size: uploadResult.size },
-      threadId !== null ? threadId : (activeThread?.id ?? null),
+      threadId,
       undefined,
       undefined,
       [],
@@ -1221,7 +1212,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
     setVoiceAutoDeleteOpen(false);
     setPendingVoiceAttachment(null);
     setVoiceMode(false);
-  }, [activeChannelId, pendingVoiceAttachment, sendMessage, threadId, activeThread]);
+  }, [activeChannelId, pendingVoiceAttachment, sendMessage, threadId]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (emoteSuggestOpen) {
@@ -1416,18 +1407,18 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
     };
   }, [pickerOpen]);
 
+  // Load emoji names up front too: the `:` typeahead can only offer Unicode emojis
+  // once it knows their names, and it shouldn't wait for the picker to be opened.
   useEffect(() => {
-    if (!pickerOpen || emojiMetadataLookup) return;
+    if (emojiMetadataLookup) return;
     let cancelled = false;
     void loadEmojiMetadataLookup()
       .then((lookup) => {
         if (!cancelled) setEmojiMetadataLookup(lookup);
       })
       .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [pickerOpen, emojiMetadataLookup]);
+    return () => { cancelled = true; };
+  }, [emojiMetadataLookup]);
 
   const uploadFile = useCallback(async (item: AttachmentItem, draftKey: string | null, uploadChannelId: string | null) => {
     if (draftKey) applyAttachmentDraftPatch(draftKey, { uploadError: null });

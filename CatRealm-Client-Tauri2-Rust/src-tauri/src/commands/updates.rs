@@ -150,6 +150,35 @@ fn is_update_available(current: &str, candidate: &str, allow_downgrade: bool) ->
     }
 }
 
+/// True for a file in the updates directory that a previous update left behind:
+/// an older Sushi installer or partial download, anything but `keep`. Other
+/// files (the update .bat script) are left alone.
+#[cfg(windows)]
+fn is_stale_cached_installer(name: &str, keep: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    name != keep
+        && lower.starts_with("catrealm-sushi_")
+        && (lower.ends_with(".exe") || lower.ends_with(".part"))
+}
+
+/// Delete every cached installer except `keep`, so old versions don't pile up.
+#[cfg(windows)]
+fn prune_cached_installers(dir: &std::path::Path, keep: &str) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let stale = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| is_stale_cached_installer(name, keep));
+        if stale && path.is_file() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shared updater state
 // ---------------------------------------------------------------------------
@@ -509,21 +538,85 @@ fn run_update_flow(app: &AppHandle, inner: &Arc<Mutex<UpdaterInner>>, channel: &
     let part = dest.with_extension("part");
     let url = format!("{}{}", base, manifest.path);
 
+    // Already downloaded and verified this version earlier in this session:
+    // keep the ready installer instead of fetching it again on every check.
+    let ready_this_session = dest.is_file()
+        && inner
+            .lock()
+            .map(|g| {
+                g.downloaded_version.as_deref() == Some(manifest.version.as_str())
+                    && g.downloaded_path.as_deref() == Some(dest.as_path())
+            })
+            .unwrap_or(false);
+    // Downloaded by an earlier launch: reuse it if it still matches the hash.
+    let cached_on_disk = !ready_this_session
+        && dest.is_file()
+        && sha512_hex(&dest)
+            .map(|actual| actual.eq_ignore_ascii_case(expected_sha.trim()))
+            .unwrap_or(false);
+    if !ready_this_session
+        && !cached_on_disk
+        && !download_verified_installer(
+            app,
+            inner,
+            &agent,
+            &url,
+            &part,
+            &dest,
+            &manifest.version,
+            &expected_sha,
+        )
+    {
+        return;
+    }
+    prune_cached_installers(&dir, &manifest.path);
+
+    let queued = {
+        let mut guard = inner.lock().unwrap();
+        guard.downloaded_path = Some(dest.clone());
+        guard.downloaded_version = Some(manifest.version.clone());
+        guard.queued_install
+    };
     emit_status(
         app,
         inner,
-        json!({ "state": "downloading", "version": manifest.version, "percent": 0 }),
+        json!({ "state": "downloaded", "version": manifest.version }),
+    );
+
+    if queued {
+        let _ = do_install(app, inner);
+    }
+}
+
+/// Download the installer to `part`, verify it against `expected_sha`, and move
+/// it to `dest`. Emits progress and error statuses; returns false on failure.
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+fn download_verified_installer(
+    app: &AppHandle,
+    inner: &Arc<Mutex<UpdaterInner>>,
+    agent: &ureq::Agent,
+    url: &str,
+    part: &std::path::Path,
+    dest: &std::path::Path,
+    version: &str,
+    expected_sha: &str,
+) -> bool {
+    emit_status(
+        app,
+        inner,
+        json!({ "state": "downloading", "version": version, "percent": 0 }),
     );
 
     // Bounded stall-retry: the agent's read timeout surfaces a hung transfer as
     // an error; clear the partial file and retry, mirroring Sparky's watchdog.
     let mut attempt: u32 = 0;
     loop {
-        let _ = std::fs::remove_file(&part);
+        let _ = std::fs::remove_file(part);
         let progress_inner = inner.clone();
         let progress_app = app.clone();
-        let version = manifest.version.clone();
-        let result = download_file(&agent, &url, &part, |percent| {
+        let version = version.to_string();
+        let result = download_file(agent, url, part, |percent| {
             emit_status(
                 &progress_app,
                 &progress_inner,
@@ -547,7 +640,7 @@ fn run_update_flow(app: &AppHandle, inner: &Arc<Mutex<UpdaterInner>>, channel: &
                     std::thread::sleep(Duration::from_secs(2));
                     continue;
                 }
-                let _ = std::fs::remove_file(&part);
+                let _ = std::fs::remove_file(part);
                 emit_status(
                     app,
                     inner,
@@ -558,49 +651,34 @@ fn run_update_flow(app: &AppHandle, inner: &Arc<Mutex<UpdaterInner>>, channel: &
                         "message": format!("Update download keeps stalling ({message}). Check your connection, then Clear & Retry."),
                     }),
                 );
-                return;
+                return false;
             }
         }
     }
 
-    match sha512_hex(&part) {
+    match sha512_hex(part) {
         Ok(actual) if actual.eq_ignore_ascii_case(expected_sha.trim()) => {}
         Ok(_) => {
-            let _ = std::fs::remove_file(&part);
+            let _ = std::fs::remove_file(part);
             emit_status(
                 app,
                 inner,
                 json!({ "state": "error", "message": "Downloaded update failed integrity verification and was discarded." }),
             );
-            return;
+            return false;
         }
         Err(err) => {
-            let _ = std::fs::remove_file(&part);
+            let _ = std::fs::remove_file(part);
             emit_status(app, inner, json!({ "state": "error", "message": format!("Could not verify the update: {err}") }));
-            return;
+            return false;
         }
     }
 
-    if let Err(err) = std::fs::rename(&part, &dest) {
+    if let Err(err) = std::fs::rename(part, dest) {
         emit_status(app, inner, json!({ "state": "error", "message": format!("Could not finalize the update: {err}") }));
-        return;
+        return false;
     }
-
-    let queued = {
-        let mut guard = inner.lock().unwrap();
-        guard.downloaded_path = Some(dest.clone());
-        guard.downloaded_version = Some(manifest.version.clone());
-        guard.queued_install
-    };
-    emit_status(
-        app,
-        inner,
-        json!({ "state": "downloaded", "version": manifest.version }),
-    );
-
-    if queued {
-        let _ = do_install(app, inner);
-    }
+    true
 }
 
 #[cfg(windows)]
@@ -809,5 +887,41 @@ mod tests {
         assert!(!is_safe_installer_name("a\\b.exe"));
         assert!(!is_safe_installer_name("notanexe.txt"));
         assert!(!is_safe_installer_name(""));
+    }
+
+    #[test]
+    fn prunes_only_other_sushi_installers() {
+        let keep = "CatRealm-Sushi_1.9.5-dev.148_x64-setup.exe";
+        assert!(!is_stale_cached_installer(keep, keep));
+        assert!(is_stale_cached_installer("CatRealm-Sushi_1.9.4-dev.144_x64-setup.exe", keep));
+        assert!(is_stale_cached_installer("CatRealm-Sushi_1.9.5-dev.148_x64-setup.part", keep));
+        assert!(is_stale_cached_installer("CatRealm-Sushi_1.8.3_x64-setup.part", keep));
+        assert!(!is_stale_cached_installer("catrealm-sushi-update.bat", keep));
+        assert!(!is_stale_cached_installer("something-else.exe", keep));
+    }
+
+    #[test]
+    fn prune_keeps_current_installer_and_other_files() {
+        let dir = std::env::temp_dir().join(format!("catrealm-prune-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let keep = "CatRealm-Sushi_2.0.0_x64-setup.exe";
+        for name in [
+            keep,
+            "CatRealm-Sushi_1.9.0_x64-setup.exe",
+            "CatRealm-Sushi_1.9.1_x64-setup.part",
+            "catrealm-sushi-update.bat",
+        ] {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+        prune_cached_installers(&dir, keep);
+        let mut left: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, vec![keep.to_string(), "catrealm-sushi-update.bat".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

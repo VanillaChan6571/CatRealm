@@ -3,6 +3,7 @@ import { createApi } from '../../lib/api';
 import { useServerStore, type ServerEntry } from '../../stores/serverStore';
 import { useUIStore } from '../../stores/uiStore';
 import { resolveServerIcon } from '../../lib/serverIcon';
+import { shouldDeferPassiveLocalNetworkRequest } from '../../lib/localNetworkAccess';
 
 type MutualServer = { server: ServerEntry; localUserId: string };
 
@@ -34,9 +35,11 @@ function lookupMutualServers(key: string, centralId: string, servers: ServerEntr
 /** Realms the viewer shares with a Central user; clicking one opens their profile in that realm. */
 export function ProfileMutualServers({ centralId }: { centralId: string }) {
   const allServers = useServerStore((s) => s.servers);
+  const activeServerUrl = useServerStore((s) => s.activeServerUrl);
   const switchServer = useServerStore((s) => s.switchServer);
   const openModal = useUIStore((s) => s.openModal);
-  const servers = useMemo(() => allServers.filter((s) => s.token?.trim()), [allServers]);
+  const servers = useMemo(() => allServers.filter((s) => s.token?.trim()
+    && (s.url === activeServerUrl || !shouldDeferPassiveLocalNetworkRequest(s.url))), [allServers, activeServerUrl]);
   const key = cacheKey(centralId, servers);
   const [result, setResult] = useState<{ key: string; matches: Array<{ url: string; localUserId: string }> } | null>(null);
 
@@ -70,7 +73,7 @@ export function ProfileMutualServers({ centralId }: { centralId: string }) {
           <p className="px-2 py-1.5 text-xs text-text-muted">No mutual servers</p>
         ) : (
           mutuals.map(({ server, localUserId }) => {
-            const icon = resolveServerIcon(server);
+            const icon = resolveServerIcon(server, server.url === activeServerUrl);
             const name = server.name || server.info?.name || server.url;
             return (
               <button

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Button } from './Button';
 
 type CropShape = 'rect' | 'circle';
@@ -17,6 +17,8 @@ interface ImageCropModalProps {
   outputHeight: number;
   shape?: CropShape;
   busy?: boolean;
+  /** Extra options shown above the preview, e.g. a choice of crop shape or output size. */
+  controls?: ReactNode;
   onCancel: () => void;
   onConfirm: (file: File) => void;
 }
@@ -72,6 +74,7 @@ export function ImageCropModal({
   outputHeight,
   shape = 'rect',
   busy = false,
+  controls,
   onCancel,
   onConfirm,
 }: ImageCropModalProps) {
@@ -227,6 +230,7 @@ export function ImageCropModal({
       <div className="w-full max-w-2xl rounded-lg border border-border bg-bg-chat p-5 shadow-xl">
         <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
         <p className="mt-1 text-xs text-text-muted">Drag to position. Use zoom to frame the crop.</p>
+        {controls && <div className="mt-3">{controls}</div>}
 
         <div className="mt-4 flex justify-center">
           <div

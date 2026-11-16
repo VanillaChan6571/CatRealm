@@ -11,6 +11,8 @@ import {
   MessagesSquare,
   Film,
   ShieldCheck,
+  CircleDot,
+  SquareKanban,
 } from 'lucide-react-native';
 import { useTheme } from '@/theme';
 import type { ChannelType } from '@/types';
@@ -37,6 +39,10 @@ export function ChannelIcon({ type, size = 16, color }: ChannelIconProps) {
       return <Film size={size} color={c} />;
     case 'rules':
       return <ShieldCheck size={size} color={c} />;
+    case 'tracker':
+      return <CircleDot size={size} color={c} />;
+    case 'board':
+      return <SquareKanban size={size} color={c} />;
     case 'basic':
     default:
       return <Hash size={size} color={c} />;

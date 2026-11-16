@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getInitialDmConversation } from '../dmSelection';
+import { getActiveDmConversationForUser, getInitialDmConversation } from '../dmSelection';
 
 describe('getInitialDmConversation', () => {
   const conversations = [
@@ -17,5 +17,15 @@ describe('getInitialDmConversation', () => {
 
   it('returns null when there are no conversations', () => {
     expect(getInitialDmConversation([], null)).toBeNull();
+  });
+
+  it('does not treat the active announcement DM as the requested user conversation', () => {
+    const withAnnouncement = [
+      { id: 'official-system', otherUserId: 'official', otherUsername: 'CatRealm', otherAvatar: null, unreadCount: 0, lastMessageAt: 3, conversationKind: 'official_system' as const },
+      ...conversations,
+    ];
+
+    expect(getActiveDmConversationForUser(withAnnouncement, 'official-system', 'u2')).toBeNull();
+    expect(getActiveDmConversationForUser(withAnnouncement, 'conv-2', 'u2')?.id).toBe('conv-2');
   });
 });

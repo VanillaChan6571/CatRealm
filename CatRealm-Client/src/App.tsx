@@ -16,6 +16,7 @@ import { CentralConsentGate } from './components/auth/CentralConsentGate';
 import { AppLayout } from './components/layout/AppLayout';
 import { UpdateBanner } from './components/ui/UpdateBanner';
 import { SplashOverlay } from './components/ui/SplashOverlay';
+import { markStartup } from './lib/startupTiming';
 import { ConfirmDialog } from './components/ui/ConfirmDialog';
 import { DynamicImportBoundary } from './components/ui/DynamicImportBoundary';
 import { DebugHoverInspector } from './components/ui/DebugHoverInspector';
@@ -139,6 +140,14 @@ function FullApp() {
   }, [restoreSession]);
 
   useEffect(() => {
+    if (user) markStartup('renderer_user_known');
+  }, [user]);
+
+  useEffect(() => {
+    if (!splashOpaque) markStartup('renderer_app_revealed', { bypassed: bypassStartupSplash });
+  }, [splashOpaque, bypassStartupSplash]);
+
+  useEffect(() => {
     void window.electron?.setBackgroundMediaActive?.(hasBackgroundMedia).catch(() => {});
   }, [hasBackgroundMedia]);
 
@@ -147,12 +156,20 @@ function FullApp() {
       window.sessionStorage.removeItem(SOFT_RELOAD_SPLASH_BYPASS_KEY);
       return;
     }
-    // Fade out the startup splash after session restore has had time to run
-    const t1 = setTimeout(() => setSplashOpaque(false), 1700);
-    const t2 = setTimeout(() => setSplashShown(false), 2150);
+    // Runs after the restoreSession effect above (effects run in order), whose
+    // store update re-renders synchronously. Reveal the app once that frame has
+    // painted, so the signed-out screen never flashes behind the splash.
+    let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        setSplashOpaque(false);
+        // Matches SplashOverlay's 400ms opacity transition.
+        fadeTimer = setTimeout(() => setSplashShown(false), 450);
+      });
+    });
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
+      cancelAnimationFrame(frame);
+      if (fadeTimer) clearTimeout(fadeTimer);
     };
   }, [bypassStartupSplash]);
 

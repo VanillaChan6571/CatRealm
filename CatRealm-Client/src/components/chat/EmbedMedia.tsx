@@ -1,6 +1,8 @@
 import React from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { isKlipyMediaUrl } from './KlipyFavoriteButton';
+import { InlineChatVideo } from './InlineChatVideo';
+import type { MediaViewerPlayback } from '../../lib/chatMedia';
 
 const ANIMATED_IMAGE_RE = /\.(gif|webp|apng)(\?|$)/i;
 
@@ -52,17 +54,23 @@ export function EmbedImage({ src, alt, className }: { src: string; alt: string; 
 }
 
 /** Animated (GIF-style) preview videos loop muted like desktop GIFs unless the user disabled it. */
-export function PreviewVideo({ src, animated }: { src: string; animated: boolean }) {
+export function PreviewVideo({
+  src,
+  animated,
+  onExpand,
+}: {
+  src: string;
+  animated: boolean;
+  onExpand?: (playback: MediaViewerPlayback) => void;
+}) {
   const disabled = useSettingsStore((s) => s.disableEmbedAutoplay);
   const loop = animated && !disabled;
   return (
-    <video
+    <InlineChatVideo
+      key={loop ? 'loop' : 'controls'}
       src={src}
-      controls={!loop}
-      autoPlay={loop}
-      muted={loop}
-      loop={loop}
-      playsInline={loop}
+      loopMuted={loop}
+      onExpand={onExpand}
       className="max-w-md rounded-t bg-black"
     />
   );

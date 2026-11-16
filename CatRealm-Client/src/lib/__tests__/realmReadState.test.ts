@@ -23,7 +23,7 @@ describe('mergeReadState', () => {
 describe('seedRealmReadState', () => {
   beforeEach(() => {
     get.mockReset();
-    useChannelStore.setState({ unreadByChannel: {}, activeChannelId: 'open' });
+    useChannelStore.setState({ unreadByChannel: {}, prefsByChannel: {}, activeChannelId: 'open' });
     useServerStore.setState({ activeServerUrl: 'https://active.example', snapshots: {} });
   });
 
@@ -34,6 +34,17 @@ describe('seedRealmReadState', () => {
 
     await seedRealmReadState('https://other.example', 't');
     expect(useServerStore.getState().snapshots['https://other.example'].unreadByChannel).toEqual({ a: 3, open: 1 });
+  });
+
+  it('restores muted channel preferences for active and background realms', async () => {
+    useServerStore.setState({ activeServerUrl: 'https://fresh-active.example' });
+    get.mockResolvedValue({ data: { channels: { voice: { ...unread(1, true), lastReadAt: 12 } } } });
+    await seedRealmReadState('https://fresh-active.example', 't');
+    expect(useChannelStore.getState().prefsByChannel.voice).toEqual({ muted: true, lastReadAt: 12 });
+
+    await seedRealmReadState('https://background.example', 't');
+    expect(useServerStore.getState().snapshots['https://background.example'].prefsByChannel.voice)
+      .toEqual({ muted: true, lastReadAt: 12 });
   });
 
   it('throttles repeat seeds and stops asking realms that lack the endpoint', async () => {

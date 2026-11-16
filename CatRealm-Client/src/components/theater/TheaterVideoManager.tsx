@@ -83,27 +83,82 @@ export function setTheaterFullscreenActive(active: boolean) {
   _fullscreenListeners.forEach((fn) => fn());
 }
 
+type SlotRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+// How often to re-check the slot position for moves nothing else reports
+// (a sibling changing size shifts the slot without resizing it).
+const SLOT_FALLBACK_POLL_MS = 500;
+
 function useSlotRect() {
-  const [rect, setRect] = useState<DOMRect | null>(null);
-  const intervalRef = useRef<number>(0);
+  const [rect, setRect] = useState<SlotRect | null>(null);
 
   useEffect(() => {
-    // Notify immediately when the slot element changes
+    let observed: HTMLElement | null = null;
+    let pollTimer = 0;
+    let frame = 0;
+
+    // Keep the previous object when nothing moved, so measuring never
+    // re-renders the player on its own.
+    const measure = () => {
+      const next = _slotEl ? _slotEl.getBoundingClientRect() : null;
+      setRect((prev) => {
+        if (!next) return prev === null ? prev : null;
+        if (
+          prev
+          && prev.left === next.left
+          && prev.top === next.top
+          && prev.width === next.width
+          && prev.height === next.height
+        ) {
+          return prev;
+        }
+        return { left: next.left, top: next.top, width: next.width, height: next.height };
+      });
+    };
+
+    const scheduleMeasure = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        measure();
+      });
+    };
+
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(scheduleMeasure);
+
+    // Only watch while a slot is mounted; with no theater in view this is idle.
     const onSlotChange = () => {
-      setRect(_slotEl ? _slotEl.getBoundingClientRect() : null);
+      if (observed) resizeObserver?.unobserve(observed);
+      observed = _slotEl;
+      window.clearInterval(pollTimer);
+      pollTimer = 0;
+      if (observed) {
+        resizeObserver?.observe(observed);
+        pollTimer = window.setInterval(measure, SLOT_FALLBACK_POLL_MS);
+      }
+      measure();
     };
     _slotListeners.add(onSlotChange);
 
-    // Poll at 10 fps to track scroll / resize without needing ResizeObserver
-    intervalRef.current = window.setInterval(() => {
-      setRect(_slotEl ? _slotEl.getBoundingClientRect() : null);
-    }, 100);
+    window.addEventListener('resize', scheduleMeasure);
+    window.addEventListener('scroll', scheduleMeasure, true);
 
     onSlotChange(); // sync immediately on mount
 
     return () => {
       _slotListeners.delete(onSlotChange);
-      window.clearInterval(intervalRef.current);
+      window.removeEventListener('resize', scheduleMeasure);
+      window.removeEventListener('scroll', scheduleMeasure, true);
+      resizeObserver?.disconnect();
+      window.clearInterval(pollTimer);
+      if (frame) window.cancelAnimationFrame(frame);
     };
   }, []);
 

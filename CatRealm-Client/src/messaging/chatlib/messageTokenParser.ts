@@ -1,5 +1,22 @@
 import { normalizeExpressionName, normalizeServerOrigin, normalizeTokenOwnerId } from '../../lib/expressions';
 import { isHttpGatewayRealm } from '../../lib/httpRealmGateway';
+import { shouldDeferPassiveLocalNetworkRequest } from '../../lib/localNetworkAccess';
+import { useServerStore } from '../../stores/serverStore';
+
+function mayLoadRealmAsset(url: string): boolean {
+  if (!shouldDeferPassiveLocalNetworkRequest(url)) return true;
+  const activeUrl = useServerStore.getState().activeServerUrl;
+  if (!activeUrl) return false;
+  try {
+    return new URL(url).origin === new URL(activeUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function allowedRealmAssetUrl(url: string): string | null {
+  return mayLoadRealmAsset(url) ? url : null;
+}
 
 export const MESSAGE_TOKEN_REGEX = /\[\[(emote|sticker):([^|\]]+)\|([^\]]+)\]\]|:(https?:\/\/[^\s:]+(?::\d{1,5})?):(?:(sticker):)?([a-z0-9_-]{1,64})(?::([a-z0-9_-]{3,128}))?:|:(?:(sticker):)?([a-z0-9_-]{1,64})(?::([a-z0-9_-]{3,128}))?:/gi;
 export const COMPACT_EMOTE_TOKEN_REGEX = /:(https?:\/\/[^\s:]+(?::\d{1,5})?):(?:(sticker):)?([a-z0-9_-]{1,64})(?::([a-z0-9_-]{3,128}))?:|:(?:(sticker):)?([a-z0-9_-]{1,64})(?::([a-z0-9_-]{3,128}))?:/gi;
@@ -199,17 +216,17 @@ function resolveExpressionAssetUrl(item: ExpressionManifestItem, serverOrigin: s
     const lowerOrEqual = availableSizes.filter((size) => size <= preferredSize);
     const chosen = exact ?? (lowerOrEqual.length > 0 ? lowerOrEqual[lowerOrEqual.length - 1] : availableSizes[0]);
     const chosenKey = String(chosen);
-    if (absoluteVariants[chosenKey]) return absoluteVariants[chosenKey];
+    if (absoluteVariants[chosenKey]) return allowedRealmAssetUrl(absoluteVariants[chosenKey]);
     if (relativeVariants[chosenKey]) {
-      return /^https?:\/\//i.test(relativeVariants[chosenKey])
+      return allowedRealmAssetUrl(/^https?:\/\//i.test(relativeVariants[chosenKey])
         ? relativeVariants[chosenKey]
-        : `${serverOrigin}${relativeVariants[chosenKey]}`;
+        : `${serverOrigin}${relativeVariants[chosenKey]}`);
     }
   }
 
-  if (item.absolute_url) return item.absolute_url;
-  if (/^https?:\/\//i.test(item.file_url)) return item.file_url;
-  return `${serverOrigin}${item.file_url}`;
+  if (item.absolute_url) return allowedRealmAssetUrl(item.absolute_url);
+  if (/^https?:\/\//i.test(item.file_url)) return allowedRealmAssetUrl(item.file_url);
+  return allowedRealmAssetUrl(`${serverOrigin}${item.file_url}`);
 }
 
 export async function loadServerEmoteLookup(
@@ -217,6 +234,7 @@ export async function loadServerEmoteLookup(
   neededNames: readonly string[] = [],
 ): Promise<CompactExpressionLookup | null> {
   if (isHttpGatewayRealm(serverOrigin)) return null;
+  if (!mayLoadRealmAsset(serverOrigin)) return null;
   if (emoteLookupInflight.has(serverOrigin)) return emoteLookupInflight.get(serverOrigin) as Promise<CompactExpressionLookup | null>;
   if (lookupRefetchDelayMs(emoteLookupCache, serverOrigin, neededNames) !== 0) return emoteLookupCache.get(serverOrigin) ?? null;
 
@@ -284,6 +302,7 @@ export async function loadPersonalExpressionLookup(
   ownerId: string,
   neededNames: readonly string[] = [],
 ): Promise<CompactExpressionLookup | null> {
+  if (!mayLoadRealmAsset(origin)) return null;
   const key = makePersonalLookupKey(origin, ownerId);
   if (personalLookupInflight.has(key)) return personalLookupInflight.get(key) as Promise<CompactExpressionLookup | null>;
   if (lookupRefetchDelayMs(personalLookupCache, key, neededNames) !== 0) return personalLookupCache.get(key) ?? null;

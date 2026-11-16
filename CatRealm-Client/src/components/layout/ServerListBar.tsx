@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useServerStore, normalizeServerPrefs } from '../../stores/serverStore';
 import type { ServerEntry, ServerFolder } from '../../stores/serverStore';
 import { resolveServerIcon } from '../../lib/serverIcon';
+import { shouldDeferPassiveLocalNetworkRequest } from '../../lib/localNetworkAccess';
 import { useUIStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useDMStore } from '../../stores/dmStore';
@@ -381,7 +382,7 @@ export function ServerListBar({ onNavigateToHomeTab }: ServerListBarProps) {
     const showMentions = !isActive && !prefs.muted && counts.mentions > 0;
     const showUnread = !isActive && !prefs.muted && prefs.badgeMode === 'all' && counts.nonMentionUnread > 0;
     const letter = getServerInitial(server.name);
-    const resolvedIcon = resolveServerIcon(server);
+    const resolvedIcon = resolveServerIcon(server, isActive);
     const status = serverStatus[server.url] ?? 'idle';
     const isOffline = status === 'disconnected' && !getSocket(server.url)?.connected;
     const isMergeTarget = hoverMergeTarget === `server:${server.url}`;
@@ -483,7 +484,9 @@ export function ServerListBar({ onNavigateToHomeTab }: ServerListBarProps) {
               ? 'bg-accent rounded-xl text-white'
               : 'bg-bg-sidebar text-text-secondary hover:bg-accent hover:text-white hover:rounded-xl'
           } ${isMergeTarget ? 'ring-2 ring-accent' : ''} ${isDragging ? 'opacity-50' : ''}`}
-          title={server.name}
+          title={shouldDeferPassiveLocalNetworkRequest(server.url)
+            ? `${server.name} — connect to local server (your browser may ask for local network access)`
+            : server.name}
         >
           {resolvedIcon ? (
             <img src={resolvedIcon} alt={server.name} className="w-full h-full rounded-inherit object-cover" />

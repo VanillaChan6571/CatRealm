@@ -20,7 +20,7 @@ export function MessageActionDrawer() {
   const closeModal = useUIStore((s) => s.closeModal);
   const openModal = useUIStore((s) => s.openModal);
   const { pinMessage, unpinMessage } = useMessageStore();
-  const createThread = useThreadStore((s) => s.createThread);
+  const startThreadDraft = useThreadStore((s) => s.startThreadDraft);
 
   if (activeModal !== 'messageActions' || !modalData) return null;
 
@@ -56,7 +56,7 @@ export function MessageActionDrawer() {
   };
 
   const handleThread = () => {
-    createThread(message.channel_id, message.id, `Thread: ${message.username}`);
+    startThreadDraft(message);
     closeModal();
   };
 

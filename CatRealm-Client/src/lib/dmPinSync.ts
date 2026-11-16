@@ -20,6 +20,7 @@ interface SyncedDmPin {
 let initialized = false;
 let hydrated = false;
 let lastSig = '';
+let lastCount = 0;
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 const PUSH_DEBOUNCE_MS = 1200;
 
@@ -58,12 +59,13 @@ function schedulePush(pins: SyncedDmPin[]) {
 export async function hydrateDmPinsFromCentral() {
   if (isCentral()) {
     try {
-      const res = await createAuthenticatedApi().get<{ pins: SyncedDmPin[] }>('/api/user-settings/pinned-dms');
+      const res = await createAuthenticatedApi().get<{ pins: SyncedDmPin[]; stored?: boolean }>('/api/user-settings/pinned-dms');
       const pins = Array.isArray(res.data?.pins) ? res.data.pins : [];
       const localDm = dmPinsOf(usePinnedStore.getState().pinnedItems);
-      if (pins.length === 0 && localDm.length > 0) {
+      if (pins.length === 0 && localDm.length > 0 && !res.data?.stored) {
         // Central has no record yet — seed it from this device rather than
-        // wiping the user's existing local pins on first run.
+        // wiping the user's existing local pins on first run. A stored empty
+        // list means everything was unpinned and must not be re-seeded.
         void pushToCentral(localDm);
       } else {
         usePinnedStore.getState().setDmPins(pins);
@@ -73,7 +75,9 @@ export async function hydrateDmPinsFromCentral() {
     }
   }
   hydrated = true;
-  lastSig = signatureOf(dmPinsOf(usePinnedStore.getState().pinnedItems));
+  const current = dmPinsOf(usePinnedStore.getState().pinnedItems);
+  lastSig = signatureOf(current);
+  lastCount = current.length;
 }
 
 /** Subscribe to local DM pin changes and push them to Central (once). */
@@ -85,8 +89,17 @@ export function initDmPinSync() {
     const sig = signatureOf(pins);
     if (sig === lastSig) return;
     lastSig = sig;
+    const countChanged = pins.length !== lastCount;
+    lastCount = pins.length;
     // Don't echo the locally-restored state back before the first central pull.
     if (!hydrated) return;
-    schedulePush(pins);
+    if (countChanged) {
+      // Pin/unpin: push now so a reload right after can't restore the old list.
+      if (pushTimer) clearTimeout(pushTimer);
+      pushTimer = null;
+      void pushToCentral(pins);
+    } else {
+      schedulePush(pins); // reorder: debounce drag churn
+    }
   });
 }

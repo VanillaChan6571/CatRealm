@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import { type ComponentType, useRef } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme';
@@ -15,8 +15,9 @@ export interface ActionMenuItem {
 
 /**
  * Bottom-sheet list of icon + label actions, for menus that replace a row of
- * header icons or a system alert. The sheet closes before the action runs so
- * a picker or another sheet can open cleanly behind it.
+ * header icons or a system alert. The chosen action runs only once the sheet
+ * has fully closed, so a system picker or another sheet it opens isn't
+ * presented on top of the closing modal and torn down along with it.
  */
 export function ActionMenuSheet({
   open,
@@ -41,8 +42,14 @@ export function ActionMenuSheet({
     BODY_BOTTOM_PADDING +
     Math.max(24, insets.bottom + 8);
   const heightFraction = Math.min(0.85, contentHeight / windowHeight);
+  const chosen = useRef<(() => void) | null>(null);
+  const runChosen = () => {
+    const action = chosen.current;
+    chosen.current = null;
+    action?.();
+  };
   return (
-    <Sheet open={open} onClose={onClose} maxHeightFraction={heightFraction}>
+    <Sheet open={open} onClose={onClose} onClosed={runChosen} maxHeightFraction={heightFraction}>
       <View style={styles.body}>
         {title ? (
           <Text variant="caption" color={theme.colors.text3} style={styles.title}>
@@ -56,8 +63,8 @@ export function ActionMenuSheet({
             accessibilityRole="button"
             accessibilityLabel={label}
             onPress={() => {
+              chosen.current = onPress;
               onClose();
-              onPress();
             }}
             style={[
               styles.row,

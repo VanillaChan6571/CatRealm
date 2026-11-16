@@ -14,6 +14,8 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useNotificationStore, type CentralNotification } from '../../messaging/notifications/notificationStore';
 import { createApi } from '../../lib/api';
 import { isHttpGatewayRealm } from '../../lib/httpRealmGateway';
+import { passiveImageUrl } from '../../lib/localNetworkAccess';
+import { resolveServerIcon } from '../../lib/serverIcon';
 import { AUTH_BASE, createAuthenticatedApi } from '../../lib/authApi';
 import { writeClipboardText } from '../../lib/clipboard';
 import { getSocket } from '../../lib/socket';
@@ -37,6 +39,8 @@ import { ChatLoadingSkeleton } from '../chat/ChatLoadingSkeleton';
 import { GroupChatMessageRow } from '../chat/GroupChatMessageRow';
 import { MessageContextMenu } from '../chat/MessageContextMenu';
 import { SystemMessageRow } from '../chat/SystemMessageRow';
+import { InlineChatVideo } from '../chat/InlineChatVideo';
+import type { MediaViewerPlayback } from '../../lib/chatMedia';
 const GroupCallPanel = lazy(() => import('../calls/GroupCallPanel').then(m => ({ default: m.GroupCallPanel })));
 import { SharedComposerShell } from '../chat/SharedComposerShell';
 import { ComposerFileButton, ComposerIconButton, ComposerSendButton } from '../chat/ComposerActionButtons';
@@ -465,7 +469,7 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
         deduped.set(entry.url, {
           url: entry.url,
           name: entry.name || entry.info?.name || entry.url,
-          icon: entry.icon || entry.info?.serverIcon || undefined,
+          icon: resolveServerIcon(entry, currentServerUrl === entry.url) ?? undefined,
           token: entry.token,
           isCurrent: currentServerUrl === entry.url,
         });
@@ -701,7 +705,13 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
           ...(queryText && queryText.trim() ? { query: queryText.trim() } : {}),
         },
       });
-      setDiscoverEntries(Array.isArray(response.data) ? response.data as DiscoveryEntry[] : []);
+      setDiscoverEntries(Array.isArray(response.data)
+        ? (response.data as DiscoveryEntry[]).map((entry) => ({
+            ...entry,
+            serverIcon: passiveImageUrl(entry.serverIcon),
+            serverBanner: passiveImageUrl(entry.serverBanner),
+          }))
+        : []);
     } catch (err: any) {
       setDiscoverError(err?.response?.data?.error || 'Failed to load discoverable servers');
     } finally {
@@ -900,7 +910,7 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
           return {
             url: server.url,
             name: server.name,
-            icon: server.icon || null,
+            icon: passiveImageUrl(server.icon),
             published: false,
             inviteCode: null,
             inviteUrl: null,
@@ -915,7 +925,7 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
           return {
             url: server.url,
             name: server.name,
-            icon: server.icon || null,
+            icon: passiveImageUrl(server.icon),
             published: Boolean(response.data.published),
             inviteCode: response.data.inviteCode || null,
             inviteUrl: response.data.inviteUrl || null,
@@ -1708,7 +1718,7 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
     );
     const isSpoilerOnly = !isRevealed && !!(message.nsfwTags?.includes('spoiler')) && (message.nsfwTags?.length ?? 0) === 1;
     const nsfwSubtagLabels = getNsfwSubtagLabels(message.nsfwTags);
-    const openGroupMedia = () => {
+    const openGroupMedia = (playback?: MediaViewerPlayback) => {
       openModal('mediaViewer', {
         url: resolvedUrl,
         type: mime || null,
@@ -1717,6 +1727,7 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
         avatarUrl: resolveAvatarUrl(message.senderAvatar, AUTH_BASE, 'central'),
         createdAt: message.createdAt ? Math.floor(message.createdAt / 1000) : null,
         size: message.attachmentSize ?? null,
+        playback,
       });
     };
 
@@ -1759,20 +1770,15 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
     if (mime.startsWith('video/')) {
       return (
         <div className="relative inline-block max-w-xl">
-          <video
+          <InlineChatVideo
             src={resolvedUrl}
-            controls
-            preload="metadata"
-            className={`mt-2 max-w-xl max-h-96 rounded-lg border border-border bg-black cursor-zoom-in transition-all ${
+            wrapperClassName="mt-2"
+            className={`max-w-xl max-h-96 rounded-lg border border-border bg-black transition-all ${
               shouldBlurAttachment ? 'blur-md brightness-50' : ''
             }`}
-            onClick={() => {
-              if (shouldBlurAttachment) {
-                setRevealedGroupMediaByMessageId((prev) => ({ ...prev, [message.id]: true }));
-                return;
-              }
-              openGroupMedia();
-            }}
+            onExpand={openGroupMedia}
+            downloadName={message.attachmentName ?? null}
+            hideControls={shouldBlurAttachment}
           />
           {shouldBlurAttachment && (
             <button

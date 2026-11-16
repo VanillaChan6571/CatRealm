@@ -1,10 +1,8 @@
-import { useCallback, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useState } from 'react';
+import type React from 'react';
 import { createApi } from '../../lib/api';
 import { createAuthenticatedApi } from '../../lib/authApi';
-import { useContentSocialStore } from '../../stores/contentSocialStore';
-import { useUIStore } from '../../stores/uiStore';
-import { isAllowedExternalUrl, openProtectedExternalUrl } from '../../utils/externalLinks';
+import { MessageFormatter } from '../chat/MessageFormatter';
 import { useTranslation } from 'react-i18next';
 
 interface ProfileBioEditorProps {
@@ -14,51 +12,9 @@ interface ProfileBioEditorProps {
   onUpdate: (newBio: string) => void;
 }
 
-const BIO_URL_REGEX = /https?:\/\/[^\s]+/gi;
-
-function renderBioWithLinks(
-  text: string,
-  isLinkAllowed: (url: string) => boolean,
-  onLinkClick?: (url: string, e: React.MouseEvent<HTMLAnchorElement>) => void
-): ReactNode[] {
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-  const matches = [...text.matchAll(BIO_URL_REGEX)];
-
-  matches.forEach((match, idx) => {
-    const url = match[0];
-    const start = match.index ?? -1;
-    if (start < 0) return;
-
-    if (start > lastIndex) {
-      parts.push(<span key={`text-${idx}`}>{text.slice(lastIndex, start)}</span>);
-    }
-
-    const allowed = isLinkAllowed(url);
-    parts.push(
-      <a
-        key={`url-${idx}`}
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className={allowed
-          ? 'text-accent hover:underline break-all'
-          : 'text-red-400 hover:text-red-300 hover:underline decoration-red-400/70 break-all'
-        }
-        onClick={(e) => onLinkClick?.(url, e)}
-      >
-        {allowed ? url : <><span aria-hidden="true">⚠ </span>{url}</>}
-      </a>
-    );
-
-    lastIndex = start + url.length;
-  });
-
-  if (lastIndex < text.length) {
-    parts.push(<span key="text-tail">{text.slice(lastIndex)}</span>);
-  }
-
-  return parts;
+/** Bios use the same markdown as messages (bold, italics, protected links…), without embeds. */
+function BioText({ text }: { text: string }) {
+  return <MessageFormatter text={text} allowLinks allowEmbeds={false} />;
 }
 
 export function ProfileBioEditor({
@@ -68,8 +24,6 @@ export function ProfileBioEditor({
   onUpdate,
 }: ProfileBioEditorProps) {
   const { t } = useTranslation();
-  const openModal = useUIStore((s) => s.openModal);
-  const customAllowedDomains = useContentSocialStore((s) => s.customAllowedDomains);
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(bio || '');
   const [isSaving, setIsSaving] = useState(false);
@@ -97,29 +51,16 @@ export function ProfileBioEditor({
     setIsEditing(false);
   };
 
-  const handleOpenLink = (url: string) => {
-    openProtectedExternalUrl(url, openModal);
-  };
-
-  const isLinkAllowed = useCallback((url: string) => isAllowedExternalUrl(url), [customAllowedDomains]);
-
-  const handleViewerBioLinkClick = (url: string, e: React.MouseEvent<HTMLAnchorElement>) => {
+  // In your own bio a plain click on a link enters edit mode, like the rest of the box;
+  // Ctrl/Cmd-click falls through to the link, which opens it behind the usual safety check.
+  const handleOwnBioClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    const link = (e.target as HTMLElement).closest('a');
+    if (!link || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
     e.stopPropagation();
-    handleOpenLink(url);
-  };
-
-  const handleOwnBioLinkClick = (url: string, e: React.MouseEvent<HTMLAnchorElement>) => {
-    const modifierHeld = e.ctrlKey || e.metaKey;
-    if (modifierHeld) {
-      // Keep modal in view mode when intentionally opening a link.
-      e.preventDefault();
-      e.stopPropagation();
-      handleOpenLink(url);
-      return;
-    }
-    // In editable bios, normal click should still enter edit mode.
-    e.preventDefault();
+    setDraft(bio || '');
+    setSaveError(null);
+    setIsEditing(true);
   };
 
   if (!isOwnProfile) {
@@ -128,7 +69,7 @@ export function ProfileBioEditor({
         <label className="text-xs text-text-muted font-semibold">{t('profile.bio')}</label>
         <div className="rounded border border-border bg-bg-input p-3 text-sm text-text-secondary whitespace-pre-wrap min-h-[60px]">
           {bio?.trim()
-            ? renderBioWithLinks(bio.trim(), isLinkAllowed, handleViewerBioLinkClick)
+            ? <BioText text={bio.trim()} />
             : <span className="text-text-muted italic">{t('profile.noBioSet')}</span>}
         </div>
       </div>
@@ -180,10 +121,11 @@ export function ProfileBioEditor({
       <label className="text-xs text-text-muted font-semibold">{t('profile.bio')}</label>
       <div
         onClick={() => { setDraft(bio || ''); setSaveError(null); setIsEditing(true); }}
+        onClickCapture={handleOwnBioClickCapture}
         className="rounded border border-border bg-bg-input p-3 text-sm text-text-secondary whitespace-pre-wrap min-h-[60px] cursor-text hover:border-accent/50 transition-colors"
       >
         {bio?.trim()
-          ? renderBioWithLinks(bio.trim(), isLinkAllowed, handleOwnBioLinkClick)
+          ? <BioText text={bio.trim()} />
           : <span className="text-text-muted italic">{t('profile.clickAddBio')}</span>}
       </div>
     </div>

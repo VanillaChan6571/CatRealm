@@ -99,7 +99,9 @@ export const ChannelMessageRow = memo(function ChannelMessageRow({
       {isGrouped ? (
         <View style={styles.avatarPlaceholder} />
       ) : (
-        <Pressable haptic onPress={() => onAvatarPress(message.user_id)}>
+        // minHit matches the avatar so a grouped follow-up's 36pt spacer lines its text up with
+        // this one (the default 44pt minimum widened the column); hitSlop keeps the tap target big.
+        <Pressable haptic minHit={36} onPress={() => onAvatarPress(message.user_id)}>
           <Avatar
             username={message.username}
             uri={message.avatar}

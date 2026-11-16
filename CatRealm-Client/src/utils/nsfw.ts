@@ -52,6 +52,8 @@ export function getNsfwSubtagLabels(tags: string[] | undefined | null): string[]
       pushUnique('Spoiler');
       continue;
     }
+    // The realm's plain "this is NSFW" mark carries no sub-category to list.
+    if (tag === 'nsfw') continue;
     if (tag === 'lewd' || tag === 'sexual') {
       pushUnique('Lewd');
       continue;

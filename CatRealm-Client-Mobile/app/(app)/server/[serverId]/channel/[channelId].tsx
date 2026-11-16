@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { View, FlatList, StyleSheet, ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, TouchableOpacity, Pressable as RNPressable, TextInput, Alert, Share, Image } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useComposerKeyboardInset } from '@/hooks/useComposerKeyboardInset';
 import { dismissKeyboard } from '@/lib/dismissKeyboard';
@@ -18,6 +18,9 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { ActionMenuSheet, SecureServerInfoModal, Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, MessageActionSheet, MessageReactionsSheet, SafetyReportSheet, type SafetyReportTarget, Sheet, ServerRulesView, ForumChannelView, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { VoiceChannelContent } from '@/components/VoiceChannelContent';
+import { ChannelIcon } from '@/components/ChannelIcon';
+import { TrackerChannelView } from '@/components/workitems/TrackerChannelView';
+import { BoardChannelView } from '@/components/workitems/BoardChannelView';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
 import { useChannelStore } from '@/stores/channelStore';
@@ -35,6 +38,8 @@ import type { ComposerSendOptions } from '@/components/MobileComposer';
 import { hasChannelPermission, PERMISSIONS } from '@/utils/permissions';
 import { ChannelMessageRow } from '@/components/ChannelMessageRow';
 import { useDeviceLayout } from '@/hooks/useDeviceLayout';
+import { TABLET_LEFT_COLUMN_WIDTH } from '@/components/tablet/TabletShell';
+import { TABLET_RIGHT_PANE_WIDTH, tabletRightPaneDocked } from '@/lib/tabletPaneLayout';
 import { DOCK_HEIGHT, dockBottomInset } from '@/lib/dockLayout';
 import { markRealmChannelRead } from '@/lib/realmReadState';
 import { ServerMentionProvider } from '@/components/MentionText';
@@ -48,6 +53,9 @@ const EMPTY_CATEGORIES: { id: string; name: string; position: number }[] = [];
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_TYPING_USERS: string[] = [];
 const EMPTY_MEMBERS: OnlineUser[] = [];
+// Each channel is its own screen, so the tablet right pane would otherwise start at its final
+// state and never animate on a channel change. The next screen starts from where this one was.
+let lastTabletPaneShown: boolean | null = null;
 
 type MemberEntry = OnlineUser & {
   offline?: boolean;
@@ -294,7 +302,9 @@ export default function ChannelRoute() {
 function ChannelScreen() {
   const theme = useTheme();
   const { t } = useTranslation();
-  const { isTablet } = useDeviceLayout();
+  const { isTablet, width: windowWidth } = useDeviceLayout();
+  // Beside the chat when it fits (landscape); over the chat when it would squeeze it (portrait).
+  const rightPaneDocked = tabletRightPaneDocked(windowWidth, TABLET_LEFT_COLUMN_WIDTH);
   const insets = useSafeAreaInsets();
   // Tablet side panes run under the bottom dock; keep their last rows scrollable above it.
   const paneListStyle = { paddingBottom: 16 + DOCK_HEIGHT + dockBottomInset(insets.bottom) };
@@ -326,6 +336,8 @@ function ChannelScreen() {
     [categoriesByServer, serverId],
   );
   const channel = channels.find((c) => c.id === channelId);
+  // Tracker and Board channels have no message stream; they render their own views.
+  const isWorkChannel = channel?.type === 'tracker' || channel?.type === 'board';
   const onlineMembers = serverId ? presenceOnlineUsers : EMPTY_MEMBERS;
 
   const messages = useMessageStore((s) => s.byChannel[channelId] ?? EMPTY_MESSAGES);
@@ -388,7 +400,7 @@ function ChannelScreen() {
   const [createThreadOpen, setCreateThreadOpen] = useState(false);
   const [createThreadName, setCreateThreadName] = useState('');
   const [createThreadLoading, setCreateThreadLoading] = useState(false);
-  const [tabletMembersVisible, setTabletMembersVisible] = useState(true);
+  const [tabletMembersVisible, setTabletMembersVisible] = useState(rightPaneDocked && channel?.type !== 'board');
   const [tabletRightPaneMode, setTabletRightPaneMode] = useState<'members' | 'threads' | 'pins'>('members');
   const [secureModeLockedFallback, setSecureModeLockedFallback] = useState(false);
   const createThreadMessageRef = useRef<Message | null>(null);
@@ -414,8 +426,9 @@ function ChannelScreen() {
   // A non-empty cache may contain only live socket messages, not history.
   // Fetch the latest page on entry and again when realm credentials arrive.
   useEffect(() => {
+    if (isWorkChannel) return;
     fetchChannelMessages();
-  }, [fetchChannelMessages]);
+  }, [fetchChannelMessages, isWorkChannel]);
 
   // iOS: phones translate the whole screen, tablets use KeyboardAvoidingView,
   // so the composer only needs its gap. Android lifts the composer itself.
@@ -438,11 +451,39 @@ function ChannelScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTablet]);
 
+  // Boards need the width for their lists, so the members pane starts closed there.
+  const isBoardChannel = channel?.type === 'board';
   useEffect(() => {
     if (!isTablet) return;
-    setTabletMembersVisible(true);
+    setTabletMembersVisible(rightPaneDocked && !isBoardChannel);
     setTabletRightPaneMode('members');
-  }, [isTablet, channelId, serverId]);
+  }, [isTablet, rightPaneDocked, channelId, serverId, isBoardChannel]);
+
+  // Docked, the pane's width animates on the UI thread so the channel content reflows with it
+  // (a transform alone left the content to snap into place). Its 280pt inner column never
+  // changes size, so the member list itself does not relayout. As an overlay the pane only
+  // slides. Once opened it stays mounted (display: none when hidden), so reopening skips the
+  // member list render.
+  const [paneStartsShown] = useState(() => lastTabletPaneShown ?? tabletMembersVisible);
+  const [paneLaidOut, setPaneLaidOut] = useState(paneStartsShown || tabletMembersVisible);
+  const [paneMounted, setPaneMounted] = useState(paneStartsShown || tabletMembersVisible);
+  const paneProgress = useSharedValue(paneStartsShown ? 1 : 0);
+  useEffect(() => {
+    if (!isTablet) return;
+    lastTabletPaneShown = tabletMembersVisible;
+    if (tabletMembersVisible) {
+      setPaneMounted(true);
+      setPaneLaidOut(true);
+      paneProgress.value = withTiming(1, { duration: 220 });
+    } else {
+      paneProgress.value = withTiming(0, { duration: 200 }, (finished) => {
+        if (finished) runOnJS(setPaneLaidOut)(false);
+      });
+    }
+  }, [isTablet, tabletMembersVisible, paneProgress]);
+  const paneSlideStyle = useAnimatedStyle(() => (rightPaneDocked
+    ? { width: paneProgress.value * TABLET_RIGHT_PANE_WIDTH, opacity: 0.4 + 0.6 * paneProgress.value }
+    : { opacity: paneProgress.value, transform: [{ translateX: (1 - paneProgress.value) * TABLET_RIGHT_PANE_WIDTH }] }));
 
   // Join channel + load initial messages on mount
   useEffect(() => {
@@ -783,7 +824,7 @@ function ChannelScreen() {
             style={[styles.channelTitle, { paddingLeft: theme.spacing.xs }]}
           >
             {/* No hamburger: the title itself opens the channel list. */}
-            <Hash size={18} color={theme.colors.text3} />
+            {channel ? <ChannelIcon type={channel.type} size={18} color={theme.colors.text3} /> : <Hash size={18} color={theme.colors.text3} />}
             <Text variant="subtitle" style={{ flex: 1 }} numberOfLines={1}>
               {channel?.name ?? channelId}
             </Text>
@@ -819,9 +860,11 @@ function ChannelScreen() {
           open={headerMenuOpen}
           onClose={() => setHeaderMenuOpen(false)}
           items={[
-            { key: 'search', label: t('server.searchAccessibility'), icon: Search, onPress: () => setSearchOpen(true) },
-            { key: 'threads', label: t('server.threadsAccessibility'), icon: MessageSquareText, onPress: openThreadsPanel },
-            { key: 'pins', label: t('server.pinnedAccessibility'), icon: Pin, onPress: openPinsPanel },
+            ...(isWorkChannel ? [] : [
+              { key: 'search', label: t('server.searchAccessibility'), icon: Search, onPress: () => setSearchOpen(true) },
+              { key: 'threads', label: t('server.threadsAccessibility'), icon: MessageSquareText, onPress: openThreadsPanel },
+              { key: 'pins', label: t('server.pinnedAccessibility'), icon: Pin, onPress: openPinsPanel },
+            ]),
             { key: 'members', label: t('server.membersAccessibility'), icon: Users, onPress: () => setMembersSheetOpen(true) },
           ]}
         />
@@ -859,7 +902,7 @@ function ChannelScreen() {
               >
                 <View style={styles.headerSideSpacer} />
                 <View style={styles.headerCenterTitle} pointerEvents="box-none">
-                  <Hash size={18} color={theme.colors.text3} />
+                  {channel ? <ChannelIcon type={channel.type} size={18} color={theme.colors.text3} /> : <Hash size={18} color={theme.colors.text3} />}
                   <Text variant="subtitle" numberOfLines={1} style={{ textAlign: 'center' }}>
                     {channel?.name ?? channelId}
                   </Text>
@@ -880,21 +923,25 @@ function ChannelScreen() {
                   )}
                 </View>
                 <View style={styles.headerActions}>
-                  <IconBtn
-                    icon={Search}
-                    accessibilityLabel={t('server.searchAccessibility')}
-                    onPress={() => setSearchOpen(true)}
-                  />
-                  <IconBtn
-                    icon={MessageSquareText}
-                    accessibilityLabel={t('server.threadsAccessibility')}
-                    onPress={openThreadsPanel}
-                  />
-                  <IconBtn
-                    icon={Pin}
-                    accessibilityLabel={t('server.pinnedAccessibility')}
-                    onPress={openPinsPanel}
-                  />
+                  {!isWorkChannel ? (
+                    <>
+                      <IconBtn
+                        icon={Search}
+                        accessibilityLabel={t('server.searchAccessibility')}
+                        onPress={() => setSearchOpen(true)}
+                      />
+                      <IconBtn
+                        icon={MessageSquareText}
+                        accessibilityLabel={t('server.threadsAccessibility')}
+                        onPress={openThreadsPanel}
+                      />
+                      <IconBtn
+                        icon={Pin}
+                        accessibilityLabel={t('server.pinnedAccessibility')}
+                        onPress={openPinsPanel}
+                      />
+                    </>
+                  ) : null}
                   <IconBtn
                     icon={Users}
                     accessibilityLabel={tabletMembersVisible && tabletRightPaneMode === 'members' ? t('server.hideRightPanel') : t('server.showMembers')}
@@ -917,6 +964,18 @@ function ChannelScreen() {
                 serverName={server?.name ?? ''}
                 serverIcon={server?.iconUrl}
               />
+            ) : channel?.type === 'tracker' ? (
+              <SwipeSidebarContainer onOpenSidebar={() => setChannelsSheetOpen(true)} disabled={isTablet}>
+                <View style={{ flex: 1, paddingBottom: insets.bottom }}>
+                  <TrackerChannelView key={channel.id} channel={channel} serverUrl={channelServerUrl} />
+                </View>
+              </SwipeSidebarContainer>
+            ) : channel?.type === 'board' ? (
+              <SwipeSidebarContainer onOpenSidebar={() => setChannelsSheetOpen(true)} disabled={isTablet}>
+                <View style={{ flex: 1, paddingBottom: insets.bottom }}>
+                  <BoardChannelView key={channel.id} channel={channel} serverUrl={channelServerUrl} />
+                </View>
+              </SwipeSidebarContainer>
             ) : channel?.type === 'forum' ? (
               <SwipeSidebarContainer onOpenSidebar={() => setChannelsSheetOpen(true)} disabled={isTablet}>
                 <ForumChannelView
@@ -1039,16 +1098,32 @@ function ChannelScreen() {
         )}
       </Animated.View>
       </KeyboardAvoidingView>
-      {isTablet && tabletMembersVisible && (
-        <View
+      {isTablet && tabletMembersVisible && !rightPaneDocked && (
+        <RNPressable
+          style={[StyleSheet.absoluteFill, styles.tabletRightPaneScrim]}
+          accessibilityRole="button"
+          accessibilityLabel={t('server.hideRightPanel')}
+          onPress={() => setTabletMembersVisible(false)}
+        />
+      )}
+      {isTablet && paneMounted && (
+        <Animated.View
+          pointerEvents={tabletMembersVisible ? 'auto' : 'none'}
           style={[
-            styles.tabletRightPane,
-            {
-              backgroundColor: theme.colors.bgSidebar,
-              borderLeftColor: theme.colors.lineSoft,
-            },
+            rightPaneDocked ? styles.tabletRightPaneDock : styles.tabletRightPaneOverlay,
+            !paneLaidOut && styles.tabletRightPaneHidden,
+            paneSlideStyle,
           ]}
         >
+          <View
+            style={[
+              styles.tabletRightPane,
+              {
+                backgroundColor: theme.colors.bgSidebar,
+                borderLeftColor: theme.colors.lineSoft,
+              },
+            ]}
+          >
           <View style={styles.tabletRightPaneHeader}>
             <Text variant="subtitle" style={styles.tabletPaneTitle}>
               {tabletRightPaneMode === 'members' ? t('chat.members') : tabletRightPaneMode === 'threads' ? t('chat.threads') : t('chat.pinnedMessages')}
@@ -1150,7 +1225,8 @@ function ChannelScreen() {
               />
             )
           )}
-        </View>
+          </View>
+        </Animated.View>
       )}
       </View>
 
@@ -1456,11 +1532,35 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  tabletRightPaneDock: {
+    // Clips the fixed-width column while the dock's width animates; the column hugs the right edge.
+    overflow: 'hidden',
+    alignItems: 'flex-end',
+  },
   tabletRightPane: {
-    width: 280,
+    flex: 1,
+    width: TABLET_RIGHT_PANE_WIDTH,
     borderLeftWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
     paddingTop: 10,
+  },
+  tabletRightPaneOverlay: {
+    width: TABLET_RIGHT_PANE_WIDTH,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    shadowOffset: { width: -4, height: 0 },
+  },
+  tabletRightPaneHidden: {
+    display: 'none',
+  },
+  tabletRightPaneScrim: {
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
   },
   tabletPaneTitle: {
     marginBottom: 8,

@@ -17,10 +17,12 @@ import { FileText, Play, Film, Mic, Star, X } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { ImagePlaceholder } from './ImagePlaceholder';
+import { isQuoteLine, isQuoteRestLine } from '@/lib/markdownQuotes';
 import { useImageReveal } from './FadeInImage';
 import type { MessageAttachment } from '@/types';
 import { type ExpressionLookup, resolveExpressionAsset } from '@/lib/expressionCache';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { imageLoadingProps } from '@/lib/imageLoading';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -204,7 +206,6 @@ function scan(text: string, lookup?: ExpressionLookup | null, primaryServerUrl?:
 const CODE_BLOCK_RE = /```(\w*)\n?([\s\S]*?)```/g;
 const HEADING_RE = /^(#{1,3})\s+(.+)$/;
 const LIST_RE = /^[-*]\s+(.+)$/;
-const BQ_LINE_RE = /^>\s?/;
 
 const IMG_PLACEHOLDER_RE = /<\?img(\d+)>/gi;
 
@@ -449,7 +450,7 @@ function addTextBlocks(out: Block[], text: string, lookup?: ExpressionLookup | n
     const line = lines[i];
 
     // >>> multi-line blockquote — consumes all remaining lines (matches desktop)
-    if (/^>>>\s*/.test(line)) {
+    if (isQuoteRestLine(line)) {
       flushPara(); flushList();
       const bqLines = [line.replace(/^>>>\s*/, ''), ...lines.slice(i + 1)];
       out.push({ b: 'blockquote', lines: bqLines.map((l) => scan(l, lookup, primaryServerUrl)) });
@@ -457,10 +458,10 @@ function addTextBlocks(out: Block[], text: string, lookup?: ExpressionLookup | n
     }
 
     // > single-line blockquote — collect consecutive > lines
-    if (BQ_LINE_RE.test(line) || line === '>') {
+    if (isQuoteLine(line)) {
       flushPara(); flushList();
       const bqLines: Span[][] = [];
-      while (i < lines.length && (BQ_LINE_RE.test(lines[i]) || lines[i] === '>')) {
+      while (i < lines.length && isQuoteLine(lines[i])) {
         const l = lines[i];
         const content = l.startsWith('> ') ? l.slice(2) : l.startsWith('>') ? l.slice(1) : '';
         bqLines.push(scan(content, lookup, primaryServerUrl));
@@ -782,6 +783,8 @@ function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, ser
   }, []);
 
   const { loaded, transition, markLoaded } = useImageReveal(displayUrl);
+  const smoothImageLoading = useSettingsStore((s) => s.smoothImageLoading);
+  const loadingProps = imageLoadingProps(smoothImageLoading, transition);
   const handleLoad = useCallback((e: ImageLoadEventData) => {
     const { width: w, height: h } = e.source;
     if (w > 0 && h > 0) setNaturalDim({ w, h });
@@ -795,7 +798,7 @@ function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, ser
     return (
       <View style={styles.imageWrap} onLayout={handleLayout}>
         <Pressable onPress={onReveal}>
-          <ExpoImage source={{ uri: imageUri }} style={[imageStyle, { opacity: 0.15 }]} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} blurRadius={20} onLoad={handleLoad} onError={markFailed} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
+          <ExpoImage source={{ uri: imageUri }} style={[imageStyle, { opacity: 0.15 }]} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} blurRadius={20} allowDownscaling={loadingProps.allowDownscaling} onLoad={handleLoad} onError={markFailed} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
           <View style={styles.nsfwOverlay}>
             <Text style={[styles.nsfwLabel, { color: theme.colors.text }]}>{nsfwLabels.length > 0 ? nsfwLabels.join(' · ') : 'NSFW'}</Text>
             <Text style={[styles.nsfwReveal, { color: theme.colors.text3 }]}>{t('chat.tapToReveal')}</Text>
@@ -811,7 +814,7 @@ function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, ser
         <Pressable onPress={() => onPress(block)} style={{ width: imageStyle.width, height: imageStyle.height }}>
           {!loaded && !allFailed && <ImagePlaceholder radius={8} mark style={{ width: imageStyle.width, height: imageStyle.height }} />}
           {allFailed && <ImageFailed width={imageStyle.width} height={imageStyle.height} />}
-          <ExpoImage source={{ uri: imageUri }} style={imageStyle} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} autoplay={autoplay} transition={transition} onLoad={handleLoad} onError={markFailed} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
+          <ExpoImage source={{ uri: imageUri }} style={imageStyle} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} autoplay={autoplay} transition={loadingProps.transition} allowDownscaling={loadingProps.allowDownscaling} onLoad={handleLoad} onError={markFailed} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
         </Pressable>
         <GifFavoriteStarOverlay url={block.url} mime={block.mime} />
       </View>
@@ -847,6 +850,8 @@ function GalleryImage({ img, index, shouldBlur, nsfwLabels, onReveal, onPress, s
   const displayUrl = img.thumbnailUrl ?? img.url;
   const { uri, allFailed, lockSource, markFailed } = useChatImageSource(displayUrl, img.url, imageScope ?? realmScope(serverUrl ?? displayUrl));
   const { loaded, transition, markLoaded } = useImageReveal(displayUrl);
+  const smoothImageLoading = useSettingsStore((s) => s.smoothImageLoading);
+  const loadingProps = imageLoadingProps(smoothImageLoading, transition);
   const handleLoad = useCallback(() => {
     lockSource();
     markLoaded();
@@ -855,7 +860,7 @@ function GalleryImage({ img, index, shouldBlur, nsfwLabels, onReveal, onPress, s
     <View style={{ width: GALLERY_THUMB, height: GALLERY_THUMB, borderRadius: 8, overflow: 'hidden' }}>
       {shouldBlur ? (
         <Pressable onPress={onReveal} style={{ flex: 1 }}>
-          <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB, opacity: 0.15 }} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} blurRadius={20} onLoad={handleLoad} onError={markFailed} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
+          <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB, opacity: 0.15 }} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} blurRadius={20} allowDownscaling={loadingProps.allowDownscaling} onLoad={handleLoad} onError={markFailed} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
           {index === 0 && (
             <View style={styles.nsfwOverlay}>
               <Text style={[styles.nsfwLabel, { color: theme.colors.text }]}>{nsfwLabels.length > 0 ? nsfwLabels.join(' · ') : 'NSFW'}</Text>
@@ -868,7 +873,7 @@ function GalleryImage({ img, index, shouldBlur, nsfwLabels, onReveal, onPress, s
           <Pressable onPress={() => onPress(img)} style={{ flex: 1 }}>
             {!loaded && !allFailed && <ImagePlaceholder mark />}
             {allFailed && <ImageFailed width={GALLERY_THUMB} height={GALLERY_THUMB} />}
-            <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB }} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} transition={transition} onLoad={handleLoad} onError={markFailed} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
+            <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB }} contentFit="cover" cachePolicy="disk" recyclingKey={displayUrl} transition={loadingProps.transition} allowDownscaling={loadingProps.allowDownscaling} onLoad={handleLoad} onError={markFailed} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
           </Pressable>
           <GifFavoriteStarOverlay url={img.url} mime={img.mime} />
         </View>

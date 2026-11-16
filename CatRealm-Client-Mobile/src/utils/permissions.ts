@@ -34,6 +34,29 @@ export function hasPermission(permissions: number | undefined, permission: numbe
   return (userBits & permissionBits) === permissionBits;
 }
 
+export function hasPermissionKey(permissionKeys: readonly string[] | undefined, key: string, legacyPermissions?: number) {
+  if (Array.isArray(permissionKeys)) {
+    return permissionKeys.includes('ADMINISTRATOR') || permissionKeys.includes(key);
+  }
+  const legacyBit = (PERMISSIONS as Record<string, number>)[key];
+  return typeof legacyBit === 'number' && hasPermission(legacyPermissions, legacyBit);
+}
+
+export function hasChannelPermissionKey(
+  userPermissionKeys: readonly string[] | undefined,
+  channelPermissionKeys: readonly string[] | undefined,
+  key: string,
+  userPermissions?: number,
+  channelPermissions?: number,
+) {
+  if (Array.isArray(channelPermissionKeys)) return hasPermissionKey(channelPermissionKeys, key);
+  if (typeof channelPermissions === 'number') {
+    const legacyBit = (PERMISSIONS as Record<string, number>)[key];
+    return typeof legacyBit === 'number' && hasPermission(channelPermissions, legacyBit);
+  }
+  return hasPermissionKey(userPermissionKeys, key, userPermissions);
+}
+
 export function hasChannelPermission(
   userPermissions: number | undefined,
   channelPermissions: number | undefined,

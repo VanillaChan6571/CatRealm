@@ -35,6 +35,7 @@ export interface User {
   role?: string;
   isOwner?: boolean;
   permissions?: number;
+  permissionKeys?: string[];
   accountType: 'local' | 'central';
   avatar?: string | null;
   banner?: string | null;
@@ -124,6 +125,7 @@ export interface Role {
   name: string;
   color: string | null;
   permissions: number;
+  permissionKeys?: string[];
   position: number;
   is_default: number;
   mentionable?: number | boolean;
@@ -137,7 +139,7 @@ export interface Channel {
   id: string;
   name: string;
   description: string | null;
-  type: 'basic' | 'media' | 'voice' | 'announcement' | 'forum' | 'theater' | 'rules';
+  type: 'basic' | 'media' | 'voice' | 'announcement' | 'forum' | 'theater' | 'rules' | 'tracker' | 'board';
   position: number;
   category_id?: string | null;
   created_at: number;
@@ -145,6 +147,7 @@ export interface Channel {
   defaultReaction?: string | null;
   nsfw?: boolean | number;
   effective_permissions?: number;
+  effective_permission_keys?: string[];
   forum_layout?: 'list' | 'gallery' | 'user_choice';
 }
 
@@ -250,6 +253,8 @@ export interface Thread {
   name: string;
   created_by: string;
   created_at: number;
+  /** Messages in the thread; sent by realm servers that list threads with a count. */
+  reply_count?: number;
 }
 
 export interface ForumPost {
@@ -621,3 +626,120 @@ export interface GroupChatMessage {
   scheduledAt?: number | null;
   safetyArtifacts?: SafetyArtifactVisibility[];
 }
+
+// ── Tracker issues and Board cards (channel types 'tracker' and 'board') ──────
+export interface WorkItemUser {
+  id: string;
+  username: string;
+  avatar: string | null;
+  account_type: 'local' | 'central' | 'bot';
+  display_name: string | null;
+}
+
+export interface WorkItemLabel {
+  id: string;
+  name: string;
+  color: string;
+}
+
+interface WorkItemBase {
+  id: string;
+  channel_id: string;
+  title: string;
+  body: string;
+  created_by: string | null;
+  author: WorkItemUser | null;
+  created_at: number;
+  updated_at: number;
+  label_ids: string[];
+  assignees: WorkItemUser[];
+  comment_count: number;
+}
+
+export interface TrackerIssue extends WorkItemBase {
+  number: number;
+  state: 'open' | 'in_progress' | 'blocked' | 'closed';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  due_at: number | null;
+  closed_at: number | null;
+  closed_by: string | null;
+}
+
+export interface BoardCard extends WorkItemBase {
+  list_id: string;
+  position: number;
+  due_at: number | null;
+  archived: boolean;
+}
+
+export interface BoardList {
+  id: string;
+  name: string;
+  position: number;
+  /** Optional banner shown above the list; a realm upload path or URL. */
+  cover_image: string | null;
+  /** Width the cover is drawn at, in px (height follows, up to a square); null fits the list's width. */
+  cover_size: number | null;
+  /** Optional small image shown beside the name. */
+  icon: string | null;
+  /** Hidden from everyone but board managers and the roles in role_ids. */
+  staff_only: boolean;
+  /** Extra roles that may see a staff-only list. Only sent to board managers. */
+  role_ids?: string[];
+}
+
+export interface WorkItemComment {
+  id: string;
+  item_id: string;
+  user_id: string | null;
+  author: WorkItemUser | null;
+  body: string;
+  created_at: number;
+  edited_at: number | null;
+}
+
+export interface WorkItemEvent {
+  id: string;
+  actor_id: string | null;
+  type: 'renamed' | 'closed' | 'reopened' | 'labels' | 'assignees' | 'moved' | 'archived' | 'restored' | 'state' | 'priority' | 'due_date' | 'attachment_added' | 'attachment_removed';
+  data: {
+    from?: string | number | null;
+    to?: string | number | null;
+    name?: string;
+    added?: string[];
+    removed?: string[];
+  } | null;
+  created_at: number;
+}
+
+export interface WorkItemAttachment {
+  id: string;
+  name: string;
+  url: string;
+  mime: string;
+  size: number;
+  uploaded_by: string | null;
+  created_at: number;
+}
+
+export interface WorkItemDetail {
+  comments: WorkItemComment[];
+  events: WorkItemEvent[];
+  attachments?: WorkItemAttachment[];
+  watching?: boolean;
+  watcher_count?: number;
+}
+
+/** What is drawn behind a board's lists: a voice-call style colour pattern or an image. */
+export type BoardBackground =
+  | { kind: 'pattern'; colors: string[]; pattern: 'radial' | 'linear' | 'diagonal' | 'stripes' | 'mesh'; animated: boolean; scene?: 'rings' | 'orbit' | 'particles' | 'pixels' | null }
+  | { kind: 'image'; image: string; fit?: boolean; stretch?: boolean; positionX?: number; positionY?: number };
+
+export interface WorkChannelSettings {
+  /** Shown at the top of the board; null = the channel's name. */
+  title: string | null;
+  background: BoardBackground | null;
+}
+
+export type BoardSettings = WorkChannelSettings;
+export type TrackerSettings = WorkChannelSettings;

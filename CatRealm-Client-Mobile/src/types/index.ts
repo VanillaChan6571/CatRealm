@@ -54,6 +54,7 @@ export interface User {
   role?: string;
   isOwner?: boolean;
   permissions?: number;
+  permissionKeys?: string[];
   accountType: AccountType;
   avatar?: string | null;
   banner?: string | null;
@@ -135,6 +136,7 @@ export interface Role {
   name: string;
   color: string | null;
   permissions: number;
+  permissionKeys?: string[];
   position: number;
   is_default: number;
   mentionable?: number | boolean;
@@ -144,7 +146,7 @@ export interface Role {
   style_colors?: string | null;
 }
 
-export type ChannelType = 'basic' | 'media' | 'voice' | 'announcement' | 'forum' | 'theater' | 'rules';
+export type ChannelType = 'basic' | 'media' | 'voice' | 'announcement' | 'forum' | 'theater' | 'rules' | 'tracker' | 'board';
 
 export interface Channel {
   id: string;
@@ -158,6 +160,7 @@ export interface Channel {
   defaultReaction?: string | null;
   nsfw?: boolean | number;
   effective_permissions?: number;
+  effective_permission_keys?: string[];
   forum_layout?: 'list' | 'gallery' | 'user_choice';
 }
 
@@ -486,3 +489,122 @@ export interface CentralRegPending {
   qrCode: string;
   manualCode: string;
 }
+
+// ── Tracker issues and Board cards (channel types 'tracker' and 'board') ──────
+// Mirrors CatRealm-Client/src/types/index.ts; realm server 1.9.5+.
+export interface WorkItemUser {
+  id: string;
+  username: string;
+  avatar: string | null;
+  account_type: 'local' | 'central' | 'bot';
+  display_name: string | null;
+}
+
+export interface WorkItemLabel {
+  id: string;
+  name: string;
+  color: string;
+}
+
+interface WorkItemBase {
+  id: string;
+  channel_id: string;
+  title: string;
+  body: string;
+  created_by: string | null;
+  author: WorkItemUser | null;
+  created_at: number;
+  updated_at: number;
+  label_ids: string[];
+  assignees: WorkItemUser[];
+  comment_count: number;
+}
+
+export type TrackerIssueState = 'open' | 'in_progress' | 'blocked' | 'closed';
+export type TrackerIssuePriority = 'low' | 'normal' | 'high' | 'urgent';
+
+export interface TrackerIssue extends WorkItemBase {
+  number: number;
+  state: TrackerIssueState;
+  priority: TrackerIssuePriority;
+  due_at: number | null;
+  closed_at: number | null;
+  closed_by: string | null;
+}
+
+export interface BoardCard extends WorkItemBase {
+  list_id: string;
+  position: number;
+  due_at: number | null;
+  archived: boolean;
+}
+
+export interface BoardList {
+  id: string;
+  name: string;
+  position: number;
+  /** Optional banner shown above the list; a realm upload path. */
+  cover_image: string | null;
+  cover_size: number | null;
+  /** Optional small image shown beside the name. */
+  icon: string | null;
+  /** Hidden from everyone but board managers and the roles in role_ids (filtered server-side). */
+  staff_only: boolean;
+  role_ids?: string[];
+}
+
+export interface WorkItemComment {
+  id: string;
+  item_id: string;
+  user_id: string | null;
+  author: WorkItemUser | null;
+  body: string;
+  created_at: number;
+  edited_at: number | null;
+}
+
+export interface WorkItemEvent {
+  id: string;
+  actor_id: string | null;
+  type: 'renamed' | 'closed' | 'reopened' | 'labels' | 'assignees' | 'moved' | 'archived' | 'restored' | 'state' | 'priority' | 'due_date' | 'attachment_added' | 'attachment_removed';
+  data: {
+    from?: string | number | null;
+    to?: string | number | null;
+    name?: string;
+    added?: string[];
+    removed?: string[];
+  } | null;
+  created_at: number;
+}
+
+export interface WorkItemAttachment {
+  id: string;
+  name: string;
+  url: string;
+  mime: string;
+  size: number;
+  uploaded_by: string | null;
+  created_at: number;
+}
+
+export interface WorkItemDetail {
+  comments: WorkItemComment[];
+  events: WorkItemEvent[];
+  attachments?: WorkItemAttachment[];
+  watching?: boolean;
+  watcher_count?: number;
+}
+
+/** What is drawn behind a board's lists. Mobile does not render backgrounds yet. */
+export type BoardBackground =
+  | { kind: 'pattern'; colors: string[]; pattern: 'radial' | 'linear' | 'diagonal' | 'stripes' | 'mesh'; animated: boolean; scene?: 'rings' | 'orbit' | 'particles' | 'pixels' | null }
+  | { kind: 'image'; image: string; fit?: boolean; stretch?: boolean; positionX?: number; positionY?: number };
+
+export interface WorkChannelSettings {
+  /** Shown at the top of the channel; null = the channel's name. */
+  title: string | null;
+  background: BoardBackground | null;
+}
+
+export type BoardSettings = WorkChannelSettings;
+export type TrackerSettings = WorkChannelSettings;

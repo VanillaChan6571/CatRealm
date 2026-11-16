@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ServerMentionProvider } from './mentions';
 import type { Channel, ForumPost, Message } from '../../types';
 import { useMessageStore } from '../../stores/messageStore';
@@ -17,6 +17,7 @@ import { MessageInput } from './MessageInput';
 import { TypingIndicator } from './TypingIndicator';
 import { X } from 'lucide-react';
 import { getSocket } from '../../lib/socket';
+import { useMarkChannelReadWhileOpen } from '../../hooks/useMarkChannelReadWhileOpen';
 
 const EMPTY_MESSAGES: Message[] = [];
 
@@ -33,7 +34,13 @@ export function ForumPostView({ post, channel, onBack }: Props) {
   const activeServerUrl = useServerStore((s) => s.activeServerUrl);
   const timeFormat = useSettingsStore((s) => s.timeFormat);
   const viewed = useViewedPermissions();
+  useMarkChannelReadWhileOpen(channel.id);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const initialScrollPending = useRef(true);
+  const pinnedToBottom = useRef(true);
+  const lastScrollTop = useRef(0);
 
   const rawMessages = messagesByThread[post.id];
   const messages = Array.isArray(rawMessages) ? rawMessages : EMPTY_MESSAGES;
@@ -71,6 +78,51 @@ export function ForumPostView({ post, channel, onBack }: Props) {
     void fetchThreadMessages(post.id);
   }, [post.id, fetchThreadMessages]);
 
+  const scrollToLatest = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    lastScrollTop.current = el.scrollTop;
+  };
+
+  // A different post may reuse this component. Wait for its replies before the
+  // first jump so an uncached post does not remain at its opening text.
+  useLayoutEffect(() => {
+    initialScrollPending.current = true;
+    pinnedToBottom.current = true;
+    lastScrollTop.current = 0;
+  }, [post.id]);
+
+  useLayoutEffect(() => {
+    if (!Array.isArray(rawMessages)) return;
+    if (initialScrollPending.current) {
+      initialScrollPending.current = false;
+      scrollToLatest();
+    } else if (pinnedToBottom.current) {
+      scrollToLatest();
+    }
+  }, [post.id, rawMessages]);
+
+  // Images and embeds can grow after the reply rows mount. Keep the newest
+  // reply visible while pinned, but leave the position alone after scrolling up.
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (!initialScrollPending.current && pinnedToBottom.current) scrollToLatest();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [post.id]);
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollTop < lastScrollTop.current - 1) pinnedToBottom.current = false;
+    lastScrollTop.current = el.scrollTop;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 50) pinnedToBottom.current = true;
+  };
+
   const resolveUrl = (url: string) =>
     url.startsWith('http') ? url : `${(resolvedServerUrl ?? '').replace(/\/+$/, '')}${url}`;
 
@@ -92,7 +144,8 @@ export function ForumPostView({ post, channel, onBack }: Props) {
       </div>
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={contentRef}>
         {/* Original post body */}
         <div className="px-4 py-4 border-b border-border">
           <div className="flex items-center gap-2 mb-3">
@@ -163,6 +216,7 @@ export function ForumPostView({ post, channel, onBack }: Props) {
         {messages.length === 0 && (
           <div className="text-center text-text-muted text-sm py-6">No replies yet.</div>
         )}
+        </div>
       </div>
 
       {/* Typing indicator + reply composer */}

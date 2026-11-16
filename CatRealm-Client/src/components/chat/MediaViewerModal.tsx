@@ -19,6 +19,8 @@ import { formatMessageTime } from '../../utils/formatTime';
 import { AvatarImage } from '../ui/AvatarImage';
 import { MediaForwardDialog } from './MediaForwardDialog';
 import { isKlipyMediaUrl, KlipyFavoriteButton } from './KlipyFavoriteButton';
+import { downloadMediaUrl } from '../../lib/mediaDownload';
+import { getViewerVideoStart, isChatVideo, type MediaViewerPlayback } from '../../lib/chatMedia';
 
 type MediaViewerItem = {
   id?: string;
@@ -41,9 +43,49 @@ type MediaViewerData = {
   size?: number | null;
   items?: MediaViewerItem[];
   index?: number;
+  /** Inline playback state of the item that was expanded. */
+  playback?: MediaViewerPlayback;
 };
 
 const KLIPY_LOGO_URL = `${import.meta.env.BASE_URL}klipy/KLIPY%20Light%20with%20logo.svg`;
+
+function ViewerVideo({ src, playback }: { src: string; playback?: MediaViewerPlayback }) {
+  const disableAutoplay = useSettingsStore((s) => s.disableEmbedAutoplay);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  // Decided once per shown video; toggling settings mid-playback shouldn't restart it.
+  const [start] = useState(() => getViewerVideoStart(playback, disableAutoplay));
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    // Set imperatively: React doesn't reliably reflect the `muted` prop onto the element.
+    video.muted = start.muted;
+    const begin = () => {
+      if (start.startTime > 0 && start.startTime < (video.duration || Infinity)) {
+        video.currentTime = start.startTime;
+      }
+      if (start.autoPlay) void video.play().catch(() => {});
+    };
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      begin();
+      return;
+    }
+    video.addEventListener('loadedmetadata', begin, { once: true });
+    return () => video.removeEventListener('loadedmetadata', begin);
+  }, [start]);
+
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      controls
+      playsInline
+      preload="auto"
+      className="max-w-[calc(100vw-96px)] max-h-full rounded-lg border border-white/10 bg-black"
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
+}
 
 function formatFileSize(bytes?: number | null): string {
   if (!bytes || bytes < 0) return 'Unknown';
@@ -115,9 +157,12 @@ export function MediaViewerModal() {
         closeModal();
         return;
       }
-      if (!canNavigate) return;
+      if (!canNavigate || forwardOpen) return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      // Arrows page the gallery for videos too, instead of seeking a focused player.
+      e.preventDefault();
       if (e.key === 'ArrowLeft') goPrev();
-      if (e.key === 'ArrowRight') goNext();
+      else goNext();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -128,9 +173,12 @@ export function MediaViewerModal() {
   const createdLabel = current.createdAt
     ? formatMessageTime(Number(current.createdAt), timeFormat)
     : '';
-  const isVideo =
-    current.type?.startsWith('video/') ||
-    /\.(mp4|webm)(\?.*)?$/i.test(current.url);
+  const isVideo = isChatVideo(current.url, current.type);
+  // Inline playback only carries over to the item that was expanded, not ones paged to.
+  const openedIndex = items ? Math.min(Math.max(modalData.index ?? 0, 0), items.length - 1) : 0;
+  const currentPlayback = effectiveIndex === openedIndex && current.url === modalData.url
+    ? modalData.playback
+    : undefined;
   const isKlipyMedia = isKlipyMediaUrl(current.url);
   const canDrag = !isVideo && zoom > 1;
   const downloadName = current.name ?? 'media';
@@ -168,21 +216,7 @@ export function MediaViewerModal() {
     });
   };
 
-  const handleDownload = async () => {
-    try {
-      const response = await fetch(current.url);
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = downloadName;
-      a.click();
-      URL.revokeObjectURL(objectUrl);
-    } catch {
-      // Fallback: open in new tab so the user can save manually
-      window.open(current.url, '_blank');
-    }
-  };
+  const handleDownload = () => downloadMediaUrl(current.url, downloadName);
 
   const copyLink = async () => {
     setCopyStatus(await writeClipboardText(current.url) ? 'copied' : 'failed');
@@ -232,6 +266,7 @@ export function MediaViewerModal() {
 
         {/* Right: toolbar */}
         <div className="flex items-center gap-1 shrink-0">
+          {!isVideo && (<>
           <button
             onClick={zoomOut}
             className="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors"
@@ -251,6 +286,7 @@ export function MediaViewerModal() {
           </button>
 
           <div className="w-px h-4 bg-white/20 mx-1" />
+          </>)}
 
           {isKlipyMedia && (
             <KlipyFavoriteButton
@@ -384,13 +420,7 @@ export function MediaViewerModal() {
         )}
 
         {isVideo ? (
-          <video
-            src={current.url}
-            controls
-            autoPlay
-            className="max-w-[calc(100vw-96px)] max-h-full rounded-lg border border-white/10 bg-black"
-            onClick={(e) => e.stopPropagation()}
-          />
+          <ViewerVideo key={`${effectiveIndex}:${current.url}`} src={current.url} playback={currentPlayback} />
         ) : (
           <img
             src={current.url}
@@ -429,11 +459,12 @@ export function MediaViewerModal() {
                   : 'border-transparent opacity-60 hover:opacity-100'
               }`}
             >
-              {item.type?.startsWith('video/') || /\.(mp4|webm)(\?.*)?$/i.test(item.url) ? (
+              {isChatVideo(item.url, item.type) ? (
                 <video
                   src={item.url}
                   className="w-full h-full object-cover"
                   muted
+                  preload="metadata"
                 />
               ) : (
                 <img src={item.url} className="w-full h-full object-cover" alt="" />

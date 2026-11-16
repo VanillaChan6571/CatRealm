@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Clapperboard, GripVertical, Hash, Image as ImageIcon, Megaphone, MessageSquare, Users, Volume2, X } from 'lucide-react';
+import { Check, CircleDot, Clapperboard, GripVertical, Hash, Image as ImageIcon, Megaphone, MessageSquare, SquareKanban, Users, Volume2, X } from 'lucide-react';
 import { usePinnedStore, pinKey, type DockSide, type PinnedItem } from '../../stores/pinnedStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
@@ -11,6 +11,7 @@ import { AUTH_BASE } from '../../lib/authApi';
 import { resolveAvatarUrl } from '../../utils/avatar';
 import { groupChatFallbackBackground } from '../../utils/groupChatAvatar';
 import { navigateToPinned } from '../../lib/pinnedNavigation';
+import { passiveImageUrl } from '../../lib/localNetworkAccess';
 import type { Tab } from '../home/HomeNav';
 import type { Channel } from '../../types';
 
@@ -26,6 +27,10 @@ function channelTypeIcon(type: Channel['type']): ReactNode {
       return <MessageSquare className="h-3.5 w-3.5" />;
     case 'theater':
       return <Clapperboard className="h-3.5 w-3.5" />;
+    case 'tracker':
+      return <CircleDot className="h-3.5 w-3.5" />;
+    case 'board':
+      return <SquareKanban className="h-3.5 w-3.5" />;
     default:
       return <Hash className="h-3.5 w-3.5" />;
   }
@@ -246,7 +251,7 @@ export function PinnedTaskbar({ onNavigateHomeTab }: PinnedTaskbarProps) {
           label = item.name;
           const onActiveServer = activeServerUrl === item.serverUrl;
           const server = servers.find((s) => s.url === item.serverUrl);
-          const serverIcon = server?.icon ?? item.serverIcon;
+          const serverIcon = passiveImageUrl(server?.icon ?? item.serverIcon, onActiveServer);
           icon = serverIcon ? (
             <img src={serverIcon} alt={item.serverName} className="w-5 h-5 rounded object-cover shrink-0" />
           ) : (

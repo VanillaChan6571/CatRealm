@@ -3,6 +3,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { getSocket } from '../../lib/socket';
 import { useServerStore } from '../../stores/serverStore';
+import { useChannelStore } from '../../stores/channelStore';
 import { writeClipboardText } from '../../lib/clipboard';
 import { useViewedChannels } from '../../hooks/useViewedChannels';
 import { Lock } from 'lucide-react';
@@ -15,6 +16,7 @@ export function VoiceStatusPanel() {
   const voiceChannelId = useVoiceStore((s) => s.activeChannelId);
   const storedVoiceChannelName = useVoiceStore((s) => s.voiceChannelName);
   const storedVoiceServerName = useVoiceStore((s) => s.voiceServerName);
+  const voiceServerUrl = useVoiceStore((s) => s.voiceServerUrl);
   const peers = useVoiceStore((s) => s.peers);
   const e2eeSupported = useVoiceStore((s) => s.e2eeSupported);
   const e2eeByPeer = useVoiceStore((s) => s.e2eeByPeer);
@@ -179,6 +181,14 @@ export function VoiceStatusPanel() {
     `Bytes Sent: ${formatBytes(stats.bytesSent)}`,
   ].join('\n');
 
+  const returnToVoice = () => {
+    if (user?.accountType === 'central' && voiceServerUrl && activeServerUrl !== voiceServerUrl) {
+      useServerStore.getState().switchServer(voiceServerUrl);
+      if (useServerStore.getState().activeServerUrl !== voiceServerUrl) return;
+    }
+    useChannelStore.getState().setActiveChannel(voiceChannelId);
+  };
+
   const copyDebug = async () => {
     const ok = await writeClipboardText(debugText);
     if (!ok) return;
@@ -195,8 +205,17 @@ export function VoiceStatusPanel() {
       <div className="flex items-start gap-2">
         <button
           type="button"
-          onClick={() => setExpanded((s) => !s)}
+          onClick={(event) => {
+            // Triple click toggles the debug readout; any other click returns to the channel.
+            if (event.detail === 3) {
+              setExpanded((s) => !s);
+              return;
+            }
+            if (event.detail > 1) return;
+            returnToVoice();
+          }}
           className="min-w-0 flex-1 text-left"
+          title="Go to voice channel"
         >
           <div className={`text-[10px] ${pingToneClass}`}>
             {rtcBanner} - Server Ping {stats.serverPingMs ?? '-'} ms

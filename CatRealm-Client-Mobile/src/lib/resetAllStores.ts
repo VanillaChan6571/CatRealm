@@ -21,6 +21,7 @@ import { useTheaterStore } from '@/stores/theaterStore';
 import { useTheaterChatPreviewStore } from '@/stores/theaterChatPreviewStore';
 import { useCallStore } from '@/stores/callStore';
 import { useVoiceStore } from '@/stores/voiceStore';
+import { useWorkItemStore } from '@/stores/workItemStore';
 
 export function resetAllStores() {
   invalidateAccountSession();
@@ -32,6 +33,7 @@ export function resetAllStores() {
   useCallStore.getState().endCall();
   usePersonalNotesStore.getState().reset();
   useMessageStore.getState().reset();
+  useWorkItemStore.getState().reset();
   useDmPinStore.getState().reset();
 
   useDMStore.setState({

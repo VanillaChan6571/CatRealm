@@ -8,6 +8,8 @@ import { useServerStore } from '../../stores/serverStore';
 import { useUIStore } from '../../stores/uiStore';
 import { useContentSocialStore } from '../../stores/contentSocialStore';
 import { AutoSizingChatImage } from './AutoSizingChatImage';
+import { InlineChatVideo } from './InlineChatVideo';
+import { getChatMediaKind, isChatVideo, viewerTypeForKind, type MediaViewerPlayback } from '../../lib/chatMedia';
 import { normalizeExpressionName, normalizeServerOrigin, normalizeTokenOwnerId } from '../../lib/expressions';
 import { formatMessageTime } from '../../utils/formatTime';
 import {
@@ -39,6 +41,7 @@ import {
 } from '../../messaging/chatlib/messageTokenParser';
 import {
   type OpenPreviewMediaFn,
+  type OpenImmediateMediaFn,
   buildImmediateEmbed,
   buildPreviewCard,
   buildInviteCard,
@@ -493,16 +496,17 @@ export function MessageFormatter({
     openProtectedExternalUrl(url, openModal);
   }, [openModal]);
 
-  const handleImmediateMediaOpen = useCallback((url: string) => {
-    const klipyMedia = isKlipyMediaUrl(url);
+  const handleImmediateMediaOpen = useCallback<OpenImmediateMediaFn>((url, kind, playback) => {
+    const klipyMedia = kind !== 'video' && isKlipyMediaUrl(url);
     openModal('mediaViewer', {
       url,
-      type: klipyMedia ? 'image/gif' : 'image/*',
+      type: klipyMedia ? 'image/gif' : viewerTypeForKind(kind ?? getChatMediaKind(url)),
       name: klipyMedia ? 'Klipy GIF' : null,
       author: senderAuthor,
       avatarUrl: senderAvatarUrl,
       createdAt: senderCreatedAt,
       size: null,
+      playback,
     });
   }, [openModal, senderAuthor, senderAvatarUrl, senderCreatedAt]);
 
@@ -878,7 +882,29 @@ export function MessageFormatter({
                   createdAt: null,
                   size: a.size ?? null,
                 }));
-                result.push(
+                const attType = att.mime ?? att.type ?? null;
+                const openInlineAttachment = (playback?: MediaViewerPlayback) => openModal('mediaViewer', {
+                  url: resolvedUrl,
+                  type: attType ?? 'image/*',
+                  name: att.name ?? null,
+                  author: null,
+                  avatarUrl: null,
+                  createdAt: null,
+                  size: att.size ?? null,
+                  items: allItems,
+                  index: attIdx,
+                  playback,
+                });
+                result.push(isChatVideo(resolvedUrl, attType) ? (
+                  <InlineChatVideo
+                    key={key++}
+                    src={resolvedUrl}
+                    wrapperClassName="my-1"
+                    className="max-w-xs max-h-96 rounded border border-border bg-black"
+                    onExpand={openInlineAttachment}
+                    downloadName={att.name ?? null}
+                  />
+                ) : (
                   <AutoSizingChatImage
                     key={key++}
                     src={displayUrl}
@@ -890,19 +916,9 @@ export function MessageFormatter({
                     className="rounded border border-border bg-bg-input my-1 block object-contain cursor-zoom-in"
                     loading="lazy"
                     decoding="async"
-                    onClick={() => openModal('mediaViewer', {
-                      url: resolvedUrl,
-                      type: att.mime ?? att.type ?? 'image/*',
-                      name: att.name ?? null,
-                      author: null,
-                      avatarUrl: null,
-                      createdAt: null,
-                      size: att.size ?? null,
-                      items: allItems,
-                      index: attIdx,
-                    })}
+                    onClick={() => openInlineAttachment()}
                   />
-                );
+                ));
               }
               i += sentinelMatch[0].length;
               plainStart = i;
@@ -991,7 +1007,8 @@ export function MessageFormatter({
                 {headingContent.length > 0 ? headingContent : content}
               </div>
             );
-          } else if (/^>>>\s*/.test(line)) {
+          } else if (/^>>>(\s|$)/.test(line)) {
+            // Needs a space (or nothing) after the marker, so a face like >>>_< stays text.
             // Multi-line blockquote: consumes this line and all remaining lines
             const blockLines = [line.replace(/^>>>\s*/, ''), ...lines.slice(lineIdx + 1)];
             const blockParts: React.ReactElement[] = [];
@@ -1076,7 +1093,7 @@ export function MessageFormatter({
     };
   }, [allowEmbeds, firstUrl, immediateEmbed, inviteLink]);
 
-  const openPreviewMedia = useCallback<OpenPreviewMediaFn>((previewData, images, index) => {
+  const openPreviewMedia = useCallback<OpenPreviewMediaFn>((previewData, images, index, playback) => {
     if (!images || images.length === 0) return;
     const boundedIndex = Math.min(Math.max(index, 0), images.length - 1);
     const items = images.map((imageUrl, imageIndex) => ({
@@ -1099,12 +1116,24 @@ export function MessageFormatter({
       size: null,
       items,
       index: boundedIndex,
+      playback,
     });
   }, [openModal]);
 
   if (fwdMeta) {
     const fwdTimeLabel = fwdMeta.t ? formatMessageTime(fwdMeta.t, timeFormat) : null;
     const isImage = /\.(png|jpe?g|gif|webp|avif|svg)(\?.*)?$/i.test(fwdMeta.u) || /image\//i.test(fwdMeta.u);
+    const isVideo = !isImage && isChatVideo(fwdMeta.u);
+    const openForwardedMedia = (playback?: MediaViewerPlayback) => openModal('mediaViewer', {
+      url: fwdMeta.u,
+      type: isVideo ? 'video/*' : null,
+      name: null,
+      author: senderAuthor,
+      avatarUrl: senderAvatarUrl,
+      createdAt: fwdMeta.t ?? null,
+      size: null,
+      playback,
+    });
     return (
       <div className={className}>
         <div className="mb-2 pl-3 border-l-2 border-blue-500/50 bg-bg-elevated/30 rounded p-2 text-xs text-text-muted select-none">
@@ -1120,7 +1149,14 @@ export function MessageFormatter({
             placeholderWidth={320}
             placeholderHeight={180}
             className="mt-1 rounded-lg border border-border bg-bg-input object-contain cursor-zoom-in"
-            onClick={() => openModal('mediaViewer', { url: fwdMeta.u, type: null, name: null, author: senderAuthor, avatarUrl: senderAvatarUrl, createdAt: fwdMeta.t ?? null, size: null })}
+            onClick={() => openForwardedMedia()}
+          />
+        ) : isVideo && isLinkAllowed(fwdMeta.u) ? (
+          <InlineChatVideo
+            src={fwdMeta.u}
+            wrapperClassName="mt-1"
+            className="max-w-lg max-h-96 rounded-lg border border-border bg-black"
+            onExpand={openForwardedMedia}
           />
         ) : (
           renderExternalLink('forwarded-link', fwdMeta.u, fwdMeta.u, 'underline text-sm')

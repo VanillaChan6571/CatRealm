@@ -7,18 +7,15 @@ import { AlertTriangle } from 'lucide-react';
 interface TemplateImportConfirmModalProps {
   open: boolean;
   onClose: () => void;
-  onConfirm: (verification: { token?: string; totp?: string }) => void;
-  isLocalAccount: boolean;
+  onConfirm: (verification: { token: string }) => void;
 }
 
 export function TemplateImportConfirmModal({
   open,
   onClose,
   onConfirm,
-  isLocalAccount,
 }: TemplateImportConfirmModalProps) {
   const [verificationToken, setVerificationToken] = useState('');
-  const [totp, setTotp] = useState('');
   const [generatingToken, setGeneratingToken] = useState(false);
   const [error, setError] = useState('');
 
@@ -39,19 +36,11 @@ export function TemplateImportConfirmModal({
   };
 
   const handleConfirm = () => {
-    if (isLocalAccount) {
-      if (!verificationToken.trim()) {
-        setError('Please enter the verification token from your server console');
-        return;
-      }
-      onConfirm({ token: verificationToken.trim() });
-    } else {
-      if (!totp.trim() || totp.length !== 6) {
-        setError('Please enter a valid 6-digit TOTP code');
-        return;
-      }
-      onConfirm({ totp: totp.trim() });
+    if (!verificationToken.trim()) {
+      setError('Please enter the verification token from your server console');
+      return;
     }
+    onConfirm({ token: verificationToken.trim() });
   };
 
   return (
@@ -72,6 +61,7 @@ export function TemplateImportConfirmModal({
                 <li>Delete ALL current voice & text channels</li>
                 <li>Delete ALL current categories</li>
                 <li>Remove ALL roles (except default member role)</li>
+                <li>Replace default member permissions from @everyone</li>
                 <li>Rename your server</li>
                 <li>Rebuild your server from the template</li>
               </ul>
@@ -88,10 +78,9 @@ export function TemplateImportConfirmModal({
             Verification Required
           </h4>
 
-          {isLocalAccount ? (
-            <div className="space-y-3">
+          <div className="space-y-3">
               <p className="text-sm text-text-secondary">
-                As a local account owner, you need a one-time verification token.
+                As the realm owner, generate a one-time verification token.
               </p>
               <Button
                 onClick={handleGenerateToken}
@@ -108,33 +97,14 @@ export function TemplateImportConfirmModal({
                   setVerificationToken(e.target.value.toUpperCase());
                   setError('');
                 }}
-                placeholder="XXXXXXXX"
-                maxLength={8}
+                placeholder="32-character token"
+                maxLength={32}
                 className="font-mono text-center text-lg tracking-widest"
               />
               <p className="text-xs text-text-muted">
                 The token is displayed in your server console and expires in 10 minutes.
               </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-text-secondary">
-                As a central account owner, enter your 6-digit TOTP code.
-              </p>
-              <Input
-                label="TOTP Code"
-                value={totp}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '');
-                  setTotp(value);
-                  setError('');
-                }}
-                placeholder="000000"
-                maxLength={6}
-                className="font-mono text-center text-lg tracking-widest"
-              />
-            </div>
-          )}
+          </div>
         </div>
 
         {error && (

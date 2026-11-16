@@ -14,7 +14,7 @@ export function ConnectScreen() {
   const [view, setView] = useState<View>('home');
   const [centralTab, setCentralTab] = useState<CentralTab>('login');
   const [url, setUrl] = useState('');
-  const { setServerUrl, loading, error, clearError } = useAuthStore();
+  const { setServerUrl, loading, error, clearError, deferredLocalServerUrl, resumeLocalSession } = useAuthStore();
 
   const handleServerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +40,17 @@ export function ConnectScreen() {
           </div>
 
           <div className="space-y-3">
+            {deferredLocalServerUrl && (
+              <button
+                onClick={resumeLocalSession}
+                className="w-full bg-bg-sidebar hover:bg-bg-hover text-text-primary rounded-lg p-4 transition-colors text-left border border-border"
+              >
+                <p className="font-semibold text-sm">Reconnect to saved local server</p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Your browser may ask to allow access to your local network when you connect.
+                </p>
+              </button>
+            )}
             <button
               onClick={() => setView('central')}
               className="w-full bg-accent hover:bg-accent-hover text-white rounded-lg p-4 transition-colors text-left"

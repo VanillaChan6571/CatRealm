@@ -18,6 +18,7 @@ interface Role {
   name: string;
   color: string | null;
   permissions: number;
+  permissionKeys?: string[];
   position: number;
   is_default: boolean | number;
   mentionable: boolean | number;
@@ -230,6 +231,7 @@ export function RolesSection() {
         name: role.name,
         color: role.color,
         permissions: role.permissions,
+        ...(role.permissionKeys ? { permissionKeys: role.permissionKeys } : {}),
         mentionable: role.mentionable,
         hoist: role.hoist,
         categoryId: role.category_id ?? null,
@@ -282,18 +284,21 @@ export function RolesSection() {
     }
   };
 
-  const handleTogglePermission = (role: Role, bit: number) => {
+  const handleTogglePermission = (role: Role, key: string, bit: number) => {
+    const permissionKeys = Array.isArray(role.permissionKeys)
+      ? (role.permissionKeys.includes(key)
+        ? role.permissionKeys.filter((item) => item !== key)
+        : [...role.permissionKeys, key])
+      : undefined;
     const current = toPermissionBits(role.permissions);
     const mask = toPermissionBits(bit);
-    if (mask === 0n) return;
-
-    const next = current ^ mask;
+    const next = mask === 0n ? current : current ^ mask;
     if (next > BigInt(Number.MAX_SAFE_INTEGER)) {
       alert(t('admin.permBitOverflow'));
       return;
     }
 
-    const updatedRole = { ...role, permissions: Number(next) };
+    const updatedRole = { ...role, permissions: Number(next), permissionKeys };
     setRoleDrafts((prev) => ({ ...prev, [role.id]: updatedRole }));
   };
 
@@ -302,6 +307,7 @@ export function RolesSection() {
       draftRole.name !== baseRole.name
       || (draftRole.color ?? null) !== (baseRole.color ?? null)
       || Number(draftRole.permissions || 0) !== Number(baseRole.permissions || 0)
+      || JSON.stringify(draftRole.permissionKeys || []) !== JSON.stringify(baseRole.permissionKeys || [])
       || !!draftRole.mentionable !== !!baseRole.mentionable
       || !!draftRole.hoist !== !!baseRole.hoist
       || (draftRole.category_id ?? null) !== (baseRole.category_id ?? null)
@@ -903,42 +909,56 @@ export function RolesSection() {
                   title={PERMISSION_CATEGORIES.userGeneral.title}
                   permissions={PERMISSION_CATEGORIES.userGeneral.permissions}
                   rolePermissions={editingRole.permissions}
-                  onToggle={(bit) => handleTogglePermission(editingRole, bit)}
+                  rolePermissionKeys={editingRole.permissionKeys}
+                  onToggle={(key, bit) => handleTogglePermission(editingRole, key, bit)}
                   disabled={false}
                 />
                 <PermissionCategory
                   title={PERMISSION_CATEGORIES.helperGeneral.title}
                   permissions={PERMISSION_CATEGORIES.helperGeneral.permissions}
                   rolePermissions={editingRole.permissions}
-                  onToggle={(bit) => handleTogglePermission(editingRole, bit)}
+                  rolePermissionKeys={editingRole.permissionKeys}
+                  onToggle={(key, bit) => handleTogglePermission(editingRole, key, bit)}
                   disabled={false}
                 />
                 <PermissionCategory
                   title={PERMISSION_CATEGORIES.modGeneral.title}
                   permissions={PERMISSION_CATEGORIES.modGeneral.permissions}
                   rolePermissions={editingRole.permissions}
-                  onToggle={(bit) => handleTogglePermission(editingRole, bit)}
+                  rolePermissionKeys={editingRole.permissionKeys}
+                  onToggle={(key, bit) => handleTogglePermission(editingRole, key, bit)}
                   disabled={false}
+                />
+                <PermissionCategory
+                  title={PERMISSION_CATEGORIES.workItems.title}
+                  permissions={PERMISSION_CATEGORIES.workItems.permissions}
+                  rolePermissions={editingRole.permissions}
+                  rolePermissionKeys={editingRole.permissionKeys}
+                  onToggle={(key, bit) => handleTogglePermission(editingRole, key, bit)}
+                  disabled={!Array.isArray(editingRole.permissionKeys)}
                 />
                 <PermissionCategory
                   title={PERMISSION_CATEGORIES.adminGeneral.title}
                   permissions={PERMISSION_CATEGORIES.adminGeneral.permissions}
                   rolePermissions={editingRole.permissions}
-                  onToggle={(bit) => handleTogglePermission(editingRole, bit)}
+                  rolePermissionKeys={editingRole.permissionKeys}
+                  onToggle={(key, bit) => handleTogglePermission(editingRole, key, bit)}
                   disabled={false}
                 />
                 <PermissionCategory
                   title={PERMISSION_CATEGORIES.coOwner.title}
                   permissions={PERMISSION_CATEGORIES.coOwner.permissions}
                   rolePermissions={editingRole.permissions}
-                  onToggle={(bit) => handleTogglePermission(editingRole, bit)}
+                  rolePermissionKeys={editingRole.permissionKeys}
+                  onToggle={(key, bit) => handleTogglePermission(editingRole, key, bit)}
                   disabled={false}
                 />
                 <PermissionCategory
                   title={PERMISSION_CATEGORIES.discordImportOnly.title}
                   permissions={PERMISSION_CATEGORIES.discordImportOnly.permissions}
                   rolePermissions={editingRole.permissions}
-                  onToggle={(bit) => handleTogglePermission(editingRole, bit)}
+                  rolePermissionKeys={editingRole.permissionKeys}
+                  onToggle={(key, bit) => handleTogglePermission(editingRole, key, bit)}
                   disabled={true}
                 />
               </div>

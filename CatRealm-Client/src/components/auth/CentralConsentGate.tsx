@@ -5,6 +5,34 @@ import { useAuthStore } from '../../stores/authStore';
 
 type ConsentStatus = { required: boolean };
 
+/** Policy version this client asks users to accept; bump when the policies change. */
+const POLICY_VERSION = '2026-10-17';
+
+// Remembers that an account already accepted POLICY_VERSION on this device, so
+// returning users get the app right away while the server check runs.
+function consentCacheKey(userId: string) {
+  return `catrealm.centralConsent.${POLICY_VERSION}.${userId}`;
+}
+
+function readCachedConsent(userId: string | undefined): boolean {
+  if (!userId) return false;
+  try {
+    return window.localStorage.getItem(consentCacheKey(userId)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeCachedConsent(userId: string | undefined, accepted: boolean) {
+  if (!userId) return;
+  try {
+    if (accepted) window.localStorage.setItem(consentCacheKey(userId), '1');
+    else window.localStorage.removeItem(consentCacheKey(userId));
+  } catch {
+    // Storage blocked: fall back to waiting for the server check.
+  }
+}
+
 export function CentralConsentGate({ children }: { children: ReactNode }) {
   const userId = useAuthStore((s) => s.user?.id);
   const logout = useAuthStore((s) => s.logout);
@@ -23,7 +51,10 @@ export function CentralConsentGate({ children }: { children: ReactNode }) {
     setError('');
     try {
       const response = await createAuthenticatedApi().get<ConsentStatus>('/api/consent');
-      if (useAuthStore.getState().user?.id === checkedUserId) setRequired(response.data.required);
+      if (useAuthStore.getState().user?.id === checkedUserId) {
+        setRequired(response.data.required);
+        writeCachedConsent(checkedUserId, !response.data.required);
+      }
     } catch {
       if (useAuthStore.getState().user?.id === checkedUserId) setError('Could not check your account. Check your connection and try again.');
     }
@@ -39,9 +70,12 @@ export function CentralConsentGate({ children }: { children: ReactNode }) {
     try {
       const response = await createAuthenticatedApi().post<ConsentStatus>('/api/consent', {
         acceptPrivacy: privacy, acceptTerms: terms, confirmAge18: age,
-        termsVersion: '2026-10-17', privacyVersion: '2026-10-17',
+        termsVersion: POLICY_VERSION, privacyVersion: POLICY_VERSION,
       });
-      if (useAuthStore.getState().user?.id === acceptingUserId) setRequired(response.data.required);
+      if (useAuthStore.getState().user?.id === acceptingUserId) {
+        setRequired(response.data.required);
+        writeCachedConsent(acceptingUserId, !response.data.required);
+      }
     } catch {
       if (useAuthStore.getState().user?.id === acceptingUserId) setError('Could not save your choices. Please try again.');
     } finally {
@@ -51,6 +85,14 @@ export function CentralConsentGate({ children }: { children: ReactNode }) {
 
   const currentRequirement = checkedUserId === userId ? required : null;
   if (currentRequirement === false) return <>{children}</>;
+  if (currentRequirement === null && !error) {
+    // Still checking. Don't flash the policy dialog: returning users who already
+    // accepted this version see the app (the dialog still appears if the server
+    // says otherwise), everyone else sees a plain background until the answer.
+    return readCachedConsent(userId)
+      ? <>{children}</>
+      : <div className="h-full w-full bg-bg-deepest" aria-busy="true" />;
+  }
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-labelledby="central-consent-title">

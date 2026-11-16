@@ -33,6 +33,10 @@ interface UIState {
   voiceStreamListRestorable: boolean;
   theaterBarRetracted: boolean;
   theaterSidePanelRetracted: boolean;
+  /** Which tab the Theater side panel shows. Not persisted: a theater opens on its queue. */
+  theaterSidePanelTab: 'queue' | 'chat';
+  /** A theater channel that should open straight on its chat tab (set by the sidebar chat icon). */
+  theaterChatRequestedFor: string | null;
 
   toggleSidebar: () => void;
   toggleMemberList: () => void;
@@ -60,6 +64,9 @@ interface UIState {
   setTheaterBarRetracted: (retracted: boolean) => void;
   toggleTheaterSidePanelRetracted: () => void;
   setTheaterSidePanelRetracted: (retracted: boolean) => void;
+  setTheaterSidePanelTab: (tab: 'queue' | 'chat') => void;
+  /** Shows the chat tab of a theater's side panel; pass the channel when it is not open yet. */
+  showTheaterChat: (pendingChannelId: string | null) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -85,6 +92,8 @@ export const useUIStore = create<UIState>()(
       voiceStreamListRestorable: false,
       theaterBarRetracted: false,
       theaterSidePanelRetracted: false,
+      theaterSidePanelTab: 'queue',
+      theaterChatRequestedFor: null,
 
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
       toggleMemberList: () => set((s) => ({ memberListOpen: !s.memberListOpen })),
@@ -115,6 +124,10 @@ export const useUIStore = create<UIState>()(
       setTheaterBarRetracted: (theaterBarRetracted) => set({ theaterBarRetracted }),
       toggleTheaterSidePanelRetracted: () => set((s) => ({ theaterSidePanelRetracted: !s.theaterSidePanelRetracted })),
       setTheaterSidePanelRetracted: (theaterSidePanelRetracted) => set({ theaterSidePanelRetracted }),
+      setTheaterSidePanelTab: (theaterSidePanelTab) => set({ theaterSidePanelTab }),
+      showTheaterChat: (pendingChannelId) => set({
+        theaterSidePanelRetracted: false, theaterSidePanelTab: 'chat', theaterChatRequestedFor: pendingChannelId,
+      }),
     }),
     {
       name: 'catrealm-ui-preferences',

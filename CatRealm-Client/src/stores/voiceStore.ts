@@ -1303,11 +1303,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       selfDeafened: nextState.selfDeafened,
       localStream: nextState.localStream,
     });
-    joinedUserIds.forEach(() => {
+    const channelMuted = useChannelStore.getState().prefsByChannel[channelId]?.muted;
+    if (!channelMuted) joinedUserIds.forEach(() => {
       playConfiguredVoiceSound('voice-user-joined', 'soundVoiceUserJoined');
     });
     leftUserIds.forEach((userId) => {
-      playConfiguredVoiceSound('voice-user-left', 'soundVoiceUserLeft');
+      if (!channelMuted) playConfiguredVoiceSound('voice-user-left', 'soundVoiceUserLeft');
       clearRemoteScreenShareState(channelId, userId, true);
     });
     get().setLastEvent(`voice:sync ${channelId}`);

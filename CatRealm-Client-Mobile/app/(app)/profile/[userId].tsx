@@ -9,7 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { X, MessageCircle, UserPlus, Clock4, Calendar, ShieldAlert } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, BotBadge, Pressable, StatusDot, Sheet, FadeInImage } from '@/components';
+import { Text, IconBtn, Avatar, BotBadge, Pressable, StatusDot, Sheet, FadeInImage, MarkdownText } from '@/components';
 import { BotProfileSettings } from '@/components/BotProfileSettings';
 import { useAuthStore } from '@/stores/authStore';
 import { useDMStore } from '@/stores/dmStore';
@@ -705,9 +705,8 @@ export default function ProfileScreen() {
                   },
                 ]}
               >
-                <Text variant="body" color={theme.colors.text2}>
-                  {profile.bio}
-                </Text>
+                {/* Bios use the same markdown as messages (bold, links, quotes…), without embeds. */}
+                <MarkdownText text={profile.bio} color={theme.colors.text2} allowEmbeds={false} />
               </View>
             ) : null}
 

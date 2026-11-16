@@ -108,12 +108,13 @@ export const useDmPinStore = create<DmPinState>((set, get) => ({
       return;
     }
     try {
-      const res = await createAuthenticatedApi().get<{ pins: PinnedDm[] }>('/api/user-settings/pinned-dms');
+      const res = await createAuthenticatedApi().get<{ pins: PinnedDm[]; stored?: boolean }>('/api/user-settings/pinned-dms');
       const pins = Array.isArray(res.data?.pins) ? res.data.pins : [];
       const localPins = get().pinnedDms;
-      if (pins.length === 0 && localPins.length > 0) {
+      if (pins.length === 0 && localPins.length > 0 && !res.data?.stored) {
         // Central has no record yet — seed it from this device rather than
-        // wiping locally-created pins on first run.
+        // wiping locally-created pins on first run. A stored empty list means
+        // everything was unpinned elsewhere and must not be re-seeded.
         set({ hydrated: true });
         schedulePush(localPins);
       } else {

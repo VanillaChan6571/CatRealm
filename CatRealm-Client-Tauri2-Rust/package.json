@@ -1,6 +1,6 @@
 {
   "name": "catrealm-client-tauri",
-  "version": "1.9.4",
+  "version": "1.9.5",
   "private": true,
   "description": "CatRealm desktop client — Tauri 2 spike. Loads the existing CatRealm-Client renderer.",
   "scripts": {
@@ -13,6 +13,6 @@
     "tauri": "tauri"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2.12.4"
   }
 }

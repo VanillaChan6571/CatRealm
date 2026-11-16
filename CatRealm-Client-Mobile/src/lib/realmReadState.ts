@@ -25,6 +25,10 @@ const PREFETCH_LIMIT = 3;
 const lastFetchedAt = new Map<string, number>();
 /** Channel ids each realm reported, so a realm's count can be recomputed from local state. */
 const channelsByServer = new Map<string, { id: string; muted: boolean }[]>();
+
+export function isRealmChannelMuted(serverUrl: string, channelId: string): boolean {
+  return channelsByServer.get(serverUrl)?.some((channel) => channel.id === channelId && channel.muted) ?? false;
+}
 /** Realms that answered 404 (older server builds); not asked again this session. */
 const unsupported = new Set<string>();
 

@@ -15,6 +15,8 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 vi.mock('../../../stores/contentSocialStore', () => ({ useContentSocialStore: (selector: any) => selector({ customAllowedDomains: [] }) }));
 vi.mock('../../../stores/uiStore', () => ({ useUIStore: (selector: any) => selector({ openModal: vi.fn() }) }));
 vi.mock('../../../utils/externalLinks', () => ({ isAllowedExternalUrl: () => true, openProtectedExternalUrl: vi.fn() }));
+// Bios render through the chat formatter; plain text is enough for these privacy checks.
+vi.mock('../../chat/MessageFormatter', () => ({ MessageFormatter: ({ text }: { text: string }) => <span>{text}</span> }));
 
 import { useAuthStore } from '../../../stores/authStore';
 import { nicknameScope, useNicknamesStore } from '../../../stores/nicknamesStore';

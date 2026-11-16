@@ -5,21 +5,23 @@ import { useCallSocket } from '../../hooks/useCallSocket';
 import { useChannelStore } from '../../stores/channelStore';
 import { useUIStore } from '../../stores/uiStore';
 import { rememberKnownAccount } from '../../lib/knownAccounts';
+import { getActiveDmConversationForUser } from '../../lib/dmSelection';
 import { decideAppTour, fetchAccountAppTourDone, hasDeviceSeenAppTour, useAppTourStore } from '../../lib/appTour';
 import { AppTour } from '../onboarding/AppTour';
 import { AppTourOffer } from '../onboarding/AppTourOffer';
 import { Sidebar } from './Sidebar';
 import { MemberList } from './MemberList';
+import { useMemberListVisible } from '../../hooks/useMemberListVisible';
 import { ChatArea } from '../../components/chat/ChatArea';
 import { ConnectionStatus } from '../ui/ConnectionStatus';
 import { DynamicImportBoundary } from '../ui/DynamicImportBoundary';
+import { Modal } from '../ui/Modal';
 import { ClaimAdminBanner } from '../admin/ClaimAdminBanner';
 import { LogoutConfirmDialog } from './LogoutConfirmDialog';
 import { DeleteMessageDialog } from '../chat/DeleteMessageDialog';
 import { DeleteBatchDialog } from '../chat/DeleteBatchDialog';
 import { UserQuickDrawer } from './UserQuickDrawer';
 import { PinsDrawer } from '../chat/PinsDrawer';
-import { ThreadPanel } from '../chat/ThreadPanel';
 import { MediaViewerModal } from '../chat/MediaViewerModal';
 
 const ServerSettingsModal  = lazy(() => import('../admin/ServerSettingsModal').then(m => ({ default: m.ServerSettingsModal })));
@@ -124,7 +126,8 @@ export function AppLayout() {
   const fetchFriends = useFriendStore((s) => s.fetchFriends);
   const fetchRequests = useFriendStore((s) => s.fetchRequests);
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
-  const memberListOpen = useUIStore((s) => s.memberListOpen);
+  // Slides away in Tracker/Board channels; see useMemberListVisible.
+  const memberListOpen = useMemberListVisible();
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const toggleMemberList = useUIStore((s) => s.toggleMemberList);
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
@@ -207,11 +210,25 @@ export function AppLayout() {
     const target = modalData as { userId?: string; username?: string; avatar?: string | null } | null;
     closeModal();
     if (!target?.userId) return;
-    useDMStore.setState({ activeConversationId: null, error: null });
-    goHome();
-    setHomeTab('dms');
-    void openDMConversation(target.userId, target.username || target.userId, target.avatar);
-  }, [activeModal, modalData, isCentral, closeModal, goHome, openDMConversation]);
+    const targetUserId = target.userId;
+    useDMStore.setState({ error: null });
+    void openDMConversation(targetUserId, target.username || targetUserId, target.avatar).then(() => {
+      const dmState = useDMStore.getState();
+      const requestedConversation = getActiveDmConversationForUser(
+        dmState.conversations,
+        dmState.activeConversationId,
+        targetUserId
+      );
+      if (!requestedConversation) {
+        openModal('dmUnavailable', {
+          message: dmState.error || 'This user is not accepting messages from you.',
+        });
+        return;
+      }
+      goHome();
+      setHomeTab('dms');
+    });
+  }, [activeModal, modalData, isCentral, closeModal, goHome, openModal, openDMConversation]);
   const activeDMConversation = dmActiveConversationId
     ? (dmConversations.find((conversation) => conversation.id === dmActiveConversationId) ?? null)
     : null;
@@ -468,6 +485,27 @@ export function AppLayout() {
       <MessageActionDrawer />
       <KeybindsModal />
       <UploadQuotaModal />
+      <Modal
+        open={activeModal === 'dmUnavailable'}
+        onClose={closeModal}
+        title="Cannot Start Conversation"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">
+            {(modalData as { message?: string } | null)?.message
+              || 'This user is not accepting messages from you.'}
+          </p>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={closeModal}
+              className="px-4 py-2 rounded-md bg-accent text-white text-sm font-semibold hover:bg-accent-hover transition-colors"
+            >
+              Okay
+            </button>
+          </div>
+        </div>
+      </Modal>
       {showVoiceBar && <VoiceFloatingBar />}
       <VoiceScreenSharePopout />
       <TheaterAudioManager />
@@ -654,9 +692,27 @@ export function AppLayout() {
   }, [isCentral, user?.id, user?.status, updateUser]);
 
   useEffect(() => {
-    const handler = () => setIsNarrowViewport(window.innerWidth < 768);
+    let wasNarrow = isNarrowViewport;
+    if (!wasNarrow) {
+      // Also recover a desktop tab whose panels were left closed by an earlier resize.
+      useUIStore.setState({ sidebarOpen: true, memberListOpen: true });
+    }
+    const handler = () => {
+      const isNarrow = window.innerWidth < 768;
+      if (isNarrow !== wasNarrow) {
+        // The desktop layout has no panel toggles, so restore its sidebars when
+        // a narrow window grows. Close the mobile overlays in the reverse case.
+        useUIStore.setState({ sidebarOpen: !isNarrow, memberListOpen: !isNarrow });
+        wasNarrow = isNarrow;
+      }
+      setIsNarrowViewport(isNarrow);
+    };
+    handler();
     window.addEventListener('resize', handler);
     return () => window.removeEventListener('resize', handler);
+    // Track transitions from the initial viewport width without resetting a
+    // panel that the user opens while staying at the same width.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // On mobile: auto-close the channel sidebar after a channel is selected,
@@ -790,9 +846,6 @@ export function AppLayout() {
           <ClaimAdminBanner />
           <ChatArea />
         </div>
-
-        {/* Thread panel */}
-        <ThreadPanel />
 
         {/* Member list - always visible on desktop, toggle on mobile */}
         <div className="shrink-0 md:relative fixed inset-y-0 right-0 z-20">

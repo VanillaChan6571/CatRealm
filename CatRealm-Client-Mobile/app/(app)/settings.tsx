@@ -34,6 +34,7 @@ import { Text, IconBtn, Pressable, Avatar, StatusDot } from '@/components';
 import { TranslationPacksList } from '@/components/settings/TranslationPacksList';
 import { ServerIcon } from '@/components/ServerIcon';
 import { DeleteAccountConfirmModal } from '@/components/settings/DeleteAccountConfirmModal';
+import { normalizeSettingsSection, settingsNavItems, type SettingsSection } from '@/components/settings/settingsSections';
 import { useAuthStore } from '@/stores/authStore';
 import { CUSTOM_THEME_TEMPLATE, useCustomThemeStore, validateAndParseCustomTheme } from '@/stores/customThemeStore';
 import {
@@ -50,6 +51,7 @@ import { useNowPlayingStore } from '@/stores/nowPlayingStore';
 import { useContentSocialStore } from '@/stores/contentSocialStore';
 import { AUTH_BASE, createApi, createAuthenticatedApi } from '@/lib/api';
 import { appendFormDataFile } from '@/lib/formData';
+import { pickImage } from '@/lib/pickImage';
 import { playNotificationSound, type SoundType } from '@/lib/notificationSounds';
 import {
   requestPushPermissionAndGetToken,
@@ -74,20 +76,7 @@ import {
   useExpressionLookup,
 } from '@/lib/expressionCache';
 import type { UserStatus } from '@/types';
-import { oneTimeCodeKeyboardType } from '@/hooks/useDeviceLayout';
-
-type SettingsSection =
-  | 'profile'
-  | 'server-profiles'
-  | 'account-security'
-  | 'voice'
-  | 'notifications'
-  | 'appearance'
-  | 'emotes-settings'
-  | 'content-social'
-  | 'storage'
-  | 'language'
-  | 'cat-lab';
+import { oneTimeCodeKeyboardType, useDeviceLayout } from '@/hooks/useDeviceLayout';
 
 const STATUSES: { value: UserStatus; label: string; selectable?: boolean }[] = [
   { value: 'online', label: 'Online' },
@@ -179,24 +168,6 @@ const LANGUAGE_DISPLAY_OPTIONS: Array<{ id: AppLanguage; nativeLabel: string }> 
   { id: 'ru', nativeLabel: 'Русский' },
   { id: 'ja', nativeLabel: '日本語' },
 ];
-
-function normalizeSection(section: string | undefined): SettingsSection {
-  if (
-    section === 'server-profiles' ||
-    section === 'account-security' ||
-    section === 'voice' ||
-    section === 'notifications' ||
-    section === 'appearance' ||
-    section === 'emotes-settings' ||
-    section === 'content-social' ||
-    section === 'storage' ||
-    section === 'language' ||
-    section === 'cat-lab'
-  ) {
-    return section;
-  }
-  return 'profile';
-}
 
 function SectionHeader({ title }: { title: string }) {
   const theme = useTheme();
@@ -910,6 +881,8 @@ function AppearanceSettingsSection() {
   const [importError, setImportError] = useState<string | null>(null);
   const playGifAvatars = useSettingsStore((s) => s.playGifAvatars);
   const setPlayGifAvatars = useSettingsStore((s) => s.setPlayGifAvatars);
+  const smoothImageLoading = useSettingsStore((s) => s.smoothImageLoading);
+  const setSmoothImageLoading = useSettingsStore((s) => s.setSmoothImageLoading);
   const disableEmbedAutoplay = useSettingsStore((s) => s.disableEmbedAutoplay);
   const setDisableEmbedAutoplay = useSettingsStore((s) => s.setDisableEmbedAutoplay);
   const showAvatarBackground = useSettingsStore((s) => s.showAvatarBackground);
@@ -1200,6 +1173,34 @@ function AppearanceSettingsSection() {
             ios_backgroundColor={theme.colors.bgElev3}
           />
         </View>
+
+        {Platform.OS === 'android' && (
+          <View
+            style={[
+              styles.row,
+              {
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: theme.colors.lineSoft,
+              },
+            ]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text variant="body">{t('settings.smoothImageLoading')}</Text>
+              <Text variant="bodySmall" color={theme.colors.text3}>
+                {t('settings.smoothImageLoadingDesc')}
+              </Text>
+            </View>
+            <Switch
+              value={smoothImageLoading}
+              onValueChange={setSmoothImageLoading}
+              trackColor={{
+                false: theme.colors.bgElev3,
+                true: theme.colors.accentSoft,
+              }}
+              thumbColor={smoothImageLoading ? theme.colors.accent : theme.colors.text3}
+            />
+          </View>
+        )}
 
         <View
           style={[
@@ -2884,10 +2885,16 @@ export default function SettingsScreen() {
   const { t } = useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams<{ section?: string | string[] }>();
-  const activeSection = normalizeSection(
+  const requestedSection = normalizeSettingsSection(
     Array.isArray(params.section) ? params.section[0] : params.section,
   );
+  const [activeSection, setActiveSection] = useState<SettingsSection>(requestedSection);
+  useEffect(() => { setActiveSection(requestedSection); }, [requestedSection]);
+  const { isTablet } = useDeviceLayout();
   const user = useAuthStore((s) => s.user);
+  // Tablets reach settings from the profile bar gear, with no Me-tab list in
+  // front of it, so the screen carries its own section menu there.
+  const navItems = isTablet ? settingsNavItems(t, user?.accountType === 'central', { includeProfile: true }) : [];
   const signOut = useAuthStore((s) => s.signOut);
   const applyProfile = useAuthStore((s) => s.applyProfile);
   const servers = useServerStore((s) => s.servers);
@@ -2995,13 +3002,8 @@ export default function SettingsScreen() {
   };
 
   const handleUploadMedia = async (kind: 'avatar' | 'banner') => {
-    const picked = await DocumentPicker.getDocumentAsync({
-      type: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
-      copyToCacheDirectory: true,
-    });
-    if (picked.canceled || !picked.assets?.[0]) return;
-    const asset = picked.assets[0];
-    const mime = asset.mimeType ?? 'image/jpeg';
+    const image = await pickImage(kind);
+    if (!image) return;
     const fieldName = kind;
     const endpoint = `/api/profile/me/${kind}`;
     if (kind === 'avatar') setUploadingAvatar(true);
@@ -3009,11 +3011,7 @@ export default function SettingsScreen() {
     setMessage(null);
     try {
       const formData = new FormData();
-      await appendFormDataFile(formData, fieldName, {
-        uri: asset.uri,
-        type: mime,
-        name: asset.name ?? `${kind}.jpg`,
-      });
+      await appendFormDataFile(formData, fieldName, { uri: image.uri, type: image.mimeType, name: image.name });
       const api = profileApi();
       const res = await api.post<Record<string, unknown>>(endpoint, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -3074,12 +3072,49 @@ export default function SettingsScreen() {
             'content-social': t('settings.navContentSocial'),
             storage: t('settings.navStorage'),
             language: t('settings.navLanguage'),
+            'cat-lab': t('settings.navCatLab'),
           } as Record<SettingsSection, string>)[activeSection]}
         </Text>
         <IconBtn icon={X} onPress={() => router.back()} accessibilityLabel={t('common.close')} />
       </View>
 
-      <ScrollView>
+      <View style={styles.body}>
+      {navItems.length > 0 ? (
+        <ScrollView
+          style={[styles.sectionNav, { borderRightColor: theme.colors.lineSoft }]}
+          contentContainerStyle={styles.sectionNavContent}
+        >
+          {navItems.map(({ id, label, Icon }) => {
+            const active = id === activeSection;
+            return (
+              <Pressable
+                key={id}
+                haptic
+                onPress={() => setActiveSection(id)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                style={[
+                  styles.sectionNavItem,
+                  { borderRadius: theme.radius.md, backgroundColor: active ? theme.colors.accent + '24' : 'transparent' },
+                ]}
+              >
+                <Icon size={17} color={active ? theme.colors.accent : theme.colors.text2} />
+                <Text variant="bodySmall" weight={active ? '600' : undefined} color={active ? theme.colors.accent : theme.colors.text2} numberOfLines={1} style={{ flex: 1 }}>
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+      <ScrollView
+        key={activeSection}
+        style={{ flex: 1 }}
+        // iOS: inset by the keyboard and scroll the focused field into view (Android resizes the window).
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
         {activeSection === 'profile' ? (
           <>
             {/* Account */}
@@ -3599,12 +3634,17 @@ export default function SettingsScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  body: { flex: 1, flexDirection: 'row' },
+  sectionNav: { width: 220, flexGrow: 0, borderRightWidth: StyleSheet.hairlineWidth },
+  sectionNavContent: { padding: 8, gap: 2 },
+  sectionNavItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 10, paddingHorizontal: 12, minHeight: 40 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',

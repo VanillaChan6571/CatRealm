@@ -8,7 +8,7 @@
  *   <Sheet open={open} onClose={() => setOpen(false)}>...</Sheet>
  */
 
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   View,
   Animated,
@@ -41,9 +41,15 @@ export interface SheetProps {
   presentation?: 'bottom' | 'left' | 'center';
   /** Window-coordinate edge of the source pane; drawers expand right from here. */
   anchorRight?: number;
+  /**
+   * Runs once the sheet has fully gone, after its close animation and, on iOS, after the native
+   * modal has been dismissed. Present a system picker or another modal from here, not alongside
+   * onClose: presented any sooner it sits on the closing modal and is torn down with it.
+   */
+  onClosed?: () => void;
 }
 
-export function Sheet({ open, onClose, children, maxHeightFraction = 0.85, maxWidth, avoidKeyboard = false, presentation = 'bottom', anchorRight = 0 }: SheetProps) {
+export function Sheet({ open, onClose, children, maxHeightFraction = 0.85, maxWidth, avoidKeyboard = false, presentation = 'bottom', anchorRight = 0, onClosed }: SheetProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
@@ -54,6 +60,23 @@ export function Sheet({ open, onClose, children, maxHeightFraction = 0.85, maxWi
   // A dialog rises a little as it fades in rather than travelling across the screen.
   const hiddenOffset = isDrawer ? -drawerWidth : isCenter ? 16 : windowHeight;
   const [mounted, setMounted] = useState(open);
+  const onClosedRef = useRef(onClosed);
+  onClosedRef.current = onClosed;
+  // Set when the close animation ends; cleared once onClosed has run for that close.
+  const closePending = useRef(false);
+  const fireClosed = useCallback(() => {
+    if (!closePending.current) return;
+    closePending.current = false;
+    onClosedRef.current?.();
+  }, []);
+  const waitsForNativeDismiss = !isDrawer && Platform.OS === 'ios';
+  useEffect(() => {
+    if (mounted || !closePending.current) return;
+    if (!waitsForNativeDismiss) { fireClosed(); return; }
+    // Modal's onDismiss normally fires first; this only covers a dismissal it never reports.
+    const fallback = setTimeout(fireClosed, 1000);
+    return () => clearTimeout(fallback);
+  }, [mounted, waitsForNativeDismiss, fireClosed]);
   const lastChildren = useRef<ReactNode>(null);
   useLayoutEffect(() => {
     if (open) lastChildren.current = children;
@@ -77,7 +100,7 @@ export function Sheet({ open, onClose, children, maxHeightFraction = 0.85, maxWi
 
   useEffect(() => {
     let cancelled = false;
-    if (open) setMounted(true);
+    if (open) { closePending.current = false; setMounted(true); }
     else if (lastChildren.current !== null && avoidKeyboard) Keyboard.dismiss();
     const animation = open
       ? Animated.parallel([
@@ -95,6 +118,7 @@ export function Sheet({ open, onClose, children, maxHeightFraction = 0.85, maxWi
       ]);
     animation.start(({ finished }) => {
       if (!cancelled && finished && !open) {
+        closePending.current = true;
         setMounted(false);
         lastChildren.current = null;
       }
@@ -170,7 +194,7 @@ export function Sheet({ open, onClose, children, maxHeightFraction = 0.85, maxWi
   );
   if (isDrawer) return mounted ? <OverlayPortal>{content}</OverlayPortal> : null;
   return (
-    <Modal testID="sheet-modal" visible={mounted} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent
+    <Modal testID="sheet-modal" visible={mounted} transparent animationType="none" onRequestClose={onClose} onDismiss={fireClosed} statusBarTranslucent
       supportedOrientations={['portrait', 'portrait-upside-down', 'landscape', 'landscape-left', 'landscape-right']}>
       {content}
     </Modal>

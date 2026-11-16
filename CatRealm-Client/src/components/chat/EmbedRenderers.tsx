@@ -12,10 +12,17 @@ import {
 import { AudioPlayer } from './AudioPlayer';
 import { isKlipyMediaUrl, KlipyFavoriteButton } from './KlipyFavoriteButton';
 import { EmbedImage, PreviewVideo } from './EmbedMedia';
+import { InlineChatVideo } from './InlineChatVideo';
+import { isChatVideo, type ChatMediaKind, type MediaViewerPlayback } from '../../lib/chatMedia';
 
-export type OpenPreviewMediaFn = (preview: LinkPreview, images: string[], index: number) => void;
+export type OpenPreviewMediaFn = (
+  preview: LinkPreview,
+  images: string[],
+  index: number,
+  playback?: MediaViewerPlayback
+) => void;
 export type OpenExternalLinkFn = (url: string, event: React.MouseEvent<HTMLAnchorElement>) => void;
-export type OpenImmediateMediaFn = (url: string) => void;
+export type OpenImmediateMediaFn = (url: string, kind?: ChatMediaKind, playback?: MediaViewerPlayback) => void;
 
 function IwaraEmbed({ url, onOpenExternalLink }: { url: string; onOpenExternalLink?: OpenExternalLinkFn }) {
   const iwara = React.useMemo(() => toIwaraEmbed(url), [url]);
@@ -198,7 +205,7 @@ export function buildImmediateEmbed(
           if (onOpenMedia) {
             e.preventDefault();
             e.stopPropagation();
-            onOpenMedia(url);
+            onOpenMedia(url, 'image');
             return;
           }
           onOpenExternalLink?.(url, e);
@@ -220,16 +227,27 @@ export function buildImmediateEmbed(
     );
   }
 
-  if (/\.(mp4|webm|ogg)(\?.*)?$/.test(lower)) {
+  // Linked videos play inline and expand into the media viewer, like linked images.
+  if (isChatVideo(url) || /\.ogg(\?.*)?$/.test(lower)) {
     return (
-      <video src={url} controls className="mt-2 max-w-md rounded border border-border bg-black" />
+      <InlineChatVideo
+        src={url}
+        wrapperClassName="mt-2"
+        className="max-w-md max-h-[42vh] rounded border border-border bg-black"
+        onExpand={onOpenMedia ? (playback) => onOpenMedia(url, 'video', playback) : undefined}
+      />
     );
   }
 
   const iwaraDirectMedia = toIwaraDirectMediaUrl(url);
   if (iwaraDirectMedia) {
     return (
-      <video src={iwaraDirectMedia} controls preload="metadata" playsInline className="mt-2 max-w-md rounded border border-border bg-black" />
+      <InlineChatVideo
+        src={iwaraDirectMedia}
+        wrapperClassName="mt-2"
+        className="max-w-md max-h-[42vh] rounded border border-border bg-black"
+        onExpand={onOpenMedia ? (playback) => onOpenMedia(iwaraDirectMedia, 'video', playback) : undefined}
+      />
     );
   }
 
@@ -404,7 +422,11 @@ export function buildPreviewCard(
     if (preview.mime?.startsWith('video/')) {
       return (
         <div className="mt-2 inline-block max-w-lg align-top rounded border border-border bg-bg-elevated">
-          <PreviewVideo src={preview.url} animated={!!preview.animated} />
+          <PreviewVideo
+            src={preview.url}
+            animated={!!preview.animated}
+            onExpand={onOpenPreviewMedia ? (playback) => onOpenPreviewMedia(preview, [preview.url], 0, playback) : undefined}
+          />
           {metaBlock}
         </div>
       );
