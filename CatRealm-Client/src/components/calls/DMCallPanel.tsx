@@ -10,6 +10,7 @@ import { MediaControlBar } from '../../voice/MediaControlBar';
 import { VideoStreamTile } from '../../voice/VideoStreamTile';
 import { useSpeakingDetector } from '../../voice/hooks/useSpeakingDetector';
 import { writeClipboardText } from '../../lib/clipboard';
+import { CallRegionControl } from './CallRegionControl';
 
 type DMCallPanelProps = {
   messageChatOpen?: boolean;
@@ -149,6 +150,7 @@ export function DMCallPanel({ messageChatOpen = false, onToggleMessageChat }: DM
 
   return (
     <div className="relative bg-bg-primary flex flex-col h-full overflow-hidden">
+      {activeDMCall.status === 'active' && <CallRegionControl callId={activeDMCall.callId} />}
       {callNotice && (
         <div className="absolute top-4 left-4 right-4 z-30 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100 shadow-lg backdrop-blur">
           {callNotice}

@@ -10,7 +10,7 @@ vi.mock('../../lib/desktopNotifications', () => ({
 import { useChannelStore } from '../../stores/channelStore';
 import { useMarkChannelReadWhileOpen } from '../useMarkChannelReadWhileOpen';
 
-function ForumStandIn({ channelId }: { channelId: string }) {
+function PassiveChannelStandIn({ channelId }: { channelId: string }) {
   useMarkChannelReadWhileOpen(channelId);
   return null;
 }
@@ -31,8 +31,8 @@ describe('useMarkChannelReadWhileOpen', () => {
 
   afterEach(cleanup);
 
-  it('clears the badge and saves the read position when the forum opens', () => {
-    render(<ForumStandIn channelId="forum" />);
+  it('clears the badge and saves the read position when a board opens', () => {
+    render(<PassiveChannelStandIn channelId="forum" />);
     const state = useChannelStore.getState();
     expect(state.unreadByChannel).toEqual({ forum: 0, other: 2 });
     expect(state.mentionByChannel.forum).toBe(0);
@@ -42,7 +42,7 @@ describe('useMarkChannelReadWhileOpen', () => {
 
   it('waits for the app to return to the foreground', () => {
     background.value = true;
-    render(<ForumStandIn channelId="forum" />);
+    render(<PassiveChannelStandIn channelId="forum" />);
     expect(useChannelStore.getState().unreadByChannel.forum).toBe(4);
     expect(setChannelPrefs).not.toHaveBeenCalled();
 

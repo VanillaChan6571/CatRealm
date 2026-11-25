@@ -17,7 +17,7 @@ import { MessageInput } from './MessageInput';
 import { TypingIndicator } from './TypingIndicator';
 import { X } from 'lucide-react';
 import { getSocket } from '../../lib/socket';
-import { useMarkChannelReadWhileOpen } from '../../hooks/useMarkChannelReadWhileOpen';
+import { useMarkForumPostReadWhileOpen } from '../../hooks/useMarkForumPostReadWhileOpen';
 
 const EMPTY_MESSAGES: Message[] = [];
 
@@ -34,7 +34,7 @@ export function ForumPostView({ post, channel, onBack }: Props) {
   const activeServerUrl = useServerStore((s) => s.activeServerUrl);
   const timeFormat = useSettingsStore((s) => s.timeFormat);
   const viewed = useViewedPermissions();
-  useMarkChannelReadWhileOpen(channel.id);
+  useMarkForumPostReadWhileOpen(channel.id, post.id);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);

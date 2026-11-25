@@ -1,4 +1,9 @@
-import { activeMentionQuery, buildMentionSuggestions } from '../mentionSuggestions';
+import {
+  activeChannelQuery,
+  activeMentionQuery,
+  buildChannelSuggestions,
+  buildMentionSuggestions,
+} from '../mentionSuggestions';
 
 const members = [
   { id: '1', username: 'Alesya', avatar: '/a.png' },
@@ -31,6 +36,29 @@ test('an empty query lists the alias, roles highest first, then members', () => 
 test('filters case-insensitively and puts prefix matches first', () => {
   const items = buildMentionSuggestions('a', members, roles, '@here');
   expect(items.map((item) => item.label)).toEqual(['@Architect', '@Guard', '@Alesya', '@nya']);
+});
+
+const channels = [
+  { id: 'c1', name: 'general', type: 'basic' },
+  { id: 'c2', name: 'nya-helpdesk', type: 'basic' },
+  { id: 'c3', name: 'Lounge', type: 'voice' },
+];
+
+test('finds the #channel being typed before the caret', () => {
+  expect(activeChannelQuery('#')).toBe('');
+  expect(activeChannelQuery('see #gen')).toBe('gen');
+  expect(activeChannelQuery('line\n#nya')).toBe('nya');
+  expect(activeChannelQuery('issue#4')).toBeNull();
+  expect(activeChannelQuery('#general done')).toBeNull();
+  expect(activeChannelQuery('<#c1> ')).toBeNull();
+  expect(activeChannelQuery('<#c1>')).toBeNull();
+});
+
+test('lists channels, prefix matches first, and inserts <#id>', () => {
+  expect(buildChannelSuggestions('', channels).map((item) => item.label)).toEqual(['#general', '#nya-helpdesk', '#Lounge']);
+  expect(buildChannelSuggestions('l', channels).map((item) => item.label)).toEqual(['#Lounge', '#general', '#nya-helpdesk']);
+  const [voice] = buildChannelSuggestions('lou', channels);
+  expect(voice).toMatchObject({ type: 'channel', insert: '<#c3>', description: 'Voice channel' });
 });
 
 test('inserts plain-text mentions and uses the realm alias', () => {

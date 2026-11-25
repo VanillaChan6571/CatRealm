@@ -24,6 +24,8 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { Text, Avatar, BotBadge, Pressable, MobileComposer, TranslatableMarkdownText, MessageActionSheet, SafetyReportSheet, type SafetyReportTarget } from '@/components';
 import { ChannelMessageRow } from '@/components/ChannelMessageRow';
+import { RoleNameText } from '@/lib/roleStyles';
+import { useMemberRoleStyle } from '@/hooks/useMemberRoleStyle';
 import { useAuthStore } from '@/stores/authStore';
 import { createApi } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
@@ -37,6 +39,7 @@ import { hideReportedAttachments, hideReportedLinks, reportableSafetyArtifacts, 
 import { useMessageStore } from '@/stores/messageStore';
 import { hasChannelPermission, PERMISSIONS } from '@/utils/permissions';
 import type { Reaction } from '@/types';
+import { useTopBarPadding } from '@/hooks/useTopBarPadding';
 
 const EMPTY: Message[] = [];
 
@@ -52,14 +55,23 @@ function ForumPostHeader({ post, replyCount, serverUrl, expressionLookup }: {
 }) {
   const theme = useTheme();
   const { t } = useTranslation();
+  const authorRole = useMemberRoleStyle(post.created_by);
   return (
     <View>
     <View style={[styles.postHeader, { borderBottomColor: theme.colors.lineSoft }]}>
       <View style={styles.meta}>
         <Avatar username={post.author_username} uri={post.author_avatar} baseUrl={serverUrl ?? undefined} size={28} showStatus={false} />
-        <Text variant="subtitle" numberOfLines={1} style={{ marginLeft: 8, flexShrink: 1 }}>
-          {post.author_display_name ?? post.author_username}
-        </Text>
+        {/* Spacing lives on a wrapper: rgb_flow names measure and mask their own text style. */}
+        <View style={{ marginLeft: 8, flexShrink: 1 }}>
+          <RoleNameText
+            color={authorRole.color}
+            styleType={authorRole.styleType}
+            styleColors={authorRole.styleColors}
+            numberOfLines={1}
+          >
+            {post.author_display_name ?? post.author_username}
+          </RoleNameText>
+        </View>
         {post.author_account_type === 'bot' ? <BotBadge /> : null}
         <Text variant="caption" color={theme.colors.text3} style={{ marginLeft: 6 }}>
           {formatMessageTimestamp(toMs(post.created_at))}
@@ -91,6 +103,8 @@ function ForumPostHeader({ post, replyCount, serverUrl, expressionLookup }: {
 
 export default function ThreadScreen() {
   const theme = useTheme();
+  // The header steps clear of a side status area (the iPhone Duo's cover screen).
+  const topBarPadding = useTopBarPadding(8);
   const { t } = useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -319,7 +333,7 @@ export default function ThreadScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: theme.colors.lineSoft }]}>
+      <View style={[styles.header, { borderBottomColor: theme.colors.lineSoft }, topBarPadding]}>
         <Pressable haptic onPress={() => router.back()} style={styles.backBtn}>
           <ChevronLeft color={theme.colors.accent} size={20} />
         </Pressable>

@@ -1,4 +1,5 @@
 import { AudioDeafenedIcon, AudioListeningIcon, MicrophoneLiveIcon, MicrophoneMutedIcon } from '../voice/VoiceStateIcons';
+import { voiceRegionLabel, voiceRegionShortLabel } from '../../lib/voiceRegions';
 import { ReactiveAvatarBadge } from '../voice/ReactiveAvatarBadge';
 import { TheaterPresenceBadge } from '../theater/TheaterPresenceBadge';
 import { isTheaterVoiceDisconnected } from '../../lib/theaterPresence';
@@ -87,6 +88,7 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
   const kickUser = useTheaterStore((s) => s.kickUser);
   const voiceRoomUsers = useVoiceStore((s) => s.voiceRoomUsers);
   const voiceRoomStartedAt = useVoiceStore((s) => s.voiceRoomStartedAt);
+  const voiceRoomRegions = useVoiceStore((s) => s.voiceRoomRegions);
   const liveUserIdsByChannel = useVoiceStore((s) => s.liveUserIdsByChannel);
   const selfVoiceUserId = useVoiceStore((s) => s.selfVoiceUserId);
   const peerVolumeByUser = useVoiceStore((s) => s.peerVolumeByUser);
@@ -349,7 +351,13 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
           )}
         </div>
 
-        {renderCategoryGroup(null, 'Uncategorized', channels.filter((c) => !c.category_id && !isServerRulesChannel(c)))}
+        {(() => {
+          const uncategorized = channels.filter((c) => !c.category_id && !isServerRulesChannel(c));
+          // Hidden when empty (as on mobile), but kept as a drop target while a channel is dragged.
+          return uncategorized.length > 0 || (canManageChannels && drag?.type === 'channel')
+            ? renderCategoryGroup(null, 'Uncategorized', uncategorized)
+            : null;
+        })()}
         {categories.map((cat) => (
           renderCategoryGroup(cat, cat.name, channels.filter((c) => c.category_id === cat.id && !isServerRulesChannel(c)))
         ))}
@@ -1209,6 +1217,14 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
                   title={`${liveUserIdsByChannel[channel.id]?.length ?? 0} live stream${(liveUserIdsByChannel[channel.id]?.length ?? 0) === 1 ? '' : 's'} in this voice channel`}
                 >
                   Live
+                </span>
+              )}
+              {channel.type === 'voice' && voiceRoomRegions[channel.id] && (
+                <span
+                  className="shrink-0 rounded bg-bg-tertiary px-1 py-0.5 text-[10px] font-semibold text-text-secondary"
+                  title={`Voice region: ${voiceRegionLabel(voiceRoomRegions[channel.id])}`}
+                >
+                  {voiceRegionShortLabel(voiceRoomRegions[channel.id])}
                 </span>
               )}
               {channel.type === 'voice' && voiceRoomStartedAt[channel.id] && (

@@ -1,3 +1,4 @@
+jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
 jest.mock('@/lib/livekit-init', () => ({ ensureLiveKitGlobals: () => true, getLiveKitInitError: () => null }));
 jest.mock('@/lib/api', () => ({ createAuthenticatedApi: () => mockApi }));
 jest.mock('@/lib/audioSession', () => ({ acquireAudioSession: jest.fn(async () => {}), releaseAudioSession: jest.fn(async () => {}) }));

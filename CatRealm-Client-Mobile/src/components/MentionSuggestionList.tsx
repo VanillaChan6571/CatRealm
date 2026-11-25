@@ -1,5 +1,5 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { AtSign } from 'lucide-react-native';
+import { AtSign, Hash } from 'lucide-react-native';
 import { useTheme } from '@/theme';
 import type { MentionSuggestion } from '@/lib/mentionSuggestions';
 import { Avatar } from './Avatar';
@@ -10,9 +10,10 @@ const SECTION_LABELS: Record<MentionSuggestion['type'], string> = {
   alias: 'Everyone',
   role: 'Roles',
   user: 'Members',
+  channel: 'Channels',
 };
 
-/** Tappable @mention suggestions shown above the composer while typing `@…`. */
+/** Tappable suggestions shown above the composer while typing `@…` or `#…`. */
 export function MentionSuggestionList({ items, serverUrl, onSelect }: {
   items: MentionSuggestion[];
   serverUrl?: string | null;
@@ -44,7 +45,9 @@ export function MentionSuggestionList({ items, serverUrl, onSelect }: {
                   <View style={[styles.badge, { backgroundColor: theme.colors.bgElev2 }]}>
                     {item.type === 'role'
                       ? <Text variant="caption" color={item.color || theme.colors.accentText} style={styles.roleGlyph}>R</Text>
-                      : <AtSign size={14} color={theme.colors.accentText} />}
+                      : item.type === 'channel'
+                        ? <Hash size={14} color={theme.colors.accentText} />
+                        : <AtSign size={14} color={theme.colors.accentText} />}
                   </View>
                 )}
                 <Text

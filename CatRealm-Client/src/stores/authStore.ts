@@ -1,15 +1,14 @@
 import { create } from 'zustand';
 import axios from 'axios';
 import type { ServerInfo, User, CentralRegPending } from '../types';
-import { authApi, createAuthenticatedApi, refreshCentralSessionIfNeeded, AUTH_BASE, getCentralDeviceHeaders } from '../lib/authApi';
+import { authApi, createAuthenticatedApi, confirmOrExpireCentralSession, refreshCentralSessionIfNeeded, AUTH_BASE, getCentralDeviceHeaders } from '../lib/authApi';
 import { createApi } from '../lib/api';
 import { reconcileIncomingCentralProfileActivity, scheduleStaleCentralProfileActivityClear } from '../lib/centralProfileActivity';
 import { saveSession, loadSession, clearSession, clearServers, decodeToken, parseTokenUser } from '../utils/token';
 import { disconnectSocket } from '../lib/socket';
 import { clearAllDMStorage } from '../messaging/persistence/dmStorage';
 import { usePinnedStore } from './pinnedStore';
-import { adoptCentralSessionDevice } from '../lib/centralDeviceCredentials';
-import { clearLocalConversationSecrets } from '../lib/deviceIdentity';
+import { adoptCentralSessionDevice, clearLocalConversationSecrets, keepConversationSecretsFor } from '../lib/centralDeviceCredentials';
 import { shouldDeferPassiveLocalNetworkRequest } from '../lib/localNetworkAccess';
 
 // Callback for resetting serverStore on logout (set by serverStore to avoid circular dep)
@@ -63,7 +62,7 @@ interface AuthState {
   setOnboardingCompleted: () => void;
   clearError: () => void;
   disconnect: () => void;
-  expireCentralSession: (error?: string | null) => void;
+  expireCentralSession: (error?: string | null, options?: { revoked?: boolean }) => void;
   centralLoginWithToken: (token: string, userId: string, username: string, syncKey: string | null) => void;
   switchCentralAccount: (token: string, authUser: { id: string; username: string }, syncKey: string | null) => Promise<void>;
 }
@@ -310,7 +309,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isAuthenticated: true,
         });
         void refreshCentralSessionIfNeeded({ force: true }).then((nextToken) => {
-          if (!nextToken) get().expireCentralSession();
+          // Central may only be unreachable; sign out once it actually rejects the session.
+          if (!nextToken) void confirmOrExpireCentralSession();
         });
         return;
       }
@@ -519,12 +519,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     window.location.reload();
   },
 
-  expireCentralSession: (error) => {
+  expireCentralSession: (error, { revoked = false } = {}) => {
+    const user = get().user;
     onLogoutVoiceCallback?.();
     onLogoutNotesCallback?.();
     disconnectSocket();
     clearSession();
-    clearLocalConversationSecrets();
+    // Only an explicit revocation erases DM keys; plaintext messages always go.
+    // A burst of rejected requests can call this again after the user is gone.
+    if (revoked || (user && user.accountType !== 'central')) clearLocalConversationSecrets();
+    else if (user) keepConversationSecretsFor(user.id);
     clearAllDMStorage();
     set({
       serverUrl: null,

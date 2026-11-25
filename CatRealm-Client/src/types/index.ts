@@ -272,6 +272,8 @@ export interface ForumPost {
   author_display_name: string | null;
   preview_content: string;
   reply_count: number;
+  /** Unread messages in this post, independent of other posts in the forum. */
+  unread_count?: number;
   cover_image: string | null;
   body_attachments?: MessageAttachment[] | null;
 }

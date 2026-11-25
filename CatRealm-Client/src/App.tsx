@@ -28,6 +28,7 @@ import { persistRealtimeReconnectTarget } from './lib/realtimeReconnect';
 import { initDmPinSync, hydrateDmPinsFromCentral } from './lib/dmPinSync';
 import { setVoiceDebugLoggingEnabled } from './lib/voiceDebugConsole';
 import { getSocket } from './lib/socket';
+import { warmVoiceRegionPreference, getPreferredVoiceRegion } from './lib/voiceRegions';
 const InvitePage = lazy(() => import('./pages/InvitePage').then(m => ({ default: m.InvitePage })));
 const WebAuthnLoginPage = lazy(() => import('./pages/WebAuthnLoginPage').then(m => ({ default: m.WebAuthnLoginPage })));
 const WebAuthnRegisterPage = lazy(() => import('./pages/WebAuthnRegisterPage').then(m => ({ default: m.WebAuthnRegisterPage })));
@@ -138,6 +139,13 @@ function FullApp() {
   useEffect(() => {
     restoreSession();
   }, [restoreSession]);
+
+  useEffect(() => {
+    warmVoiceRegionPreference();
+    const refresh = () => { void getPreferredVoiceRegion({ refresh: true }); };
+    window.addEventListener('online', refresh);
+    return () => window.removeEventListener('online', refresh);
+  }, []);
 
   useEffect(() => {
     if (user) markStartup('renderer_user_known');

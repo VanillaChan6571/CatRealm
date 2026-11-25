@@ -36,6 +36,7 @@ import { canSendDM } from '@/lib/dmRequests';
 import { useBlockedUsersStore } from '@/stores/blockedUsersStore';
 import { DMKeyRecoveryPanel } from '@/components/DMKeyRecoveryPanel';
 import { hideReportedAttachments, hideReportedLinks, reportableSafetyArtifacts, safetyHiddenArtifactKeys } from '@/lib/safetyReporting';
+import { useTopBarPadding } from '@/hooks/useTopBarPadding';
 
 const EMPTY_DM_MESSAGES: DMMessage[] = [];
 const EMPTY_DM_PINS: DMPinnedEntry[] = [];
@@ -336,6 +337,8 @@ const DMMessageRow = memo(function DMMessageRow({
 
 export default function DMScreen() {
   const theme = useTheme();
+  // The header steps clear of a side status area (the iPhone Duo's cover screen).
+  const topBarPadding = useTopBarPadding(theme.spacing.sm);
   const { t } = useTranslation();
   const router = useRouter();
   const isFocused = useIsFocused();
@@ -723,7 +726,7 @@ export default function DMScreen() {
           styles.header,
           {
             borderBottomColor: theme.colors.lineSoft,
-            paddingHorizontal: theme.spacing.sm,
+            ...topBarPadding,
             paddingVertical: theme.spacing.sm,
             gap: theme.spacing.sm,
           },

@@ -38,7 +38,7 @@ function isTerminalAuthError(error: unknown): boolean {
   );
 }
 
-let centralSessionVerificationPromise: Promise<{ valid: boolean; keyRotated: boolean }> | null = null;
+let centralSessionVerificationPromise: Promise<CentralSessionCheck> | null = null;
 let lastCentralSessionVerificationAt = 0;
 const CENTRAL_SESSION_VERIFY_COOLDOWN_MS = 5000;
 const CENTRAL_TOKEN_REFRESH_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -118,6 +118,10 @@ export async function refreshCentralSessionIfNeeded(options: { force?: boolean }
   return centralTokenRefreshPromise;
 }
 
+function isSessionRevokedError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.data?.code === 'SESSION_REVOKED';
+}
+
 function isAuthKeyRotatedError(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.data?.code === 'AUTH_KEY_ROTATED';
 }
@@ -125,11 +129,11 @@ function isAuthKeyRotatedError(error: unknown): boolean {
 const CENTRAL_KEY_ROTATED_MESSAGE =
   'Central has restarted with a new security key — all users have been logged out for safety. Please log in again.';
 
-type CentralSessionCheck = { valid: boolean; keyRotated: boolean };
+type CentralSessionCheck = { valid: boolean; keyRotated: boolean; revoked: boolean };
 
 async function verifyCentralSessionStillValid(): Promise<CentralSessionCheck> {
   const state = useAuthStore.getState();
-  if (state.user?.accountType !== 'central' || !state.token) return { valid: false, keyRotated: false };
+  if (state.user?.accountType !== 'central' || !state.token) return { valid: false, keyRotated: false, revoked: false };
 
   try {
     await axios.get(`${AUTH_BASE}/api/profile/me`, {
@@ -140,9 +144,13 @@ async function verifyCentralSessionStillValid(): Promise<CentralSessionCheck> {
       },
       timeout: 10000,
     });
-    return { valid: true, keyRotated: false };
+    return { valid: true, keyRotated: false, revoked: false };
   } catch (error) {
-    return { valid: !isTerminalAuthError(error), keyRotated: isAuthKeyRotatedError(error) };
+    return {
+      valid: !isTerminalAuthError(error),
+      keyRotated: isAuthKeyRotatedError(error),
+      revoked: isSessionRevokedError(error),
+    };
   }
 }
 
@@ -164,8 +172,12 @@ export async function confirmOrExpireCentralSession(error?: unknown) {
 
   const check = await centralSessionVerificationPromise;
   if (check && !check.valid) {
+    // Another rejected request already handled it, or the account changed meanwhile.
+    const current = useAuthStore.getState();
+    if (current.user?.id !== state.user.id || current.token !== state.token) return;
     const keyRotated = check.keyRotated || isAuthKeyRotatedError(error);
-    useAuthStore.getState().expireCentralSession(keyRotated ? CENTRAL_KEY_ROTATED_MESSAGE : undefined);
+    const revoked = check.revoked || isSessionRevokedError(error);
+    useAuthStore.getState().expireCentralSession(keyRotated ? CENTRAL_KEY_ROTATED_MESSAGE : undefined, { revoked });
   }
 }
 

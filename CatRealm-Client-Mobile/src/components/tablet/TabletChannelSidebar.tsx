@@ -15,7 +15,7 @@ import { ChevronDown, HeadphoneOff, MicOff, X } from 'lucide-react-native';
 import { useTheme } from '@/theme';
 import { Avatar } from '@/components/Avatar';
 import { ChannelIcon } from '@/components/ChannelIcon';
-import { ChannelNsfwTag, ChannelUnreadBadge } from '@/components/ChannelRowBadges';
+import { ChannelNsfwTag, ChannelUnreadBadge, VoiceRegionTag } from '@/components/ChannelRowBadges';
 import { ConnectedChannelPulse, useConnectedChannelIds } from '@/components/ConnectedChannelPulse';
 import { IconBtn } from '@/components/IconBtn';
 import { Pressable } from '@/components/Pressable';
@@ -230,6 +230,7 @@ export function TabletChannelSidebar({ serverId, channelId }: { serverId: string
                           {ch.name}
                         </Text>
                         <ChannelNsfwTag nsfw={ch.nsfw} />
+                        {ch.type === 'voice' ? <VoiceRegionTag channelId={ch.id} /> : null}
                         {elapsedStartedAt != null ? (
                           <Text variant="caption" style={[styles.tabletRoomElapsed, { color: theme.colors.accent }]}>
                             {formatRoomElapsed(Math.max(0, roomNowMs - elapsedStartedAt))}

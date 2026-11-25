@@ -7,6 +7,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { AvatarImage } from '../ui/AvatarImage';
+import { formatPresenceStatusLabel, presenceDotClass } from '../../lib/expressions';
 import { AUTH_BASE } from '../../lib/authApi';
 import { resolveAvatarUrl } from '../../utils/avatar';
 
@@ -140,7 +141,10 @@ export function FriendsModal() {
                       >
                         {friend.username}
                       </button>
-                      <span className="text-xs text-text-muted">{t('friends.friend')}</span>
+                      <span className="flex items-center gap-1.5 min-w-0 text-xs text-text-primary">
+                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${presenceDotClass(friend.status)}`} />
+                        <span className="truncate">{formatPresenceStatusLabel(friend.status)} · {t('friends.friend')}</span>
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

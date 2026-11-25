@@ -30,6 +30,7 @@ import { canReceiveVideoMimeType, knownH264HardwareEncode, probeH264HardwareEnco
 import { playRemoteParticipantAudio, type ManagedRemoteAudioPlayback } from '../lib/mediaPlayback';
 import { playNotificationSound, type SoundType } from '../lib/notificationSounds';
 import { useBlockedUsersStore } from './blockedUsersStore';
+import { getPreferredVoiceRegion, type CentralVoiceRegion } from '../lib/voiceRegions';
 
 export type MediaContext = 'dm' | 'group' | 'voice' | 'theater';
 export type MediaConnectionLabel = 'Connected' | 'Connecting' | 'Reconnecting' | 'Disconnected' | 'No media server' | 'Legacy mode';
@@ -2286,7 +2287,7 @@ function requestSocketCapability(serverUrl: string): Promise<MediaCapability | n
   });
 }
 
-function requestSocketVoiceToken(serverUrl: string, channelId: string): Promise<MediaTokenResponse | null> {
+function requestSocketVoiceToken(serverUrl: string, channelId: string, preferredRegion?: CentralVoiceRegion): Promise<MediaTokenResponse | null> {
   return new Promise((resolve) => {
     const socket = getSocket(serverUrl);
     if (!socket?.connected) {
@@ -2299,7 +2300,7 @@ function requestSocketVoiceToken(serverUrl: string, channelId: string): Promise<
       settled = true;
       resolve(null);
     }, 7000);
-    socket.emit('media:v1:token', { context: 'voice', channelId }, (resp?: MediaTokenResponse & { ok?: boolean; error?: string }) => {
+    socket.emit('media:v1:token', { context: 'voice', channelId, preferredRegion }, (resp?: MediaTokenResponse & { ok?: boolean; error?: string }) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -2367,7 +2368,7 @@ function requestCallToken(socket: Socket, callId: string): Promise<MediaTokenRes
       settled = true;
       resolve(null);
     }, 7000);
-    socket.emit('media:v1:token', { callId }, (resp?: MediaTokenResponse & { ok?: boolean; error?: string }) => {
+    socket.emit('media:v1:token', { callId, regionSwitchVersion: 1 }, (resp?: MediaTokenResponse & { ok?: boolean; error?: string }) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -2702,10 +2703,10 @@ function getNativeVoiceBridge(): NativeVoiceBridge | null {
   };
 }
 
-async function fetchVoiceTokenSession(serverUrl: string, channelId: string): Promise<MediaTokenResponse | null> {
+async function fetchVoiceTokenSession(serverUrl: string, channelId: string, preferredRegion?: CentralVoiceRegion): Promise<MediaTokenResponse | null> {
   const api = createApi(serverUrl);
   try {
-    const response = await api.post<MediaTokenResponse>('/api/media/token', { context: 'voice', channelId });
+    const response = await api.post<MediaTokenResponse>('/api/media/token', { context: 'voice', channelId, preferredRegion });
     return response.data;
   } catch (error) {
     if (isMissingMediaRoute(error)) {
@@ -2719,7 +2720,7 @@ async function fetchVoiceTokenSession(serverUrl: string, channelId: string): Pro
         error: getMediaErrorMessage(error),
       }, 'warn');
     }
-    return requestSocketVoiceToken(serverUrl, channelId);
+    return requestSocketVoiceToken(serverUrl, channelId, preferredRegion);
   }
 }
 
@@ -2839,7 +2840,8 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         set({ statusLabel: toStatusLabel(ConnectionState.Disconnected, capability), privacyLabel: capability?.privacy?.label ?? null });
         return false;
       }
-      const session = await fetchVoiceTokenSession(serverUrl, channelId);
+      const preferredRegion = isCentralMediaFallback(capability, 'voice') ? await getPreferredVoiceRegion() : undefined;
+      const session = await fetchVoiceTokenSession(serverUrl, channelId, preferredRegion);
       if (!session?.ok || !session.token || !session.url) return false;
 
       get().leave();
@@ -3017,7 +3019,8 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     }
 
     try {
-      const session = await fetchVoiceTokenSession(serverUrl, channelId);
+      const preferredRegion = isCentralMediaFallback(capability, 'voice') ? await getPreferredVoiceRegion() : undefined;
+      const session = await fetchVoiceTokenSession(serverUrl, channelId, preferredRegion);
       if (!session?.ok || !session.token || !session.url) return false;
       logVoiceDebug('media-core', 'token ok', {
         channelId,

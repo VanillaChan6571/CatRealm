@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { useUIStore } from '../../stores/uiStore';
 import { AvatarImage } from '../ui/AvatarImage';
@@ -43,6 +44,9 @@ export function UserProfileBar({
   const toggleRadio = useRadioStore((s) => s.toggle);
   const radioOn = radioStatus === 'playing' || radioStatus === 'loading';
   const avatarBase = user?.accountType === 'central' ? AUTH_BASE : serverUrl;
+  const bannerSrc = resolveAvatarUrl(user?.banner, avatarBase, user?.accountType);
+  const [failedBanner, setFailedBanner] = useState<string | null>(null);
+  const showBanner = !!bannerSrc && bannerSrc !== failedBanner;
   const inActiveCall = !!(
     (activeDMCall && activeDMCall.status === 'active')
     || (activeGroupCall && activeGroupCall.status === 'active')
@@ -82,7 +86,21 @@ export function UserProfileBar({
       />
       <RadioStatusPanel />
       <DesktopUpdateBanner />
-      <div className="h-[52px] bg-bg-elevated border-t border-border px-2 flex items-center gap-2">
+      <div className="relative isolate overflow-hidden h-[52px] bg-bg-elevated border-t border-border px-2 flex items-center gap-2">
+        {showBanner && (
+          <>
+            <img
+              src={bannerSrc}
+              alt=""
+              aria-hidden
+              draggable={false}
+              className="absolute inset-0 -z-10 w-full h-full object-cover pointer-events-none"
+              onError={() => setFailedBanner(bannerSrc)}
+            />
+            {/* Keeps the name, status and buttons readable over any banner. */}
+            <div className="absolute inset-0 -z-10 bg-bg-elevated/65 pointer-events-none" />
+          </>
+        )}
         <div className={`w-8 h-8 rounded-full avatar-bg flex items-center justify-center text-white text-sm font-semibold shrink-0 overflow-hidden ${selfCallRingClass}`}>
         <AvatarImage
           src={resolveAvatarUrl(user?.avatar, avatarBase, user?.accountType)
@@ -97,7 +115,7 @@ export function UserProfileBar({
         type="button"
         data-tour="profile"
         onClick={() => openModal('profileSettings')}
-        className="flex-1 min-w-0 text-left rounded px-1 hover:bg-bg-hover/60 transition-colors"
+        className={`flex-1 min-w-0 text-left rounded px-1 hover:bg-bg-hover/60 transition-colors ${showBanner ? '[text-shadow:0_1px_4px_var(--color-bg-elevated)]' : ''}`}
         title="Profile"
       >
         <p className="text-sm text-text-primary font-medium truncate">
@@ -115,7 +133,7 @@ export function UserProfileBar({
           />
           {user ? resolveDisplayName(user.id, user.username, user.displayName) : ''}
         </p>
-        <p className="text-xs text-text-muted">{user?.accountType}</p>
+        <p className={`text-xs ${showBanner ? 'text-text-secondary' : 'text-text-muted'}`}>{user?.accountType}</p>
       </button>
       <button
         type="button"

@@ -11,6 +11,7 @@ import { KEYBIND_ACTIONS, formatKeyCombo } from '../../../lib/keybinds';
 import { useUIStore } from '../../../stores/uiStore';
 import { useTranslation } from 'react-i18next';
 import { ScreenshareSettingsPanel } from '../ScreenshareSettingsPanel';
+import { VoiceRegionSection } from './VoiceRegionSection';
 
 type VoiceTabProps = {
   nativeVoiceBackend: boolean;
@@ -201,6 +202,8 @@ export function VoiceTab(props: VoiceTabProps) {
   return (
     <div className="space-y-6 max-w-2xl">
       <h3 className="text-xl font-bold text-text-primary">{t('settings.navVoice')}</h3>
+
+      <VoiceRegionSection />
 
       <div className="space-y-4 bg-bg-hover/30 p-4 rounded-lg">
         <div className="space-y-3">

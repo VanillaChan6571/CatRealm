@@ -27,6 +27,7 @@ import {
   CONNECT_TO_VOICE_PERMISSION_MESSAGE,
   isConnectToVoicePermissionError,
 } from '../lib/voicePermissionErrors';
+import { notifyExpressionsChanged } from '../lib/expressionEvents';
 
 const REALTIME_RECONNECT_FAILOVER_MS = 10000;
 
@@ -377,6 +378,21 @@ export function useSocket() {
 
     socket.on('connect', onConnect);
 
+    // A minimized/backgrounded client can miss voice join/leave events (throttled
+    // timers, suspended renderer, silent reconnect), so resync rooms on return.
+    let lastForegroundResync = 0;
+    const onForeground = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (!socket.connected) return;
+      const now = Date.now();
+      if (now - lastForegroundResync < 2000) return;
+      lastForegroundResync = now;
+      fetchVoiceRooms();
+      fetchTheaterRooms();
+    };
+    document.addEventListener('visibilitychange', onForeground);
+    window.addEventListener('focus', onForeground);
+
     // If already connected, run connect logic immediately
       if (socket.connected) {
       useUIStore.getState().setConnectionStatus('connected');
@@ -478,7 +494,7 @@ export function useSocket() {
 
     // Unread badge, desktop notification and sound for a message in a channel.
     // threadName is set when the message was posted inside a thread or forum post.
-    const notifyChannelMessage = (msg: NotifiableMessage, threadName?: string) => {
+    const notifyChannelMessage = (msg: NotifiableMessage, threadName?: string, forumPostId?: string) => {
       const currentUser = useAuthStore.getState().user;
       if (!currentUser || msg.user_id === currentUser.id || msg.message_type === 'system') return;
       const channelId = msg.channel_id;
@@ -508,16 +524,21 @@ export function useSocket() {
       const alias = mentionAlias.startsWith('@') ? mentionAlias : `@${mentionAlias}`;
       const content = msg.content ?? '';
       const isBackground = isAppInBackground();
+      const isOpenForumPost = !!forumPostId && isActive && !isBackground
+        && useThreadStore.getState().activeForumPostId === forumPostId;
       const mentionScope = serverUrl ? useServerStore.getState().getServerPrefs(serverUrl).mentionScope : 'everyone';
       const { usernameMention, uuidMention, aliasMention, isMention } = detectMention(content, currentUser, alias, mentionScope);
 
-      if (isActive && atBottom && !isBackground) {
+      if (isOpenForumPost && forumPostId) {
+        void useThreadStore.getState().markForumPostRead(channelId, forumPostId).catch(() => {});
+      } else if (isActive && atBottom && !isBackground && !forumPostId) {
         const now = Math.floor(Date.now() / 1000);
         void channelState.setChannelPrefs(channelId, { lastReadAt: now }).catch(() => {});
         channelState.resetCounts(channelId);
       } else {
         if (!suppressBatchNotice) {
           channelState.incrementUnread(channelId, isCentral ? false : isMention);
+          if (forumPostId) useThreadStore.getState().noteForumPostUnread(channelId, forumPostId);
         }
       }
       const settings = useSettingsStore.getState();
@@ -596,6 +617,11 @@ export function useSocket() {
       if (!isCurrentPresenceTarget(serverUrl, isCentral)) return;
       usePresenceStore.getState().setOnlineUsers(users);
     });
+    const onExpressionsChanged = () => notifyExpressionsChanged(serverUrl);
+    socket.on('expressions:changed', onExpressionsChanged);
+    // The member list only changes on these events; refetch so joins and leaves show live.
+    socket.on('member:join', fetchAllMembers);
+    socket.on('member:leave', fetchAllMembers);
     socket.on('permissions:changed', () => {
       logViewAsRoleDebug('socket:permissions-changed', { serverUrl });
       void refreshServerIdentity();
@@ -653,6 +679,9 @@ export function useSocket() {
         notice: payload.message || 'Meow! You were disconnected because you connected on a different cat client!',
       });
       useVoiceStore.getState().setLastEvent(`voice:force-disconnect ${payload.channelId ?? 'unknown'} ${payload.reason ?? 'unknown'}`);
+    });
+    socket.on('voice:region:changed', (payload: { channelId: string; region: 'eu' | 'us-central'; generation?: string; reverted?: boolean }) => {
+      void useVoiceStore.getState().handleRegionChanged(payload);
     });
     socket.on('voice:user-joined', (payload: { channelId: string; user: VoiceSocketUser }) => {
       useVoiceStore.getState().handleUserJoined(payload);
@@ -851,7 +880,7 @@ export function useSocket() {
         content: post.preview_content,
         created_at: post.created_at,
         attachments: post.body_attachments ?? undefined,
-      }, post.name);
+      }, post.name, post.id);
     });
     // Threads in ordinary channels appear, rename and disappear live.
     socket.on('thread:created', (thread: Thread) => {
@@ -873,7 +902,7 @@ export function useSocket() {
         void threads.revealThread(activity.channelId, activity.threadId, activity.replyCount);
         return;
       }
-      notifyChannelMessage({ ...activity.message, channel_id: activity.channelId }, activity.threadName);
+      notifyChannelMessage({ ...activity.message, channel_id: activity.channelId }, activity.threadName, activity.threadId);
     });
     socket.on('forum:deleted', ({ id, channel_id }: { id: string; channel_id: string }) => {
       useThreadStore.getState().removeForumPost(channel_id, id);
@@ -969,6 +998,8 @@ export function useSocket() {
     return () => {
       // Remove event listeners but keep socket alive in background
       socket.off('connect', onConnect);
+      document.removeEventListener('visibilitychange', onForeground);
+      window.removeEventListener('focus', onForeground);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onConnectError);
       socket.off('message:new', onMessageNew);
@@ -979,6 +1010,9 @@ export function useSocket() {
       socket.off('message:reaction:update');
       socket.off('presence:update');
       socket.off('permissions:changed');
+      socket.off('expressions:changed', onExpressionsChanged);
+      socket.off('member:join', fetchAllMembers);
+      socket.off('member:leave', fetchAllMembers);
       socket.off('typing:update');
       socket.off('channel:list');
       socket.off('category:list');
@@ -998,6 +1032,7 @@ export function useSocket() {
       socket.off('voice:join:failed');
       socket.off('voice:join:ok');
       socket.off('voice:force-disconnect');
+      socket.off('voice:region:changed');
       socket.off('forum:created');
       socket.off('forum:deleted');
       socket.off('thread:activity');
@@ -1145,6 +1180,24 @@ export function useSocket() {
       };
       bgSocket.on('tracker:watch-notification', onBgTrackerWatch);
       cleanups.push(() => bgSocket.off('tracker:watch-notification', onBgTrackerWatch));
+
+      // Role or channel changes while away: drop the cached lists so switching back refetches them.
+      const onBgListsChanged = () => {
+        useServerStore.setState((state) => {
+          const snapshot = state.snapshots[entry.url];
+          if (!snapshot) return state;
+          return { snapshots: { ...state.snapshots, [entry.url]: {
+            ...snapshot, channelListFetchedAt: null, categoryListFetchedAt: null,
+          } } };
+        });
+      };
+      const onBgExpressionsChanged = () => notifyExpressionsChanged(entry.url);
+      bgSocket.on('expressions:changed', onBgExpressionsChanged);
+      cleanups.push(() => bgSocket.off('expressions:changed', onBgExpressionsChanged));
+      for (const event of ['permissions:changed', 'channel:list', 'category:list']) {
+        bgSocket.on(event, onBgListsChanged);
+        cleanups.push(() => bgSocket.off(event, onBgListsChanged));
+      }
 
       // Background realms only count live messages; seed what was missed (throttled per realm).
       const onBgConnect = () => { void seedRealmReadState(entry.url, entry.token); };

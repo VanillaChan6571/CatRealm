@@ -5,7 +5,7 @@ import { VideoView } from '@livekit/react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { useAuthStore } from '@/stores/authStore';
-import { useCallStore } from '@/stores/callStore';
+import { getCallSocket, useCallStore } from '@/stores/callStore';
 import { Text } from './Text';
 import { Pressable } from './Pressable';
 import { Avatar } from './Avatar';
@@ -96,6 +96,7 @@ export function CallOverlay() {
               <Text color={theme.colors.text2}>
                 {connecting ? t('call.connecting') : active.status === 'ringing' ? t('call.ringing') : disconnectedPeer ? t('call.reconnecting') : `${t('call.inCall', { count: participants.length })}${elapsed ? ` • ${elapsed}` : ''}`}
               </Text>
+              {active.status === 'active' ? <CallRegionControl callId={active.callId} /> : null}
               {error ? <Text variant="caption" style={{ color: theme.colors.danger }}>{error}</Text> : null}
               {remoteVideoTracks.length > 0 ? (
                 <View style={styles.videoGrid}>
@@ -126,6 +127,72 @@ export function CallOverlay() {
         </View>
       </View>
     </Modal>
+  );
+}
+
+type CallRegion = 'eu' | 'us-central';
+type CallRegionMode = 'automatic' | CallRegion;
+type CallRegionState = { ok?: boolean; region?: CallRegion; mode?: CallRegionMode; canSwitch?: boolean; error?: string };
+
+function CallRegionControl({ callId }: { callId: string }) {
+  const theme = useTheme();
+  const [state, setState] = useState<CallRegionState | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setState(null);
+    setExpanded(false);
+    const socket = getCallSocket();
+    if (!socket?.connected) return;
+    let active = true;
+    socket.emit('call:region:get', { callId }, (response?: CallRegionState) => {
+      if (active && response?.ok) setState(response);
+    });
+    const changed = (payload: CallRegionState & { callId?: string }) => {
+      if (payload.callId === callId) setState((current) => ({ ...current, ...payload, ok: true }));
+    };
+    socket.on('call:region:changed', changed);
+    return () => { active = false; socket.off('call:region:changed', changed); };
+  }, [callId]);
+
+  if (!state?.ok || !state.canSwitch || !state.region) return null;
+  const choose = (mode: CallRegionMode) => {
+    const socket = getCallSocket();
+    if (!socket?.connected || pending) return;
+    setPending(true);
+    setError(null);
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      setPending(false);
+      setError('Region change timed out');
+    }, 8000);
+    socket.emit('call:region:switch', { callId, region: mode }, (response?: CallRegionState) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      setPending(false);
+      if (!response?.ok) setError(response?.error || 'Could not change region');
+      else { setState((current) => ({ ...current, ...response })); setExpanded(false); }
+    });
+  };
+
+  return (
+    <View style={{ width: '100%', alignItems: 'center', gap: 6 }}>
+      <Pressable onPress={() => setExpanded((value) => !value)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: theme.colors.bgElev2 }}>
+        <Text variant="caption">Voice region: {state.region === 'eu' ? 'EU' : 'US Central'} ({state.mode === 'automatic' ? 'Automatic' : 'Manual'})</Text>
+      </Pressable>
+      {expanded ? <View style={{ flexDirection: 'row', gap: 8 }}>
+        {(['automatic', 'eu', 'us-central'] as const).map((mode) => <Pressable key={mode} disabled={pending} onPress={() => choose(mode)}
+          style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, backgroundColor: state.mode === mode ? theme.colors.accent : theme.colors.bgElev2 }}>
+          <Text variant="caption">{mode === 'automatic' ? 'Automatic' : mode === 'eu' ? 'EU' : 'US Central'}</Text>
+        </Pressable>)}
+      </View> : null}
+      {error ? <Text variant="caption" style={{ color: theme.colors.danger }}>{error}</Text> : null}
+    </View>
   );
 }
 

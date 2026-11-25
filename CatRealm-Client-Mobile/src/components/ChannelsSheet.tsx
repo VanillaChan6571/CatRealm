@@ -36,7 +36,7 @@ import { useVoiceStore, type VoiceParticipant } from '@/stores/voiceStore';
 import { useTheaterStore, type TheaterParticipant } from '@/stores/theaterStore';
 import type { Channel, Category } from '@/types';
 import { useDeviceLayout } from '@/hooks/useDeviceLayout';
-import { ChannelNsfwTag, ChannelUnreadBadge } from './ChannelRowBadges';
+import { ChannelNsfwTag, ChannelUnreadBadge, VoiceRegionTag } from './ChannelRowBadges';
 import { DOCK_HEIGHT, dockBottomInset } from '@/lib/dockLayout';
 import { debugLog, debugTap } from '@/lib/debugLog';
 import { VoiceChannelContent } from './VoiceChannelContent';
@@ -415,6 +415,7 @@ export function ChannelsSheet() {
           {channel.name}
         </Text>
         <ChannelNsfwTag nsfw={channel.nsfw} />
+        {channel.type === 'voice' && <VoiceRegionTag channelId={channel.id} />}
         {elapsedStartedAt != null && (
           <Text variant="caption" style={[styles.roomElapsed, { color: theme.colors.accent }]}>
             {formatRoomElapsed(Math.max(0, roomNowMs - elapsedStartedAt))}

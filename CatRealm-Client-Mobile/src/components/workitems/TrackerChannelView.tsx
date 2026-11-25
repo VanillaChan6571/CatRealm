@@ -19,6 +19,7 @@ import {
 import type { Channel, TrackerIssue, TrackerIssuePriority, WorkItemLabel, WorkItemUser } from '@/types';
 import { ItemDetailModal } from './ItemDetailModal';
 import { LabelManagerSheet } from './LabelManagerSheet';
+import { BACKDROP_BAR_COLOR, WorkChannelBackdrop } from './WorkChannelBackdrop';
 import {
   AvatarStack, LabelChips, LabelSelectList, MemberSelectList, OptionList, SectionHeading, StateIcon, usePriorityColor,
 } from './shared';
@@ -77,14 +78,16 @@ export function TrackerChannelView({ channel, serverUrl }: Props) {
     <IssueRow issue={item} labels={labels} serverUrl={serverUrl} onOpen={openIssue} />
   ), [labels, serverUrl, openIssue]);
 
+  // Over a background the tabs use the brighter secondary text, as desktop does.
+  const mutedText = settings.background ? theme.colors.text2 : theme.colors.text3;
   const stateTab = (state: 'active' | 'closed', label: string, count: number) => {
     const on = filter.state === state;
     const Icon = state === 'active' ? CircleDot : CircleCheck;
     return (
       <Pressable haptic onPress={() => setFilter({ state })} accessibilityRole="tab" accessibilityState={{ selected: on }}
         style={[styles.tab, on && { backgroundColor: theme.colors.accentSoft }]}>
-        <Icon size={14} color={on ? theme.colors.accent : theme.colors.text3} />
-        <Text variant="bodySmall" color={on ? theme.colors.text : theme.colors.text3} style={on ? { fontWeight: '700' } : undefined}>
+        <Icon size={14} color={on ? theme.colors.accent : mutedText} />
+        <Text variant="bodySmall" color={on ? theme.colors.text : mutedText} style={on ? { fontWeight: '700' } : undefined}>
           {count} {label}
         </Text>
       </Pressable>
@@ -112,8 +115,13 @@ export function TrackerChannelView({ channel, serverUrl }: Props) {
     state === 'active' ? t('work.allActive') : state === 'all' ? t('work.allIssues') : t(`work.state.${state}`)
   );
 
+  const hasBackground = !!settings.background;
+
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, overflow: 'hidden' }}>
+      <WorkChannelBackdrop background={settings.background} serverUrl={serverUrl} />
+      {/* With a background, the controls sit on a translucent bar so they stay readable. */}
+      <View style={hasBackground ? { backgroundColor: BACKDROP_BAR_COLOR } : undefined}>
       {settings.title && settings.title !== channel.name ? (
         <Text variant="subtitle" numberOfLines={1} style={styles.boardTitle}>{settings.title}</Text>
       ) : null}
@@ -163,6 +171,7 @@ export function TrackerChannelView({ channel, serverUrl }: Props) {
           <ChevronDown size={12} color={extraFilters ? theme.colors.accent : theme.colors.text3} />
         </Pressable>
       </View>
+      </View>
 
       <FlatList
         data={issues}
@@ -171,7 +180,7 @@ export function TrackerChannelView({ channel, serverUrl }: Props) {
         windowSize={5}
         initialNumToRender={12}
         maxToRenderPerBatch={10}
-        contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24, gap: 8 }}
+        contentContainerStyle={{ paddingHorizontal: 12, paddingTop: hasBackground ? 10 : 0, paddingBottom: 24, gap: 8 }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         refreshing={false}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useMarkChannelReadWhileOpen } from '../../hooks/useMarkChannelReadWhileOpen';
+import { useChannelStore } from '../../stores/channelStore';
 import type { Channel, ForumPost } from '../../types';
 import { useThreadStore } from '../../stores/threadStore';
 import { useViewedPermissions } from '../../hooks/useViewedPermissions';
@@ -23,7 +23,6 @@ export function ForumChannel({ channel, onOpenPost }: Props) {
   const fetchForumPosts = useThreadStore((s) => s.fetchForumPosts);
   const forumPostsByChannel = useThreadStore((s) => s.forumPostsByChannel);
   const viewed = useViewedPermissions();
-  useMarkChannelReadWhileOpen(channel.id);
 
   const [composing, setComposing] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -54,6 +53,7 @@ export function ForumChannel({ channel, onOpenPost }: Props) {
   );
 
   useEffect(() => {
+    useChannelStore.getState().setAtBottom(channel.id, false);
     setLoading(true);
     fetchForumPosts(channel.id).finally(() => setLoading(false));
   }, [channel.id, fetchForumPosts]);

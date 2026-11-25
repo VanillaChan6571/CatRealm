@@ -20,6 +20,7 @@ import { acquireAudioSession, releaseAudioSession } from '@/lib/audioSession';
 import { captureAccountSession } from '@/lib/accountSession';
 import { useBlockedUsersStore } from './blockedUsersStore';
 import { leaveOtherCalls, registerCallLeaver } from '@/lib/exclusiveCalls';
+import { getPreferredVoiceRegion } from '@/lib/voiceRegions';
 import type { AccountType } from '@/types';
 
 // ── Module-level Room (outside Zustand) ────────────────────────────────────
@@ -33,6 +34,13 @@ let activeRoom: any | null = null;
 let detachVoicePresence: (() => void) | null = null;
 let releaseVoiceAudio: (() => void) | null = null;
 let voiceJoinGeneration = 0;
+// Kept after a failed region switch so the realm's revert event can rejoin us.
+let regionRecovery: { serverId: string; channelId: string; channelName: string | null; timer: ReturnType<typeof setTimeout> } | null = null;
+const REGION_RECOVERY_WAIT_MS = 25_000;
+function cancelRegionRecovery() {
+  if (regionRecovery) clearTimeout(regionRecovery.timer);
+  regionRecovery = null;
+}
 let liveKitRuntime: LiveKitRuntime | null = null;
 const LIVEKIT_SCREEN_WATCH_TOPIC = 'catrealm:screen-share-watch';
 const LIVEKIT_SCREEN_VIDEO_TRACK_NAME_PREFIX = 'catrealm:screen-share-video:';
@@ -336,6 +344,15 @@ function getCurrentServerUrl(serverId?: string | null): string | null {
   return auth.serverUrl ?? null;
 }
 
+type VoiceRoomRegion = 'eu' | 'us-central';
+/** Apply a realm's reported Central voice region for one room (null clears it). */
+function withRoomRegion(regions: Record<string, VoiceRoomRegion>, channelId: string, occupied: boolean, region: unknown) {
+  const next = { ...regions };
+  if (occupied && (region === 'eu' || region === 'us-central')) next[channelId] = region;
+  else delete next[channelId];
+  return next;
+}
+
 interface VoiceState {
   channelId: string | null;
   serverId: string | null;
@@ -349,6 +366,7 @@ interface VoiceState {
   error: string | null;
   voiceRoomUsers: Record<string, VoiceParticipant[]>;
   voiceRoomStartedAt: Record<string, number>;
+  voiceRoomRegions: Record<string, VoiceRoomRegion>;
   screenSharingUserIds: string[];
   remoteScreenTracks: Array<{ id: string; track: any; publication?: any; participantId: string; videoTarget?: ScreenShareVideoTarget }>;
   remoteScreenAudioTracks: Map<string, any>;
@@ -369,10 +387,11 @@ interface VoiceState {
   handleUserJoined: (payload: { channelId: string; user: RawVoiceUser }) => void;
   handleUserLeft: (payload: { channelId: string; userId: string }) => void;
   handleUserState: (payload: { channelId: string; userId: string; muted: boolean; deafened: boolean }) => void;
-  handleRoomCount: (payload: { channelId: string; count: number; startedAt?: number | null }) => void;
-  handleRoomSync: (payload: { channelId: string; users: RawVoiceUser[]; startedAt?: number | null }) => void;
-  handleRoomsSnapshot: (payload: { rooms: Array<{ channelId: string; count: number; users?: RawVoiceUser[]; startedAt?: number | null }> }) => void;
+  handleRoomCount: (payload: { channelId: string; count: number; startedAt?: number | null; region?: VoiceRoomRegion | null }) => void;
+  handleRoomSync: (payload: { channelId: string; users: RawVoiceUser[]; startedAt?: number | null; region?: VoiceRoomRegion | null }) => void;
+  handleRoomsSnapshot: (payload: { rooms: Array<{ channelId: string; count: number; users?: RawVoiceUser[]; startedAt?: number | null; region?: VoiceRoomRegion | null }> }) => void;
   handleForceDisconnect: () => void;
+  handleRegionChanged: (payload: { channelId: string; region: 'eu' | 'us-central'; generation?: string; reverted?: boolean }) => Promise<void>;
   /** Re-announce the call after its realm socket reconnects; the server drops it after a short grace. */
   restorePresence: () => void;
 }
@@ -390,6 +409,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   error: null,
   voiceRoomUsers: EMPTY_ROOM_USERS,
   voiceRoomStartedAt: {},
+  voiceRoomRegions: {},
   screenSharingUserIds: [],
   remoteScreenTracks: EMPTY_SCREEN_TRACKS,
   remoteScreenAudioTracks: EMPTY_AUDIO_MAP,
@@ -398,6 +418,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   roomRevision: 0,
 
   joinChannel: async ({ serverId, channelId, channelName }) => {
+    cancelRegionRecovery();
     const serverUrl = getCurrentServerUrl(serverId);
     if (!serverUrl) {
       set({ error: 'No server URL available' });
@@ -476,12 +497,14 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       }
 
       // 2) Fetch LiveKit token (HTTP first, socket fallback)
+      const preferredRegion = !capability?.enabled && capability?.liveKitFallbackContexts?.includes('voice')
+        ? await getPreferredVoiceRegion() : undefined;
       type TokenResponse = { token: string; url?: string | null };
       let tokenPayload: TokenResponse | null = null;
       try {
         const tokenResp = await apiClient.post<TokenResponse>(
           '/api/media/token',
-          { context: 'voice', channelId },
+          { context: 'voice', channelId, preferredRegion },
           { timeout: 5000 },
         );
         tokenPayload = tokenResp.data ?? null;
@@ -493,7 +516,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         tokenPayload = await new Promise<TokenResponse | null>((resolve) => {
           socket.emit(
             'media:v1:token',
-            { context: 'voice', channelId },
+            { context: 'voice', channelId, preferredRegion },
             (resp?: { ok?: boolean; token?: string; url?: string | null }) => {
               if (!resp?.ok || !resp.token) resolve(null);
               else resolve({ token: resp.token, url: resp.url ?? null });
@@ -688,6 +711,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
           channelId,
           muted: !get().selfMicEnabled,
           deafened: get().selfDeafened,
+          regionSwitchVersion: 1,
         });
         // A suspended app outlives the server's disconnect grace and is dropped
         // from the call while LiveKit keeps running — a ghost. Rejoin on reconnect.
@@ -723,6 +747,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
 
   leaveChannel: () => {
+    cancelRegionRecovery();
     ++voiceJoinGeneration;
     detachVoicePresence?.();
     detachVoicePresence = null;
@@ -947,16 +972,18 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     }));
   },
 
-  handleRoomCount: ({ channelId, count, startedAt }) => {
+  handleRoomCount: ({ channelId, count, startedAt, region }) => {
     set((s) => {
       const nextStartedAt = { ...s.voiceRoomStartedAt };
       if ((count || 0) > 0 && typeof startedAt === 'number') nextStartedAt[channelId] = startedAt;
       else if ((count || 0) === 0 || startedAt === null) delete nextStartedAt[channelId];
-      return { voiceRoomStartedAt: nextStartedAt };
+      return { voiceRoomStartedAt: nextStartedAt,
+        voiceRoomRegions: withRoomRegion(s.voiceRoomRegions, channelId, (count || 0) > 0, region) };
     });
   },
 
-  handleRoomSync: ({ channelId, users, startedAt }) => {
+  handleRoomSync: ({ channelId, users, startedAt, region }) => {
+    set((s) => ({ voiceRoomRegions: withRoomRegion(s.voiceRoomRegions, channelId, users.length > 0, region) }));
     set((s) => {
       const nextStartedAt = { ...s.voiceRoomStartedAt };
       if (users.length > 0 && typeof startedAt === 'number') nextStartedAt[channelId] = startedAt;
@@ -975,7 +1002,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     set(() => {
       const nextUsers: Record<string, VoiceParticipant[]> = {};
       const nextStartedAt: Record<string, number> = {};
+      const nextRegions: Record<string, VoiceRoomRegion> = {};
       for (const room of rooms) {
+        if ((room.region === 'eu' || room.region === 'us-central') && (room.count || room.users?.length || 0) > 0) {
+          nextRegions[room.channelId] = room.region;
+        }
         if (room.users) nextUsers[room.channelId] = room.users.map(rawToParticipant);
         if ((room.count || room.users?.length || 0) > 0 && typeof room.startedAt === 'number') {
           nextStartedAt[room.channelId] = room.startedAt;
@@ -988,6 +1019,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       return {
         voiceRoomUsers: nextUsers,
         voiceRoomStartedAt: nextStartedAt,
+        voiceRoomRegions: nextRegions,
       };
     });
   },
@@ -996,11 +1028,55 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     get().leaveChannel();
   },
 
+  handleRegionChanged: async ({ channelId, generation, reverted }) => {
+    const state = get();
+    const recovering = regionRecovery?.channelId === channelId ? regionRecovery : null;
+    if (!recovering && (state.channelId !== channelId || !state.serverId)) return;
+    const serverId = recovering?.serverId ?? state.serverId!;
+    const channelName = recovering ? recovering.channelName : state.channelName;
+    if (recovering) clearTimeout(recovering.timer);
+    regionRecovery = null;
+    ++voiceJoinGeneration;
+    detachVoicePresence?.();
+    detachVoicePresence = null;
+    const previousRoom = activeRoom;
+    activeRoom = null;
+    if (previousRoom) void previousRoom.disconnect();
+    releaseVoiceAudio?.();
+    releaseVoiceAudio = null;
+    setVoiceSessionActive(false);
+    set((s) => ({ channelId: null, serverId: null, connecting: false,
+      participants: EMPTY_PARTICIPANTS, roomRevision: s.roomRevision + 1 }));
+    let joined = false;
+    for (let attempt = 0; attempt < 2 && !joined; attempt += 1) {
+      await get().joinChannel({ serverId, channelId, channelName: channelName ?? undefined });
+      joined = get().channelId === channelId && !!activeRoom;
+    }
+    const serverUrl = getCurrentServerUrl(serverId);
+    const socket = serverUrl ? getSocket(serverUrl) : null;
+    if (generation && !reverted) socket?.emit('voice:region:result', { channelId, generation, ok: joined });
+    if (joined) return;
+    if (reverted) {
+      socket?.emit('voice:leave', { channelId });
+      set({ error: 'Could not reconnect voice. Please rejoin the channel.' });
+      return;
+    }
+    // The realm moves the channel back if nobody reaches the new region.
+    set({ connecting: true, error: null });
+    const timer = setTimeout(() => {
+      if (regionRecovery?.timer !== timer) return;
+      regionRecovery = null;
+      socket?.emit('voice:leave', { channelId });
+      set({ connecting: false, error: 'Could not reconnect to the new voice region. Please rejoin the channel.' });
+    }, REGION_RECOVERY_WAIT_MS);
+    regionRecovery = { serverId, channelId, channelName: channelName ?? null, timer };
+  },
+
   restorePresence: () => {
     const { channelId, serverId, connecting, selfMicEnabled, selfDeafened } = get();
     const serverUrl = sessionServerUrl(serverId);
     if (!channelId || connecting || !activeRoom || !serverUrl) return;
-    getSocket(serverUrl)?.emit('voice:join', { channelId, muted: !selfMicEnabled, deafened: selfDeafened });
+    getSocket(serverUrl)?.emit('voice:join', { channelId, muted: !selfMicEnabled, deafened: selfDeafened, regionSwitchVersion: 1 });
   },
 }));
 

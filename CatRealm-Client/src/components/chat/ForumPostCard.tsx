@@ -77,6 +77,7 @@ export function ForumPostCard({ post, onOpen, canManage, viewMode = 'list', onAr
     post.author_account_type
   );
   const displayName = post.author_display_name || post.author_username;
+  const unreadCount = post.unread_count ?? 0;
 
   const resolveCover = (src: string) => {
     if (/^https?:\/\//i.test(src) || src.startsWith('blob:')) return src;
@@ -116,6 +117,7 @@ export function ForumPostCard({ post, onOpen, canManage, viewMode = 'list', onAr
           <h3 className="font-semibold text-text-primary text-sm leading-snug group-hover:text-accent transition-colors line-clamp-2">
             {post.name}
           </h3>
+          {unreadCount > 0 && <span className="text-xs font-semibold text-accent">{unreadCount} unread</span>}
           {post.preview_content && (
             <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed flex-1">
               {post.preview_content}
@@ -166,6 +168,7 @@ export function ForumPostCard({ post, onOpen, canManage, viewMode = 'list', onAr
             <h3 className="font-semibold text-text-primary text-base leading-snug group-hover:text-accent transition-colors">
               {post.name}
             </h3>
+            {unreadCount > 0 && <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-xs font-semibold text-accent">{unreadCount} unread</span>}
             {canManage && (onArchive || onDelete) && (
               <ManageButtons post={post} onArchive={onArchive} onDelete={onDelete} />
             )}

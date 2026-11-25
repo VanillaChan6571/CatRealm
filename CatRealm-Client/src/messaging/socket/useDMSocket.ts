@@ -3,6 +3,7 @@ import { connectSocket } from '../../lib/socket';
 import { useAuthStore } from '../../stores/authStore';
 import { normalizeNowPlaying, useNowPlayingStore } from '../../stores/nowPlayingStore';
 import { useDMStore } from '../../stores/dmStore';
+import { useChannelStore } from '../../stores/channelStore';
 import { AUTH_BASE, confirmOrExpireCentralSession, createAuthenticatedApi } from '../../lib/authApi';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { playNotificationSound } from '../../lib/notificationSounds';
@@ -392,6 +393,18 @@ export function useDMSocket() {
         }
         holdDMNotification(notification.messageId, request);
       } else if (notification.type === 'server_mention') {
+        // Realms relay mentions even while you are reading the channel; clear those at once.
+        const channels = useChannelStore.getState();
+        const viewing = !isAppInBackground()
+          && !useDMStore.getState().dmViewOpen
+          && useAuthStore.getState().serverUrl === notification.sourceId
+          && !!notification.subsourceId
+          && channels.activeChannelId === notification.subsourceId
+          && (channels.atBottomByChannel[notification.subsourceId] ?? false);
+        if (viewing) {
+          void notificationStore.markRead(notification.id).catch(() => {});
+          return;
+        }
         showDesktopNotification({
           id: notification.id,
           sourceKind: 'server',

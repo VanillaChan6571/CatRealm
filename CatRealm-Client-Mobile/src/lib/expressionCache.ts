@@ -227,6 +227,14 @@ export function prefetchExpressions(serverUrl: string): void {
   void loadExpressionLookup(serverUrl);
 }
 
+/** The realm changed its emotes/stickers: refetch, keeping the old list until the new one lands. */
+export function refreshExpressions(serverUrl: string): void {
+  const origin = getOrigin(serverUrl);
+  if (!origin || inflight.has(origin)) return;
+  const task = fetchForOrigin(origin).finally(() => inflight.delete(origin));
+  inflight.set(origin, task);
+}
+
 export async function loadPersonalExpressionLookup(
   baseUrl: string,
   token: string,

@@ -1,7 +1,7 @@
 {
   "name": "catrealm-client",
   "private": true,
-  "version": "1.9.5",
+  "version": "1.9.6",
   "description": "Official CatRealm client for web and desktop.",
   "license": "AGPL-3.0-or-later",
   "homepage": "https://catrealm.app",

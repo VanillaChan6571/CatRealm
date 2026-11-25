@@ -364,8 +364,12 @@ body:not(.heavy-fx) .call-live-banner::after {
   50% { opacity: 1; }
 }
 
+/* Layered so `absolute` dots on avatars keep their own positioning. */
+@layer base {
+  .status-sleeping { position: relative; }
+}
+
 .status-sleeping {
-  position: relative;
   background-color: #6d6f78;
 }
 

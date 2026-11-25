@@ -7,6 +7,7 @@ import { createAuthenticatedApi } from '../lib/authApi';
 import { buildAudioPipeline, rebuildAudioPipeline, type AudioPipeline } from '../lib/audioProcessing';
 import { captureScreenShare } from '../lib/desktopCapture';
 import { useMediaStore, registerOnCallMediaReplaced } from './mediaStore';
+import { getPreferredVoiceRegion } from '../lib/voiceRegions';
 
 // Module-level audio pipeline state for calls.
 let activeCallPipeline: AudioPipeline | null = null;
@@ -248,6 +249,7 @@ interface CallState {
   // Multi-device: another of this user's devices answered/declined, or took the call over
   handleCallHandledElsewhere: (payload: { callId: string; reason?: string }) => void;
   handleCallMovedDevice: (payload: { callId: string }) => void;
+  handleCallRegionChanged: (payload: { callId: string; region: 'eu' | 'us-central'; migrate: boolean; reverted?: boolean }) => Promise<void>;
 
   // Cleanup
   cleanup: () => void;
@@ -522,7 +524,8 @@ export const useCallStore = create<CallState>((set, get) => ({
       set({ localStream: stream, isVideoEnabled: mediaType === 'video', isSharingScreen: false });
 
       // Emit call initiation to server
-      socket.emit('call:initiate', { conversationId, mediaType, privacyMode });
+      const preferredRegion = await getPreferredVoiceRegion();
+      socket.emit('call:initiate', { conversationId, mediaType, privacyMode, preferredRegion });
 
       // Play outgoing call sound
       const settings = useSettingsStore.getState();
@@ -567,7 +570,8 @@ export const useCallStore = create<CallState>((set, get) => ({
           mediaType,
         },
       });
-      socket.emit('gc:call:initiate', { groupChatId, mediaType });
+      const preferredRegion = await getPreferredVoiceRegion();
+      socket.emit('gc:call:initiate', { groupChatId, mediaType, preferredRegion });
     } catch (error) {
       console.error('[GroupCall] Failed to get user media:', error);
       alert('Microphone/camera access denied, or selected input device is unavailable. Please check permissions and Voice settings.');
@@ -1661,6 +1665,22 @@ export const useCallStore = create<CallState>((set, get) => ({
     set((s) => ({
       callSpeakingByUser: { ...s.callSpeakingByUser, [userId]: speaking },
     }));
+  },
+
+  handleCallRegionChanged: async ({ callId, region, migrate, reverted }) => {
+    if (!migrate) return;
+    const state = get();
+    const active = state.activeDMCall?.callId === callId ? state.activeDMCall
+      : state.activeGroupCall?.callId === callId ? state.activeGroupCall : null;
+    if (!active) return;
+    const callType = state.activeDMCall?.callId === callId ? 'dm' : 'group';
+    const regionLabel = region === 'eu' ? 'EU' : 'US Central';
+    set({ notice: reverted ? `Region change failed. Returning call to ${regionLabel} voice…` : `Reconnecting call to ${regionLabel} voice…` });
+    const micTrack = state.localStream?.getAudioTracks()[0] ?? null;
+    const joined = await tryJoinCallLiveKit(callId, callType, active.mediaType, state.isMuted, micTrack);
+    if ((get().activeDMCall?.callId === callId || get().activeGroupCall?.callId === callId) && joined) {
+      set({ notice: null });
+    }
   },
 
   // ════════════════════════════════════════════════════════════════════════════

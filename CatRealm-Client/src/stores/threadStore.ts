@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Thread, ForumPost, Message } from '../types';
 import { createApi } from '../lib/api';
 import { getSocket } from '../lib/socket';
+import { useChannelStore } from './channelStore';
 
 const EMPTY_FORUM_POSTS: ForumPost[] = [];
 
@@ -10,6 +11,7 @@ interface ThreadState {
   activeThreadId: string | null;
   activeThread: Thread | null;
   forumPostsByChannel: Record<string, ForumPost[]>;
+  activeForumPostId: string | null;
 
   /** The message a thread is about to be started from; shows the create-thread dialog. */
   threadDraftSource: Message | null;
@@ -25,6 +27,9 @@ interface ThreadState {
   deleteThread: (threadId: string) => Promise<void>;
   setActiveThread: (thread: Thread | null) => void;
   fetchForumPosts: (channelId: string) => Promise<void>;
+  markForumPostRead: (channelId: string, postId: string) => Promise<void>;
+  noteForumPostUnread: (channelId: string, postId: string) => void;
+  setActiveForumPost: (postId: string | null) => void;
   createForumPost: (channelId: string, title: string, body: string, coverImage?: string | null, attachments?: Array<{ url: string; mime?: string | null; size?: number | null }>) => Promise<ForumPost>;
   addForumPost: (post: ForumPost) => void;
   /** A thread or forum post got a message: refresh its reply count and last-activity time. */
@@ -45,6 +50,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   activeThreadId: null,
   activeThread: null,
   forumPostsByChannel: {},
+  activeForumPostId: null,
   threadDraftSource: null,
 
   startThreadDraft: (message) => set({ threadDraftSource: message }),
@@ -141,7 +147,54 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     set((s) => ({
       forumPostsByChannel: { ...s.forumPostsByChannel, [channelId]: data },
     }));
+    // Older realms omit unread_count; keep their existing channel badge intact.
+    if (data.length > 0 && useChannelStore.getState().activeChannelId === channelId
+      && data.every((post) => typeof post.unread_count === 'number')) {
+      useChannelStore.setState((s) => ({
+        unreadByChannel: {
+          ...s.unreadByChannel,
+          [channelId]: data.reduce((sum, post) => sum + (post.unread_count ?? 0), 0),
+        },
+      }));
+    }
   },
+
+  markForumPostRead: async (channelId, postId) => {
+    await createApi().post(`/api/threads/${postId}/read`);
+    // A reply can arrive after the reader leaves while this request is pending.
+    // The next list fetch will reconcile the server's exact unread count.
+    if (get().activeForumPostId !== postId) return;
+    const post = get().forumPostsByChannel[channelId]?.find((item) => item.id === postId);
+    const cleared = post?.unread_count ?? 0;
+    set((s) => ({
+      forumPostsByChannel: {
+        ...s.forumPostsByChannel,
+        [channelId]: (s.forumPostsByChannel[channelId] ?? []).map((item) =>
+          item.id === postId ? { ...item, unread_count: 0 } : item),
+      },
+    }));
+    if (cleared > 0) {
+      useChannelStore.setState((s) => ({
+        unreadByChannel: {
+          ...s.unreadByChannel,
+          [channelId]: Math.max(0, (s.unreadByChannel[channelId] ?? 0) - cleared),
+        },
+        mentionByChannel: (s.unreadByChannel[channelId] ?? 0) <= cleared
+          ? { ...s.mentionByChannel, [channelId]: 0 }
+          : s.mentionByChannel,
+      }));
+    }
+  },
+
+  noteForumPostUnread: (channelId, postId) => set((s) => ({
+    forumPostsByChannel: {
+      ...s.forumPostsByChannel,
+      [channelId]: (s.forumPostsByChannel[channelId] ?? []).map((item) =>
+        item.id === postId ? { ...item, unread_count: (item.unread_count ?? 0) + 1 } : item),
+    },
+  })),
+
+  setActiveForumPost: (postId) => set({ activeForumPostId: postId }),
 
   createForumPost: async (channelId, title, body, coverImage, attachments) => {
     const api = createApi();
@@ -240,7 +293,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     });
   },
 
-  reset: () => set({ threadsByChannel: {}, activeThreadId: null, activeThread: null, forumPostsByChannel: {} }),
+  reset: () => set({ threadsByChannel: {}, activeThreadId: null, activeThread: null, forumPostsByChannel: {}, activeForumPostId: null }),
 
   getSnapshot: () => {
     const { threadsByChannel } = get();

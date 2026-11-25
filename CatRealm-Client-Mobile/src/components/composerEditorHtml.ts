@@ -59,6 +59,13 @@ export function composerHtml(placeholder: string, textColor: string, placeholder
       height: 28px;
       vertical-align: -8px;
     }
+    span[data-token] {
+      color: ${accentColor};
+      font-weight: 600;
+      white-space: nowrap;
+      user-select: all;
+      -webkit-user-select: all;
+    }
   </style>
 </head>
 <body>
@@ -86,12 +93,16 @@ export function composerHtml(placeholder: string, textColor: string, placeholder
       return nextHeight;
     }
 
+    // Emote images and channel chips both carry the text they send in data-token.
+    function replaceTokens(root) {
+      root.querySelectorAll('[data-token]').forEach((el) => {
+        el.replaceWith(document.createTextNode(el.dataset.token || ''));
+      });
+    }
+
     function serialize() {
       const clone = editor.cloneNode(true);
-      clone.querySelectorAll('img[data-token]').forEach((img) => {
-        const token = img.dataset.token || '';
-        img.replaceWith(document.createTextNode(token));
-      });
+      replaceTokens(clone);
       return (clone.innerText || '')
         .replace(/\\r/g, '')
         .replace(/\\u200B/g, '')
@@ -99,7 +110,9 @@ export function composerHtml(placeholder: string, textColor: string, placeholder
         .replace(/\\n+$/g, '');
     }
 
-    // Plain text up to the caret (nbsp as a space) so React can spot an @mention being typed.
+    // Plain text up to the caret (nbsp as a space) so React can spot an @mention or
+    // #channel being typed. Chips read as their token, so a picked "#general" chip
+    // (sent as <#id>) does not reopen the channel list.
     function textBeforeCaret() {
       const selection = window.getSelection();
       if (!selection.rangeCount || !editor.contains(selection.anchorNode)) return null;
@@ -108,6 +121,7 @@ export function composerHtml(placeholder: string, textColor: string, placeholder
       range.setEnd(selection.anchorNode, selection.anchorOffset);
       const div = document.createElement('div');
       div.appendChild(range.cloneContents());
+      replaceTokens(div);
       return (div.innerText || '').replace(/\\r/g, '').replace(/\\u200B/g, '').replace(/\\u00a0/g, ' ');
     }
 
@@ -117,8 +131,9 @@ export function composerHtml(placeholder: string, textColor: string, placeholder
     // image. Every reader of the editor strips it, so it is never sent; copies of it left
     // anywhere else (after typing, say) are removed, keeping the caret where it was.
     const ANCHOR = '\\u200B';
+    // Any non-editable token element: an emote image or a channel chip.
     function isEmote(node) {
-      return !!node && node.nodeName === 'IMG' && !!(node.dataset && node.dataset.token);
+      return !!node && node.nodeType === 1 && !!(node.dataset && node.dataset.token);
     }
     function isSkippable(node) {
       return !!node && ((node.nodeType === 3 && node.textContent === '') || node.nodeName === 'BR');
@@ -167,7 +182,7 @@ export function composerHtml(placeholder: string, textColor: string, placeholder
       }
       // Nothing left but empty text, an anchor or WebKit's placeholder <br>: empty the editor
       // so the :empty placeholder shows again.
-      if (editor.childNodes.length > 0 && !editor.querySelector('img')
+      if (editor.childNodes.length > 0 && !editor.querySelector('img, [data-token]')
         && (editor.textContent || '').split(ANCHOR).join('') === '') {
         const focused = document.activeElement === editor;
         editor.innerHTML = '';
@@ -323,8 +338,10 @@ export function composerHtml(placeholder: string, textColor: string, placeholder
         editor.focus();
         post('input');
       },
-      // Swap the "@query" right before the caret for a picked mention.
-      replaceMention(insert) {
+      // Swap the "@query" (or "#query") right before the caret for a picked mention.
+      // With a label the pick becomes a chip that shows the label and sends insert,
+      // which is how "#general" sends as <#channelId>.
+      replaceMention(insert, trigger, label) {
         const selection = window.getSelection();
         if (!selection.rangeCount) return;
         let node = selection.anchorNode;
@@ -335,8 +352,30 @@ export function composerHtml(placeholder: string, textColor: string, placeholder
         }
         if (!node || node.nodeType !== 3 || !editor.contains(node)) return;
         const text = (node.textContent || '').replace(/\\u00a0/g, ' ');
-        const at = text.slice(0, offset).lastIndexOf('@');
+        const at = text.slice(0, offset).lastIndexOf(trigger || '@');
         if (at === -1) return;
+        if (label) {
+          const afterText = text.slice(offset).replace(/^ /, '');
+          node.textContent = text.slice(0, at);
+          const chip = document.createElement('span');
+          chip.textContent = label;
+          chip.dataset.token = insert;
+          chip.contentEditable = 'false';
+          const spaceNode = document.createTextNode(' ' + afterText);
+          const parent = node.parentNode || editor;
+          const nextSibling = node.nextSibling;
+          parent.insertBefore(chip, nextSibling);
+          parent.insertBefore(spaceNode, nextSibling);
+          // Focus first: focusing can move the caret, and it must end up after the chip.
+          editor.focus();
+          const range = document.createRange();
+          range.setStart(spaceNode, 1);
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          post('input');
+          return;
+        }
         const inserted = insert + ' ';
         node.textContent = text.slice(0, at) + inserted + text.slice(offset).replace(/^ /, '');
         const range = document.createRange();

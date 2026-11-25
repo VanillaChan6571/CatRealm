@@ -2,7 +2,7 @@
   "expo": {
     "name": "CatRealm",
     "slug": "catrealm-mobile",
-    "version": "1.9.5",
+    "version": "1.9.6",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "catrealm",
@@ -30,6 +30,7 @@
     },
     "android": {
       "package": "app.catrealm.mobile",
+      "googleServicesFile": "./google-services.json",
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",

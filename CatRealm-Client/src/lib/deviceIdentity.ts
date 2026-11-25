@@ -1,3 +1,4 @@
+import { clearLocalConversationSecrets } from './centralDeviceCredentials';
 import { createAuthenticatedApi } from './authApi';
 import { x25519 } from '@noble/curves/ed25519.js';
 
@@ -77,13 +78,6 @@ export function getLocalDeviceId() {
     localStorage.setItem(DEVICE_ID_KEY, id);
   }
   return id;
-}
-
-export function clearLocalConversationSecrets() {
-  for (let index = localStorage.length - 1; index >= 0; index--) {
-    const key = localStorage.key(index);
-    if (key?.startsWith('catrealm.dm-conversation-secret.')) localStorage.removeItem(key);
-  }
 }
 
 export function clearLocalDeviceIdentity() {

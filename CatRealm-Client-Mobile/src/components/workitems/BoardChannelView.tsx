@@ -27,6 +27,7 @@ import type { BoardCard, BoardList, Channel, WorkItemLabel } from '@/types';
 import { ItemDetailModal } from './ItemDetailModal';
 import { LabelManagerSheet } from './LabelManagerSheet';
 import { AvatarStack, LabelChips } from './shared';
+import { BACKDROP_BAR_COLOR, WorkChannelBackdrop } from './WorkChannelBackdrop';
 import {
   WORK_ITEM_LIMITS, formatDueDate, isOverdue, patchItem, resolveRealmUrl, useSelfUserId, useWorkItemPermissions,
   type WorkItemPermissions,
@@ -241,8 +242,10 @@ export function BoardChannelView({ channel, serverUrl }: Props) {
   const openFallback = openCardId ? cards.find((card) => card.id === openCardId) : undefined;
 
   return (
-    <View style={{ flex: 1 }} onLayout={(e) => setColumnWidth(columnWidthFor(e.nativeEvent.layout.width))}>
-      <View style={styles.topBar}>
+    <View style={{ flex: 1, overflow: 'hidden' }} onLayout={(e) => setColumnWidth(columnWidthFor(e.nativeEvent.layout.width))}>
+      <WorkChannelBackdrop background={settings.background} serverUrl={serverUrl} defaultImagePositionX={25} />
+      {/* With a background, the header sits on a translucent bar so it stays readable. */}
+      <View style={[styles.topBar, settings.background ? { backgroundColor: BACKDROP_BAR_COLOR, marginBottom: 10 } : null]}>
         <Text variant="subtitle" numberOfLines={1} style={{ flex: 1 }}>{settings.title || channel.name}</Text>
         {perms.manage ? (
           <Pressable haptic onPress={() => setManagingLabels(true)} accessibilityRole="button"

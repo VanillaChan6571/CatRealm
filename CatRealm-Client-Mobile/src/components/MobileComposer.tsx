@@ -39,13 +39,19 @@ import {
   type EmoteSuggestion,
 } from '@/lib/emoteSuggestions';
 import { usePresenceStore } from '@/stores/presenceStore';
-import { activeMentionQuery, buildMentionSuggestions, type MentionSuggestion } from '@/lib/mentionSuggestions';
+import {
+  activeChannelQuery,
+  activeMentionQuery,
+  buildChannelSuggestions,
+  buildMentionSuggestions,
+  type MentionSuggestion,
+} from '@/lib/mentionSuggestions';
 import { VoiceExpirySheet, VoiceRecorderBar } from './VoiceRecorderBar';
 import { VOICE_RECORDING_MIME, VOICE_RECORDING_NAME } from '@/lib/voiceMessages';
 import { createApi } from '@/lib/api';
 import { filterExpressionLookup } from '@/lib/expressionPermissions';
 import { getSocket } from '@/lib/socket';
-import type { BotCommand, BotScope, Role } from '@/types';
+import type { BotCommand, BotScope, Channel, Role } from '@/types';
 
 type PendingAttachment = {
   localUri: string;
@@ -100,6 +106,7 @@ type MobileComposerProps = {
   mentionsEnabled?: boolean;
 };
 
+const NO_CHANNELS: Channel[] = [];
 const DISPLAY_EXPR_RE = /:(sticker:)?([a-z0-9_-]{1,64}):/gi;
 const COMPACT_EXPR_WITH_ORIGIN_OR_OWNER_RE = /:https?:\/\/[^\s:]+(?::\d{1,5})?:(?:sticker:)?[a-z0-9_-]{1,64}(?::[a-z0-9_-]{3,128})?:|:(?:sticker:)?[a-z0-9_-]{1,64}:[a-z0-9_-]{3,128}:/gi;
 
@@ -185,6 +192,7 @@ export function MobileComposer({
   const [voiceUri, setVoiceUri] = useState<string | null>(null);
   const [voiceSending, setVoiceSending] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [channelQuery, setChannelQuery] = useState<string | null>(null);
   const [emoteQuery, setEmoteQuery] = useState<string | null>(null);
   const [mentionRoles, setMentionRoles] = useState<Role[]>([]);
   const mentionMembers = usePresenceStore((s) => s.allMembers);
@@ -198,6 +206,11 @@ export function MobileComposer({
   const firstServerUrl = useServerStore((s) => s.servers[0]?.url);
   const channelsSheetOpen = useUIStore((s) => s.channelsSheetOpen);
   const effectiveServerUrl = serverUrl ?? activeServerUrl ?? firstServerUrl ?? authServerUrl;
+  // `#` suggestions list the channels of the realm this composer posts to.
+  const mentionChannels = useServerStore((s) => {
+    const id = s.servers.find((entry) => entry.url === effectiveServerUrl)?.id ?? s.activeServerId;
+    return (id ? s.channels[id] : undefined) ?? NO_CHANNELS;
+  });
   const composerExpressionLookup = useExpressionLookup(effectiveServerUrl);
   const pickerExpressionLookup = composerExpressionLookup ?? expressionLookup;
   const webRef = useRef<WebView<object>>(null);
@@ -250,10 +263,21 @@ export function MobileComposer({
     return () => { cancelled = true; };
   }, [activeServerToken, effectiveServerUrl, mentionsEnabled]);
 
-  const mentionSuggestions = useMemo(
-    () => (mentionQuery === null ? [] : buildMentionSuggestions(mentionQuery, mentionMembers, mentionRoles, mentionAlias)),
-    [mentionAlias, mentionMembers, mentionQuery, mentionRoles],
-  );
+  const mentionSuggestions = useMemo(() => {
+    if (channelQuery !== null) return buildChannelSuggestions(channelQuery, mentionChannels);
+    return mentionQuery === null ? [] : buildMentionSuggestions(mentionQuery, mentionMembers, mentionRoles, mentionAlias);
+  }, [channelQuery, mentionAlias, mentionChannels, mentionMembers, mentionQuery, mentionRoles]);
+
+  // Which suggestion list (if any) the text before the caret opens: `:emote`, `#channel` or `@mention`.
+  const updateSuggestionQueries = useCallback((beforeCaret: string | null) => {
+    const nextEmoteQ = beforeCaret === null ? null : activeEmoteQuery(beforeCaret);
+    const nextChannelQ = !nextEmoteQ && mentionsEnabled && beforeCaret !== null ? activeChannelQuery(beforeCaret) : null;
+    setEmoteQuery(nextEmoteQ);
+    setChannelQuery(nextChannelQ);
+    setMentionQuery(!nextEmoteQ && nextChannelQ === null && mentionsEnabled && beforeCaret !== null
+      ? activeMentionQuery(beforeCaret)
+      : null);
+  }, [mentionsEnabled]);
   const emoteSuggestions = useMemo(
     () => (emoteQuery === null ? [] : buildEmoteSuggestions(emoteQuery, effectiveExpressionLookup, effectiveServerUrl)),
     [emoteQuery, effectiveExpressionLookup, effectiveServerUrl],
@@ -415,19 +439,24 @@ export function MobileComposer({
     webValueRef.current = '';
     webReportedRef.current.clear();
     setMentionQuery(null);
+    setChannelQuery(null);
     setEmoteQuery(null);
     injectComposerCommand('clear', []);
   };
 
   const selectMention = (item: MentionSuggestion) => {
     setMentionQuery(null);
+    setChannelQuery(null);
+    const isChannel = item.type === 'channel';
     if (Platform.OS === 'web') {
-      const next = value.replace(/(?:^|\s)@[^\s@]*$/, (m) => (m.startsWith(' ') ? ' ' : '') + item.insert + ' ');
+      const pattern = isChannel ? /(^|\s)#[^\s#@]*$/ : /(^|\s)@[^\s@]*$/;
+      const next = value.replace(pattern, (_m, lead: string) => lead + item.insert + ' ');
       webValueRef.current = next;
       onChangeText(next);
       return;
     }
-    injectComposerCommand('replaceMention', [item.insert]);
+    // A channel shows as a "#name" chip in the editor and sends as <#channelId>.
+    injectComposerCommand('replaceMention', isChannel ? [item.insert, '#', item.label] : [item.insert, '@']);
   };
 
   const selectEmoteSuggestion = (item: EmoteSuggestion) => {
@@ -567,13 +596,7 @@ export function MobileComposer({
         setEditorHeight(Math.max(40, Math.min(120, message.height)));
       }
       if (message.type === 'input') {
-        const nextEmoteQ = typeof message.beforeCaret === 'string'
-          ? activeEmoteQuery(message.beforeCaret)
-          : null;
-        setEmoteQuery(nextEmoteQ);
-        setMentionQuery(!nextEmoteQ && mentionsEnabled && typeof message.beforeCaret === 'string'
-          ? activeMentionQuery(message.beforeCaret)
-          : null);
+        updateSuggestionQueries(typeof message.beforeCaret === 'string' ? message.beforeCaret : null);
         webValueRef.current = message.value;
         const reported = webReportedRef.current;
         reported.add(message.value);
@@ -693,9 +716,7 @@ export function MobileComposer({
                 onChangeText={(rawNext) => {
                   const next = replaceCompletedEmojiShortcodes(rawNext, effectiveExpressionLookup);
                   webValueRef.current = next;
-                  const nextEmoteQ = activeEmoteQuery(next);
-                  setEmoteQuery(nextEmoteQ);
-                  setMentionQuery(!nextEmoteQ && mentionsEnabled ? activeMentionQuery(next) : null);
+                  updateSuggestionQueries(next);
                   onChangeText(next);
                 }}
                 placeholder={allowText ? placeholder : t('chat.attachmentsOnly')}

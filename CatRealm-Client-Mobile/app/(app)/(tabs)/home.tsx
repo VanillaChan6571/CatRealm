@@ -22,6 +22,7 @@ import { usePresenceStore } from '@/stores/presenceStore';
 import { useUIStore } from '@/stores/uiStore';
 import { AUTH_BASE } from '@/lib/api';
 import type { Friend, FriendRequest } from '@/types';
+import { useTopBarPadding } from '@/hooks/useTopBarPadding';
 
 type Tab = 'all' | 'pending' | 'add';
 const ROLE_SYNC_INTERVAL_MS = 5000;
@@ -212,6 +213,8 @@ function RequestRow({
 
 export default function HomeTab() {
   const theme = useTheme();
+  // The top rows step clear of a side status area (the iPhone Duo's cover and inner screens).
+  const topBarPadding = useTopBarPadding(theme.spacing.lg);
   const { t } = useTranslation();
   const router = useRouter();
   const { isTablet } = useDeviceLayout();
@@ -370,7 +373,7 @@ const channelsSheetOpen = useUIStore((s) => s.channelsSheetOpen);
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.topTabsScroll}
-          contentContainerStyle={[styles.tabBar, { paddingHorizontal: theme.spacing.lg, gap: 6 }]}
+          contentContainerStyle={[styles.tabBar, { ...topBarPadding, gap: 6 }]}
         >
           {TABS.map((t) => (
             <Pressable
@@ -440,7 +443,8 @@ const channelsSheetOpen = useUIStore((s) => s.channelsSheetOpen);
             backgroundColor: theme.colors.bgElev1,
             borderColor: theme.colors.lineSoft,
             borderRadius: theme.radius.md,
-            marginHorizontal: theme.spacing.lg,
+            marginLeft: topBarPadding.paddingLeft,
+            marginRight: topBarPadding.paddingRight,
             marginBottom: theme.spacing.md,
           },
         ]}

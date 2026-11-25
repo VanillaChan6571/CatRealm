@@ -32,6 +32,7 @@ import Reanimated, { interpolate, runOnJS, useAnimatedStyle, useSharedValue, wit
 import { useTheme } from '@/theme';
 import { Text, IconBtn, Pressable, Avatar, StatusDot } from '@/components';
 import { TranslationPacksList } from '@/components/settings/TranslationPacksList';
+import { VoiceRegionSection } from '@/components/settings/VoiceRegionSection';
 import { ServerIcon } from '@/components/ServerIcon';
 import { DeleteAccountConfirmModal } from '@/components/settings/DeleteAccountConfirmModal';
 import { normalizeSettingsSection, settingsNavItems, type SettingsSection } from '@/components/settings/settingsSections';
@@ -3578,6 +3579,7 @@ export default function SettingsScreen() {
                 </Text>
               </View>
             </View>
+            <VoiceRegionSection />
           </>
         ) : null}
 

@@ -77,6 +77,7 @@ import type { BotCommand } from '../../types';
 import { SharedExpressionPickerPanel, isInsideExpressionPicker } from './SharedExpressionPickerPanel';
 import { ScheduleMessageModal } from './ScheduleMessageModal';
 import { ARCHIVE_ACCEPT, isArchiveFile } from '../../lib/archiveFiles';
+import { useDropManifestsOnExpressionsChanged } from '../../lib/expressionEvents';
 import {
   SharedDefaultEmojiPicker,
   SharedEmotePickerGrid,
@@ -233,6 +234,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
   const [defaultEmojiCategory, setDefaultEmojiCategory] = useState<DefaultEmojiCategory>('People');
   const [selectedExpressionServerUrl, setSelectedExpressionServerUrl] = useState<string | null>(null);
   const [expressionStateByServer, setExpressionStateByServer] = useState<Record<string, { loading: boolean; data: ExpressionManifest | null; error: string | null }>>({});
+  useDropManifestsOnExpressionsChanged(setExpressionStateByServer);
   const [personalManifest, setPersonalManifest] = useState<ExpressionManifest | null>(null);
   const [emojiMetadataLookup, setEmojiMetadataLookup] = useState<EmojiMetadataLookup | null>(() => getEmojiMetadataLookupCache());
   const [channelSlowmodesById, setChannelSlowmodesById] = useState<Record<string, number>>({});

@@ -1,11 +1,20 @@
 import { useEffect } from 'react';
 import { useChannelStore } from '../stores/channelStore';
 import { isAppInBackground } from '../lib/desktopNotifications';
+import { useThreadStore } from '../stores/threadStore';
 
 /** Clears a channel's unread badge and saves "read up to now" on the realm. */
 export function markChannelRead(channelId: string): void {
   const channelState = useChannelStore.getState();
   channelState.resetCounts(channelId);
+  if (useThreadStore.getState().forumPostsByChannel[channelId]) {
+    useThreadStore.setState((s) => ({
+      forumPostsByChannel: {
+        ...s.forumPostsByChannel,
+        [channelId]: s.forumPostsByChannel[channelId].map((post) => ({ ...post, unread_count: 0 })),
+      },
+    }));
+  }
   void channelState.setChannelPrefs(channelId, { lastReadAt: Math.floor(Date.now() / 1000) }).catch(() => {});
 }
 

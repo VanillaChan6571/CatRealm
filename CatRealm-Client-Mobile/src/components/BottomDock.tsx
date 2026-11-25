@@ -26,6 +26,7 @@ import { useFriendStore } from '@/stores/friendStore';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { useRealmUnreadStore } from '@/lib/realmReadState';
 import type { Category, Channel } from '@/types';
+import { useTopBarPadding } from '@/hooks/useTopBarPadding';
 
 type HubTabId = 'home' | 'servers' | 'chats' | 'discover' | 'me';
 
@@ -73,6 +74,8 @@ export function BottomDock() {
 export function TopHubBar() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  // The shortcuts step clear of a side status area (the iPhone Duo's cover screen).
+  const topBarPadding = useTopBarPadding(14);
   const { t } = useTranslation();
   const router = useRouter();
   const pathname = usePathname();
@@ -157,6 +160,7 @@ export function TopHubBar() {
           backgroundColor: theme.colors.bgSidebar,
           borderBottomColor: theme.colors.lineSoft,
           paddingTop: Math.max(insets.top, 8),
+          ...topBarPadding,
         },
       ]}
     >

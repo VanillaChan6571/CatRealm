@@ -269,6 +269,15 @@ export function MembersSheet() {
   const onlineUsers = usePresenceStore((s) => s.onlineUsers);
   const allMembers = usePresenceStore((s) => s.allMembers);
   const activeChannelId = useUIStore((s) => s.activeChannelId);
+  // Trackers and boards have no member list, as on desktop (useMemberListVisible).
+  const workChannelActive = useServerStore((s) => {
+    const channels = s.activeServerId ? s.channels[s.activeServerId] : undefined;
+    const type = channels?.find((channel) => channel.id === activeChannelId)?.type;
+    return type === 'tracker' || type === 'board';
+  });
+  useEffect(() => {
+    if (open && workChannelActive) setOpen(false);
+  }, [open, workChannelActive, setOpen]);
 
   const serverUrl = resolveServerUrl(server?.url);
 

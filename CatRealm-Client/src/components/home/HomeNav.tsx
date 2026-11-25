@@ -10,7 +10,7 @@ import { useNotificationStore } from '../../messaging/notifications/notification
 import { AvatarImage } from '../ui/AvatarImage';
 import { AUTH_BASE } from '../../lib/authApi';
 import { defaultAvatarUrl, resolveAvatarUrl } from '../../utils/avatar';
-import { formatPresenceStatusLabel } from '../../lib/expressions';
+import { formatPresenceStatusLabel, presenceDotClass } from '../../lib/expressions';
 import { groupChatFallbackBackground } from '../../utils/groupChatAvatar';
 import { HOME_PRESENCE_REFRESH_MS, OPEN_GROUP_CHAT_CREATOR_EVENT } from './constants';
 import {
@@ -25,13 +25,6 @@ import { Crown, Pin, Users } from 'lucide-react';
 import { usePinnedStore, pinKey, type PinnedItem } from '../../stores/pinnedStore';
 
 export type Tab = 'notifications' | 'dms' | 'groupChats' | 'friends' | 'pending' | 'add' | 'discover' | 'notes' | 'messageRequests';
-
-function getStatusDotClass(status?: 'online' | 'away' | 'sleeping' | 'invisible') {
-  if (!status || status === 'invisible') return 'bg-text-muted';
-  if (status === 'away') return 'bg-yellow-500';
-  if (status === 'sleeping') return 'bg-indigo-400';
-  return 'bg-green-500';
-}
 
 interface HomeNavProps {
   tab: Tab;
@@ -461,7 +454,7 @@ export function HomeNav({ tab, setTab }: HomeNavProps) {
                           onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = defaultAvatarUrl(); }}
                         />
                         <span
-                          className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-bg-sidebar ${getStatusDotClass(effectiveStatus)}`}
+                          className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-bg-sidebar ${presenceDotClass(effectiveStatus)}`}
                           title={formatPresenceStatusLabel(effectiveStatus)}
                         />
                       </div>

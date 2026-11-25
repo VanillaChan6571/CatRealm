@@ -323,6 +323,10 @@ export function useCallSocket() {
       useCallStore.getState().handleGroupCallError(payload);
     };
 
+    const onCallRegionChanged = (payload: { callId: string; region: 'eu' | 'us-central'; migrate: boolean; reverted?: boolean }) => {
+      void useCallStore.getState().handleCallRegionChanged(payload);
+    };
+
     // ══════════════════════════════════════════════════════════════════════════
     // REGISTER EVENT LISTENERS
     // ══════════════════════════════════════════════════════════════════════════
@@ -332,6 +336,7 @@ export function useCallSocket() {
     socket.on('reconnect', onReconnect);
     socket.on('call:incoming', onCallIncoming);
     socket.on('call:initiated', onCallInitiated);
+    socket.on('call:region:changed', onCallRegionChanged);
     socket.on('call:accepted', onCallAccepted);
     socket.on('call:declined', onCallDeclined);
     socket.on('call:state:update', onCallStateUpdate);
@@ -372,6 +377,7 @@ export function useCallSocket() {
       socket.off('reconnect', onReconnect);
       socket.off('call:incoming', onCallIncoming);
       socket.off('call:initiated', onCallInitiated);
+      socket.off('call:region:changed', onCallRegionChanged);
       socket.off('call:accepted', onCallAccepted);
       socket.off('call:declined', onCallDeclined);
       socket.off('call:state:update', onCallStateUpdate);

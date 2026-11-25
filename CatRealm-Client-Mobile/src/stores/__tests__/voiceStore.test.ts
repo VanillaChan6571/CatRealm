@@ -8,6 +8,7 @@ jest.mock('@/lib/notificationSounds', () => ({ setVoiceSessionActive: jest.fn(),
 jest.mock('@/lib/livekit-init', () => ({ ensureLiveKitGlobals: () => true, getLiveKitInitError: () => null }));
 jest.mock('@/lib/audioSession', () => ({ acquireAudioSession: jest.fn(async () => {}), releaseAudioSession: jest.fn(async () => {}) }));
 jest.mock('livekit-client', () => ({ Room: jest.fn(() => mockRoom), RoomEvent: new Proxy({}, { get: (_t, key) => String(key) }) }));
+jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(async () => null), setItem: jest.fn(async () => {}) }));
 
 import { AppState } from 'react-native';
 import { useVoiceStore } from '../voiceStore';
@@ -41,7 +42,7 @@ test('a socket reconnect re-announces the call with the current mute state', () 
   expect(useVoiceStore.getState().channelId).toBe('voice-1');
   mockSocket.emit.mockClear();
   reconnectHandler()();
-  expect(mockSocket.emit).toHaveBeenCalledWith('voice:join', { channelId: 'voice-1', muted: false, deafened: false });
+  expect(mockSocket.emit).toHaveBeenCalledWith('voice:join', { channelId: 'voice-1', muted: false, deafened: false, regionSwitchVersion: 1 });
 });
 
 test('leaving stops re-announcing', () => {

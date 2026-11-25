@@ -14,9 +14,12 @@ import { useAuthStore } from '@/stores/authStore';
 import { useJoinServer } from '@/hooks/useJoinServer';
 import { lookupInvite, parseInviteCode, type InviteInfo } from '@/lib/serverDirectory';
 import { resolveMediaUrl } from '@/utils/mediaUrl';
+import { useTopBarPadding } from '@/hooks/useTopBarPadding';
 
 export default function AddServerScreen() {
   const theme = useTheme();
+  // The header steps clear of a side status area (the iPhone Duo's cover screen).
+  const topBarPadding = useTopBarPadding(12);
   const { t } = useTranslation();
   const router = useRouter();
   const isCentral = useAuthStore((s) => s.user?.accountType === 'central');
@@ -53,7 +56,7 @@ export default function AddServerScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bgApp }} edges={['top']}>
-      <View style={styles.header}>
+      <View style={[styles.header, topBarPadding]}>
         <Pressable haptic accessibilityRole="button" accessibilityLabel={t('common.back')} onPress={() => router.back()} style={styles.back}>
           <ChevronLeft size={24} color={theme.colors.text2} />
         </Pressable>

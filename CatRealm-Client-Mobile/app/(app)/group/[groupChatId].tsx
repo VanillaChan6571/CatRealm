@@ -31,6 +31,7 @@ import { formatMessageTimestamp } from '@/utils/formatTime';
 import type { GroupChatMessage, MessageAttachment } from '@/types';
 import type { LocalComposerAttachment } from '@/components/MobileComposer';
 import { hideReportedAttachments, hideReportedLinks, reportableSafetyArtifacts, safetyHiddenArtifactKeys } from '@/lib/safetyReporting';
+import { useTopBarPadding } from '@/hooks/useTopBarPadding';
 
 const EMPTY_MSGS: GroupChatMessage[] = [];
 const GROUP_THRESHOLD_MS = 5 * 60 * 1000;
@@ -140,6 +141,8 @@ const GroupMessageRow = memo(function GroupMessageRow({
 
 export default function GroupChatScreen() {
   const theme = useTheme();
+  // The header steps clear of a side status area (the iPhone Duo's cover screen).
+  const topBarPadding = useTopBarPadding(8);
   const { t } = useTranslation();
   const router = useRouter();
   const { groupChatId } = useLocalSearchParams<{ groupChatId: string }>();
@@ -245,7 +248,7 @@ export default function GroupChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        <View style={[styles.header, { borderBottomColor: theme.colors.lineSoft }]}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.lineSoft }, topBarPadding]}>
           <Pressable haptic onPress={() => router.back()} style={styles.backBtn}>
             <ChevronLeft color={theme.colors.accent} size={20} />
           </Pressable>

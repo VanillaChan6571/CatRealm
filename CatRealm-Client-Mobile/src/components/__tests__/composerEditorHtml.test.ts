@@ -37,6 +37,7 @@ function mountEditor() {
     CatRealmComposer: {
       setText: (value: string) => void;
       insertExpression: (token: string, url: string, name: string, isSticker: boolean) => void;
+      replaceMention: (insert: string, trigger?: string, label?: string) => void;
     };
   }).CatRealmComposer;
   // Empty text nodes (left when the DOM splits text at an edge) do not render, so they are ignored.
@@ -61,8 +62,48 @@ function mountEditor() {
     flush();
     return event.defaultPrevented;
   };
-  return { editor, composer, flush, nodes, sent, placeCaret, input, textNode, text, selection, backspace };
+  const lastPost = () => [...posts].reverse().find((p) => p.type === 'input') as Posted & { beforeCaret?: string | null };
+  return { editor, composer, flush, nodes, sent, placeCaret, input, textNode, text, selection, backspace, lastPost };
 }
+
+describe('composer editor mentions', () => {
+  test('a picked channel becomes a #name chip that sends <#id>', () => {
+    const { editor, composer, flush, sent, placeCaret, text, lastPost } = mountEditor();
+    editor.appendChild(text('see #gen'));
+    placeCaret(editor.firstChild!, 8);
+    composer.replaceMention('<#c1>', '#', '#general');
+    flush();
+    const chip = editor.querySelector('span[data-token]')!;
+    expect(chip.textContent).toBe('#general');
+    expect(sent()).toBe('see <#c1> ');
+    // The chip reads as its token, so the caret after it is not in a "#query".
+    expect(lastPost().beforeCaret).toBe('see <#c1> ');
+  });
+
+  test('a picked member still replaces the @query with plain text', () => {
+    const { editor, composer, flush, sent, placeCaret, text } = mountEditor();
+    editor.appendChild(text('hi @ny'));
+    placeCaret(editor.firstChild!, 6);
+    composer.replaceMention('@nya', '@');
+    flush();
+    expect(editor.querySelector('[data-token]')).toBeNull();
+    expect(sent()).toBe('hi @nya ');
+  });
+
+  test('one backspace after a trailing channel chip removes it', () => {
+    const { editor, composer, flush, sent, placeCaret, input, textNode, text, backspace } = mountEditor();
+    editor.appendChild(text('#gen'));
+    placeCaret(editor.firstChild!, 4);
+    composer.replaceMention('<#c1>', '#', '#general');
+    flush();
+    textNode(' ').textContent = '';
+    input();
+    placeCaret(textNode(ANCHOR), 1);
+    expect(backspace()).toBe(true);
+    expect(editor.querySelector('[data-token]')).toBeNull();
+    expect(sent()).toBe('');
+  });
+});
 
 describe('composer editor emotes', () => {
   test('a picked emote is followed by a space for the caret', () => {

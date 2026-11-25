@@ -8,6 +8,9 @@ import { Text, Avatar, Pressable } from '@/components';
 import { getActiveVoiceRoom, useVoiceStore, type VoiceParticipant } from '@/stores/voiceStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useAuthStore } from '@/stores/authStore';
+import { createApi } from '@/lib/api';
+import { centralVoiceRegionsEnabled, type CentralVoiceRegion } from '@/lib/voiceRegions';
+import { hasChannelPermissionKey } from '@/utils/permissions';
 import { ScreenShareViewer, type ScreenShareViewerInfo } from './ScreenShareViewer';
 
 const EMPTY: VoiceParticipant[] = [];
@@ -168,16 +171,62 @@ export function VoiceChannelContent({
   const setScreenShareVolume = useVoiceStore((s) => s.setScreenShareVolume);
 
   const [watchingOpen, setWatchingOpen] = useState(false);
+  const [regionAvailable, setRegionAvailable] = useState(false);
+  const [regionOverride, setRegionOverride] = useState<CentralVoiceRegion | null>(null);
+  const [regionPending, setRegionPending] = useState(false);
+  const [regionNotice, setRegionNotice] = useState<string | null>(null);
   const [watchingInitialId, setWatchingInitialId] = useState<string | null>(null);
   const currentViewingIdRef = useRef<string | null>(null);
   const rejoinGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeServerId = useServerStore((s) => s.activeServerId);
   const previewServer = useServerStore((s) => s.byId(serverId || s.activeServerId || ''));
-  const routeChannelName = useServerStore((s) => {
+  const routeChannel = useServerStore((s) => {
     const sid = serverId || s.activeServerId || '';
-    return sid ? (s.channels[sid] ?? []).find((channel) => channel.id === channelId)?.name ?? null : null;
+    return sid ? (s.channels[sid] ?? []).find((channel) => channel.id === channelId) ?? null : null;
   });
+  const routeChannelName = routeChannel?.name ?? null;
+  const canManageRegion = hasChannelPermissionKey(undefined, routeChannel?.effective_permission_keys,
+    'MANAGE_CHANNELS', undefined, routeChannel?.effective_permissions);
+
+  useEffect(() => {
+    setRegionAvailable(false);
+    setRegionNotice(null);
+    if (!previewServer?.url || !canManageRegion) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const client = createApi(previewServer.url);
+        const capability = (await client.get('/api/media/capabilities')).data?.capability as
+          { enabled?: boolean; liveKitFallbackContexts?: string[] } | undefined;
+        if (!capability || capability.enabled || !capability.liveKitFallbackContexts?.includes('voice')) return;
+        if (!await centralVoiceRegionsEnabled()) return;
+        const settings = (await client.get(`/api/channels/${channelId}/settings`)).data as
+          { voice_region_override?: CentralVoiceRegion | null };
+        if (cancelled) return;
+        setRegionOverride(settings.voice_region_override ?? null);
+        setRegionAvailable(true);
+      } catch { /* Unsupported realms keep the region control hidden. */ }
+    })();
+    return () => { cancelled = true; };
+  }, [previewServer?.url, channelId, canManageRegion]);
+
+  const changeRegion = async (region: CentralVoiceRegion | null) => {
+    if (!previewServer?.url || regionPending || region === regionOverride) return;
+    setRegionPending(true);
+    setRegionNotice(null);
+    try {
+      const response = (await createApi(previewServer.url).patch(`/api/channels/${channelId}/voice-region`, { region })).data as
+        { ok?: boolean; appliesNow?: boolean };
+      if (!response.ok) throw new Error('Could not save voice region');
+      setRegionOverride(region);
+      setRegionNotice(response.appliesNow ? 'Region saved.' : 'Region saved for the next voice session.');
+    } catch {
+      setRegionNotice('Could not save voice region.');
+    } finally {
+      setRegionPending(false);
+    }
+  };
 
   const isInThisChannel = currentChannelId === channelId;
   const activeVoiceRoom = isInThisChannel ? getActiveVoiceRoom() : null;
@@ -338,6 +387,22 @@ export function VoiceChannelContent({
             </Text>
           </View>
           <View style={styles.headerRight} />
+        </View>
+      )}
+
+      {regionAvailable && (
+        <View style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.line }}>
+          <Text variant="bodySmall" color={theme.colors.text2}>Central voice region</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+            {([['Automatic', null], ['EU', 'eu'], ['US Central', 'us-central']] as const).map(([label, region]) => (
+              <Pressable key={label} disabled={regionPending} onPress={() => { void changeRegion(region); }}
+                style={{ borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7,
+                  backgroundColor: regionOverride === region ? theme.colors.accent : theme.colors.bgApp }}>
+                <Text variant="bodySmall" style={{ color: regionOverride === region ? '#fff' : theme.colors.text }}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {regionNotice && <Text variant="bodySmall" color={theme.colors.text2} style={{ marginTop: 4 }}>{regionNotice}</Text>}
         </View>
       )}
 

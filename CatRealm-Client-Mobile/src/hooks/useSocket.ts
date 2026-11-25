@@ -37,6 +37,7 @@ import { getLocalDeviceId } from '@/lib/deviceIdentity';
 import { useDMKeyReverificationStore } from '@/stores/dmKeyReverificationStore';
 import { captureAccountSession } from '@/lib/accountSession';
 import { isRealmChannelMuted, markRealmChannelRead, recountRealmUnread, syncActiveRealmReadState, syncRealmUnreadCounts } from '@/lib/realmReadState';
+import { refreshExpressions } from '@/lib/expressionCache';
 
 const SUSPENSION_RESYNC_THRESHOLD_MS = 5000;
 const WORK_ITEM_KINDS: WorkKind[] = ['tracker', 'board'];
@@ -404,6 +405,13 @@ export function useSocket() {
       },
     );
 
+    const onExpressionsChanged = () => { if (socketUrl) refreshExpressions(socketUrl); };
+    socket.on('expressions:changed', onExpressionsChanged);
+    // The member list only changes on these events; refetch so joins and leaves show live.
+    const onMembershipChanged = () => { void fetchAllMembers(); };
+    socket.on('member:join', onMembershipChanged);
+    socket.on('member:leave', onMembershipChanged);
+
     socket.on('presence:update', (users: OnlineUser[]) => {
       usePresenceStore.getState().setOnlineUsers(users);
       applyPresenceUsers(users);
@@ -478,6 +486,9 @@ export function useSocket() {
     });
     socket.on('voice:force-disconnect', () => {
       useVoiceStore.getState().handleForceDisconnect();
+    });
+    socket.on('voice:region:changed', (payload: { channelId: string; region: 'eu' | 'us-central'; generation?: string; reverted?: boolean }) => {
+      void useVoiceStore.getState().handleRegionChanged(payload);
     });
 
     // ── Theater events ────────────────────────────────────────────────────────
@@ -566,6 +577,9 @@ export function useSocket() {
       socket.off('message:reaction:update');
       socket.off('typing:update');
       socket.off('presence:update');
+      socket.off('expressions:changed', onExpressionsChanged);
+      socket.off('member:join', onMembershipChanged);
+      socket.off('member:leave', onMembershipChanged);
       socket.off('channel:list');
       socket.off('category:list');
       socket.off('connect_error');
@@ -578,6 +592,7 @@ export function useSocket() {
       socket.off('voice:room-count');
       socket.off('voice:room-sync');
       socket.off('voice:force-disconnect');
+      socket.off('voice:region:changed');
       // Theater
       socket.off('theater:users');
       socket.off('theater:user-joined');
@@ -805,6 +820,7 @@ export function useSocket() {
     socket.on('call:rejoin:error', (p: { callId: string }) => useCallStore.getState().handleDMEnded({ callId: p.callId, reason: 'ended' }));
     socket.on('call:state:update', (p) => useCallStore.getState().handleParticipantState(p));
     socket.on('call:error', ({ error }: { error: string }) => useCallStore.getState().handleError(error));
+    socket.on('call:region:changed', (p) => { void useCallStore.getState().handleRegionChanged(p); });
     socket.on('gc:call:started', (p) => useCallStore.getState().handleGroupStarted(p));
     socket.on('gc:call:initiated', (p) => useCallStore.getState().handleGroupInitiated(p));
     socket.on('gc:call:joined', (p) => void useCallStore.getState().handleGroupJoined(p));
@@ -879,6 +895,17 @@ export function useSocket() {
     socket.on('notification:new', (notification) => {
       const notificationStore = useNotificationStore.getState();
       notificationStore.prependFromWire(notification);
+      // Realms relay mentions even while the channel is on screen, after it was
+      // already marked read; clear those at once so the badge does not stick.
+      if (notification?.type === 'server_mention' && notification.subsourceId
+        && AppState.currentState === 'active'
+        && useChannelStore.getState().activeChannelId === notification.subsourceId) {
+        void createAuthenticatedApi().post('/api/notifications/read-stream', {
+          streamKind: 'server',
+          streamId: notification.sourceId,
+          subsourceId: notification.subsourceId,
+        }).catch(() => {});
+      }
       void notificationStore.refresh();
     });
     socket.on('notification:summary', (summary) => {
@@ -919,6 +946,7 @@ export function useSocket() {
       socket.off('call:rejoin:error');
       socket.off('call:state:update');
       socket.off('call:error');
+      socket.off('call:region:changed');
       socket.off('gc:call:started');
       socket.off('gc:call:initiated');
       socket.off('gc:call:joined');

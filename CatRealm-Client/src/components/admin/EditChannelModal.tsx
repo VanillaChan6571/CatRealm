@@ -6,6 +6,7 @@ import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { api } from '../../lib/api';
+import { centralVoiceRegionsEnabled, type CentralVoiceRegion } from '../../lib/voiceRegions';
 import { isHttpGatewayRealm } from '../../lib/httpRealmGateway';
 import { useServerStore } from '../../stores/serverStore';
 import { CHANNEL_OVERWRITE_CATEGORY_KEYS, PERMISSION_CATEGORIES } from './permissionDefinitions';
@@ -61,6 +62,7 @@ interface ChannelSettingsResponse {
   video_quality_mode?: '720p' | '1080p' | '1440p';
   defaultFramerate?: 24 | 48 | 60;
   default_framerate?: 24 | 48 | 60;
+  voice_region_override?: CentralVoiceRegion | null;
   threadAutoArchive?: number;
   thread_auto_archive?: number;
   threadCreationCooldown?: number;
@@ -100,6 +102,7 @@ type DraftState = {
   bitrate: number;
   videoQualityMode: '720p' | '1080p' | '1440p';
   defaultFramerate: 24 | 48 | 60;
+  voiceRegionOverride: CentralVoiceRegion | null;
   threadAutoArchive: number;
   threadCreationCooldown: number;
   forumLayout: 'list' | 'gallery' | 'user_choice';
@@ -165,6 +168,7 @@ function buildInitialDraft(channel: Channel, settings?: ChannelSettingsResponse,
     bitrate: settings?.bitrate ?? 64000,
     videoQualityMode: settings?.videoQualityMode ?? settings?.video_quality_mode ?? '720p',
     defaultFramerate: settings?.defaultFramerate ?? settings?.default_framerate ?? 60,
+    voiceRegionOverride: settings?.voice_region_override ?? null,
     threadAutoArchive: settings?.threadAutoArchive ?? settings?.thread_auto_archive ?? 1440,
     threadCreationCooldown: settings?.threadCreationCooldown ?? settings?.thread_creation_cooldown ?? 0,
     forumLayout: channel.forum_layout ?? 'user_choice',
@@ -265,6 +269,7 @@ export function EditChannelModal() {
   const [error, setError] = useState('');
   const [closeRejected, setCloseRejected] = useState(false);
   const [newDomain, setNewDomain] = useState('');
+  const [regionControlAvailable, setRegionControlAvailable] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const closeRejectTimerRef = useRef<number | null>(null);
@@ -322,6 +327,7 @@ export function EditChannelModal() {
       || draft.bitrate !== initialDraft.bitrate
       || draft.videoQualityMode !== initialDraft.videoQualityMode
       || draft.defaultFramerate !== initialDraft.defaultFramerate
+      || draft.voiceRegionOverride !== initialDraft.voiceRegionOverride
       || draft.threadAutoArchive !== initialDraft.threadAutoArchive
       || draft.threadCreationCooldown !== initialDraft.threadCreationCooldown
       || draft.forumLayout !== initialDraft.forumLayout
@@ -384,6 +390,7 @@ export function EditChannelModal() {
     setPermissionsError('');
     setCategorySyncNotice('');
     setError('');
+    setRegionControlAvailable(false);
     setSection('basic');
     setExpressionPickerOpen(false);
     setAddTargetType('role');
@@ -454,6 +461,23 @@ export function EditChannelModal() {
       cancelled = true;
     };
   }, [isOpen, modalData]);
+
+  useEffect(() => {
+    if (!isOpen || modalData?.type !== 'voice') return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await api.get('/api/media/capabilities') as {
+          capability?: { enabled?: boolean; liveKitFallbackContexts?: string[] };
+        };
+        const capability = result.capability;
+        if (!capability || capability.enabled || !capability.liveKitFallbackContexts?.includes('voice')) return;
+        const enabled = await centralVoiceRegionsEnabled();
+        if (!cancelled) setRegionControlAvailable(enabled);
+      } catch { /* Older realms do not advertise this feature. */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, modalData?.id, modalData?.type]);
 
   useEffect(() => {
     return () => {
@@ -697,6 +721,13 @@ export function EditChannelModal() {
         threadAutoArchive: draft.threadAutoArchive,
         threadCreationCooldown: draft.threadCreationCooldown,
       });
+
+      if (regionControlAvailable && draft.type === 'voice'
+        && draft.voiceRegionOverride !== initialDraft?.voiceRegionOverride) {
+        await api.patch(`/api/channels/${modalData.id}/voice-region`, {
+          region: draft.voiceRegionOverride,
+        });
+      }
 
       await api.put(`/api/channels/${modalData.id}/permissions`, {
         overwrites: normalizeOverwrites(draft.permissionOverwrites).map((overwrite) => ({
@@ -1121,6 +1152,22 @@ export function EditChannelModal() {
               <div className="border-t border-border pt-5">
                 <div className="mb-4 text-lg font-semibold text-text-primary">Voice Defaults</div>
                 <div className="space-y-4">
+                  {regionControlAvailable && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold uppercase text-text-secondary">Central voice region</label>
+                      <select
+                        value={draft.voiceRegionOverride ?? 'automatic'}
+                        onChange={(event) => setDraft({ ...draft, voiceRegionOverride:
+                          event.target.value === 'automatic' ? null : event.target.value as CentralVoiceRegion })}
+                        className="w-full rounded-md border border-border bg-bg-input px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+                      >
+                        <option value="automatic">Automatic</option>
+                        <option value="eu">EU</option>
+                        <option value="us-central">US Central</option>
+                      </select>
+                      <p className="text-xs text-text-muted">The first participant picks Automatic. Occupied channels reconnect when every client supports switching and no one is sharing video; otherwise the choice applies next session.</p>
+                    </div>
+                  )}
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold uppercase text-text-secondary">Bitrate</label>
                     <select

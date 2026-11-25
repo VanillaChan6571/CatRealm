@@ -9,6 +9,7 @@ import { BotBadge } from './BotBadge';
 import { Pressable } from './Pressable';
 import { TranslatableMarkdownText } from './TranslatableMarkdownText';
 import { RoleNameText } from '@/lib/roleStyles';
+import { useMemberRoleStyle } from '@/hooks/useMemberRoleStyle';
 import { resolveEmoteFromCache, type ExpressionLookup } from '@/lib/expressionCache';
 import { debugLog } from '@/lib/debugLog';
 import { formatMessageTimestamp } from '@/utils/formatTime';
@@ -70,6 +71,8 @@ export const ChannelMessageRow = memo(function ChannelMessageRow({
 }: ChannelMessageRowProps) {
   const theme = useTheme();
   const { t } = useTranslation();
+  // Thread and forum messages come without role styles; live member data fills them in.
+  const liveRole = useMemberRoleStyle(message.message_type === 'system' ? null : message.user_id);
 
   // System messages render as a centered notice row (no avatar, no long-press)
   if (message.message_type === 'system') {
@@ -137,9 +140,9 @@ export const ChannelMessageRow = memo(function ChannelMessageRow({
           <View style={styles.msgMeta}>
             <Pressable haptic onPress={() => onAvatarPress(message.user_id)}>
               <RoleNameText
-                color={message.role_color}
-                styleType={message.role_style_type}
-                styleColors={message.role_style_colors}
+                color={liveRole.color ?? message.role_color}
+                styleType={liveRole.styleType ?? message.role_style_type}
+                styleColors={liveRole.styleColors ?? message.role_style_colors}
                 numberOfLines={1}
               >
                 {message.display_name ?? message.username}

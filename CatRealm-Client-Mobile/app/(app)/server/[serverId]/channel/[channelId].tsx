@@ -47,6 +47,7 @@ import { useVisibleChannelMemberIds, filterMembersByVisibleIds } from '@/hooks/u
 import { debugLog, debugTap } from '@/lib/debugLog';
 import { clearImageMemoryCache } from '@/lib/imageCache';
 import { hideReportedAttachments, hideReportedLinks, reportableSafetyArtifacts, safetyHiddenArtifactKeys } from '@/lib/safetyReporting';
+import { useTopBarPadding } from '@/hooks/useTopBarPadding';
 
 const EMPTY_CHANNELS: Channel[] = [];
 const EMPTY_CATEGORIES: { id: string; name: string; position: number }[] = [];
@@ -306,6 +307,8 @@ function ChannelScreen() {
   // Beside the chat when it fits (landscape); over the chat when it would squeeze it (portrait).
   const rightPaneDocked = tabletRightPaneDocked(windowWidth, TABLET_LEFT_COLUMN_WIDTH);
   const insets = useSafeAreaInsets();
+  // Header buttons step clear of a side status area (the iPhone Duo's cover screen).
+  const topBarPadding = useTopBarPadding(theme.spacing.sm);
   // Tablet side panes run under the bottom dock; keep their last rows scrollable above it.
   const paneListStyle = { paddingBottom: 16 + DOCK_HEIGHT + dockBottomInset(insets.bottom) };
   const router = useRouter();
@@ -400,7 +403,7 @@ function ChannelScreen() {
   const [createThreadOpen, setCreateThreadOpen] = useState(false);
   const [createThreadName, setCreateThreadName] = useState('');
   const [createThreadLoading, setCreateThreadLoading] = useState(false);
-  const [tabletMembersVisible, setTabletMembersVisible] = useState(rightPaneDocked && channel?.type !== 'board');
+  const [tabletMembersVisible, setTabletMembersVisible] = useState(rightPaneDocked && !isWorkChannel);
   const [tabletRightPaneMode, setTabletRightPaneMode] = useState<'members' | 'threads' | 'pins'>('members');
   const [secureModeLockedFallback, setSecureModeLockedFallback] = useState(false);
   const createThreadMessageRef = useRef<Message | null>(null);
@@ -451,13 +454,13 @@ function ChannelScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTablet]);
 
-  // Boards need the width for their lists, so the members pane starts closed there.
-  const isBoardChannel = channel?.type === 'board';
+  // Trackers and boards need the full width, so the members pane slides away while one is
+  // open and comes back with any other channel, as on desktop (useMemberListVisible).
   useEffect(() => {
     if (!isTablet) return;
-    setTabletMembersVisible(rightPaneDocked && !isBoardChannel);
+    setTabletMembersVisible(rightPaneDocked && !isWorkChannel);
     setTabletRightPaneMode('members');
-  }, [isTablet, rightPaneDocked, channelId, serverId, isBoardChannel]);
+  }, [isTablet, rightPaneDocked, channelId, serverId, isWorkChannel]);
 
   // Docked, the pane's width animates on the UI thread so the channel content reflows with it
   // (a transform alone left the content to snap into place). Its 280pt inner column never
@@ -812,7 +815,7 @@ function ChannelScreen() {
             styles.header,
             {
               borderBottomColor: theme.colors.lineSoft,
-              paddingHorizontal: theme.spacing.sm,
+              ...topBarPadding,
               paddingVertical: theme.spacing.sm,
               gap: theme.spacing.xs,
             },
@@ -845,26 +848,27 @@ function ChannelScreen() {
               </View>
             </Pressable>
           )}
-          <View style={styles.headerActions}>
-            <IconBtn
-              icon={EllipsisVertical}
-              accessibilityLabel={t('common.moreOptions', { defaultValue: 'More options' })}
-              onPress={() => setHeaderMenuOpen(true)}
-            />
-          </View>
+          {/* Trackers and boards have no search, threads, pins or member list, so no menu. */}
+          {!isWorkChannel ? (
+            <View style={styles.headerActions}>
+              <IconBtn
+                icon={EllipsisVertical}
+                accessibilityLabel={t('common.moreOptions', { defaultValue: 'More options' })}
+                onPress={() => setHeaderMenuOpen(true)}
+              />
+            </View>
+          ) : null}
         </View>
       )}
       <SecureServerInfoModal open={secureInfoOpen} onClose={() => setSecureInfoOpen(false)} />
-      {!isTablet && (
+      {!isTablet && !isWorkChannel && (
         <ActionMenuSheet
           open={headerMenuOpen}
           onClose={() => setHeaderMenuOpen(false)}
           items={[
-            ...(isWorkChannel ? [] : [
-              { key: 'search', label: t('server.searchAccessibility'), icon: Search, onPress: () => setSearchOpen(true) },
-              { key: 'threads', label: t('server.threadsAccessibility'), icon: MessageSquareText, onPress: openThreadsPanel },
-              { key: 'pins', label: t('server.pinnedAccessibility'), icon: Pin, onPress: openPinsPanel },
-            ]),
+            { key: 'search', label: t('server.searchAccessibility'), icon: Search, onPress: () => setSearchOpen(true) },
+            { key: 'threads', label: t('server.threadsAccessibility'), icon: MessageSquareText, onPress: openThreadsPanel },
+            { key: 'pins', label: t('server.pinnedAccessibility'), icon: Pin, onPress: openPinsPanel },
             { key: 'members', label: t('server.membersAccessibility'), icon: Users, onPress: () => setMembersSheetOpen(true) },
           ]}
         />
@@ -893,7 +897,7 @@ function ChannelScreen() {
                   styles.header,
                   {
                     borderBottomColor: theme.colors.lineSoft,
-                    paddingHorizontal: theme.spacing.sm,
+                    ...topBarPadding,
                     paddingVertical: theme.spacing.sm,
                     gap: theme.spacing.xs,
                     minHeight: 64,
@@ -942,18 +946,20 @@ function ChannelScreen() {
                       />
                     </>
                   ) : null}
-                  <IconBtn
-                    icon={Users}
-                    accessibilityLabel={tabletMembersVisible && tabletRightPaneMode === 'members' ? t('server.hideRightPanel') : t('server.showMembers')}
-                    onPress={() => {
-                      if (tabletMembersVisible && tabletRightPaneMode === 'members') {
-                        setTabletMembersVisible(false);
-                        return;
-                      }
-                      setTabletRightPaneMode('members');
-                      setTabletMembersVisible(true);
-                    }}
-                  />
+                  {!isWorkChannel ? (
+                    <IconBtn
+                      icon={Users}
+                      accessibilityLabel={tabletMembersVisible && tabletRightPaneMode === 'members' ? t('server.hideRightPanel') : t('server.showMembers')}
+                      onPress={() => {
+                        if (tabletMembersVisible && tabletRightPaneMode === 'members') {
+                          setTabletMembersVisible(false);
+                          return;
+                        }
+                        setTabletRightPaneMode('members');
+                        setTabletMembersVisible(true);
+                      }}
+                    />
+                  ) : null}
                 </View>
               </View>
             )}
@@ -1124,7 +1130,8 @@ function ChannelScreen() {
               },
             ]}
           >
-          <View style={styles.tabletRightPaneHeader}>
+          {/* The pane meets the right edge, so its close button steps clear of a side status area. */}
+          <View style={[styles.tabletRightPaneHeader, { paddingRight: insets.right }]}>
             <Text variant="subtitle" style={styles.tabletPaneTitle}>
               {tabletRightPaneMode === 'members' ? t('chat.members') : tabletRightPaneMode === 'threads' ? t('chat.threads') : t('chat.pinnedMessages')}
             </Text>

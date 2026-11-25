@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { getSocket } from '../lib/socket';
+import { getPreferredVoiceRegion } from '../lib/voiceRegions';
 import { useSettingsStore, registerOnAudioSettingsChanged, registerOnNoiseGateThresholdChanged } from './settingsStore';
 import { useServerStore } from './serverStore';
 import { useAuthStore, setOnLogoutVoiceCallback } from './authStore';
@@ -80,6 +81,15 @@ export type VoiceSignal =
   | { type: 'candidate'; candidate: RTCIceCandidateInit; sessionId?: string }
   | { type: 'e2ee-key'; sessionId: string; pub: string; version: 2 };
 
+type VoiceRoomRegion = 'eu' | 'us-central';
+/** Apply a realm's reported Central voice region for one room (null clears it). */
+function withRoomRegion(regions: Record<string, VoiceRoomRegion>, channelId: string, occupied: boolean, region: unknown) {
+  const next = { ...regions };
+  if (occupied && (region === 'eu' || region === 'us-central')) next[channelId] = region;
+  else delete next[channelId];
+  return next;
+}
+
 interface VoiceState {
   activeChannelId: string | null;
   pendingChannelId: string | null;
@@ -91,6 +101,7 @@ interface VoiceState {
   voiceCounts: Record<string, number>;
   voiceRoomUsers: Record<string, VoiceUser[]>;
   voiceRoomStartedAt: Record<string, number>;
+  voiceRoomRegions: Record<string, VoiceRoomRegion>;
   liveUserIdsByChannel: Record<string, string[]>;
   peers: Record<string, VoicePeer>;
   e2eeSupported: boolean;
@@ -130,11 +141,12 @@ interface VoiceState {
   handleUserLeft: (payload: { channelId: string; userId: string }) => void;
   handleUserState: (payload: { channelId: string; userId: string; muted: boolean; deafened: boolean }) => void;
   handleUserSync: (payload: { channelId: string; users: VoiceUser[]; liveUserIds?: string[] }) => void;
-  handleRoomCount: (payload: { channelId: string; count: number; startedAt?: number | null }) => void;
-  handleRoomSync: (payload: { channelId: string; users: VoiceUser[]; startedAt?: number | null; liveUserIds?: string[] }) => void;
-  handleRoomsSnapshot: (payload: { rooms: Array<{ channelId: string; count: number; users?: VoiceUser[]; startedAt?: number | null; liveUserIds?: string[] }> }) => void;
+  handleRoomCount: (payload: { channelId: string; count: number; startedAt?: number | null; region?: VoiceRoomRegion | null }) => void;
+  handleRoomSync: (payload: { channelId: string; users: VoiceUser[]; startedAt?: number | null; liveUserIds?: string[]; region?: VoiceRoomRegion | null }) => void;
+  handleRoomsSnapshot: (payload: { rooms: Array<{ channelId: string; count: number; users?: VoiceUser[]; startedAt?: number | null; liveUserIds?: string[]; region?: VoiceRoomRegion | null }> }) => void;
   handleLiveSync: (payload: { channelId: string; userIds: string[] }) => void;
   handleSignal: (payload: { channelId: string; from: string; data: VoiceSignal }) => void;
+  handleRegionChanged: (payload: { channelId: string; region: 'eu' | 'us-central'; generation?: string; reverted?: boolean }) => Promise<void>;
   cleanup: () => void;
 }
 
@@ -442,6 +454,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   voiceCounts: {},
   voiceRoomUsers: {},
   voiceRoomStartedAt: {},
+  voiceRoomRegions: {},
   liveUserIdsByChannel: {},
   peers: {},
   e2eeSupported: false,
@@ -856,10 +869,13 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       const localVoiceStream = nativeVoiceBackend
         ? null
         : await prepareLocalVoiceCapture(allowNoMicrophone);
+      const preferredRegion = await getPreferredVoiceRegion();
       socket.emit('voice:join', {
         channelId,
         muted: allowNoMicrophone || get().selfMuted,
         deafened: get().selfDeafened,
+        preferredRegion,
+        regionSwitchVersion: 1,
       }, async (resp: { ok?: boolean; channelId?: string; users?: VoiceUser[]; you?: string; startedAt?: number | null; liveUserIds?: string[]; error?: string }) => {
         if (!resp || resp.ok !== true) {
           const permissionDenied = isConnectToVoicePermissionError(resp?.error);
@@ -1024,6 +1040,38 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     remoteScreenShareActiveByPeer.clear();
     suppressNextVoiceScreenshareEndedSound = false;
     get().setLastEvent('voice:leave');
+  },
+
+  handleRegionChanged: async ({ channelId, region, generation, reverted }) => {
+    const state = get();
+    if (state.activeChannelId !== channelId || !state.voiceServerUrl) return;
+    const serverUrl = state.voiceServerUrl;
+    const regionLabel = region === 'eu' ? 'EU' : 'US Central';
+    set({ connecting: true, error: null,
+      notice: reverted ? `Region change failed. Returning voice to ${regionLabel}…` : `Reconnecting voice to ${regionLabel}…` });
+    const microphoneTrack = state.localStream?.getAudioTracks()[0] ?? null;
+    let joined = false;
+    for (let attempt = 0; attempt < 2 && !joined; attempt += 1) {
+      if (get().activeChannelId !== channelId) return;
+      joined = await useMediaStore.getState().joinVoice({
+        serverUrl,
+        channelId,
+        muted: state.selfMuted || state.selfDeafened,
+        deafened: state.selfDeafened,
+        microphoneTrack: microphoneTrack?.readyState === 'live' ? microphoneTrack : null,
+        microphoneTrackLabel: 'catrealm:voice:processed-mic',
+      });
+    }
+    if (get().activeChannelId !== channelId) return;
+    if (generation && !reverted) getVoiceSocket()?.emit('voice:region:result', { channelId, generation, ok: joined });
+    if (!joined && !reverted) {
+      // The realm restores the previous region if nobody reaches the new one.
+      set({ connecting: true, notice: 'Could not reach the new voice region. Waiting to return to the previous one…' });
+      return;
+    }
+    set({ connecting: false, notice: joined ? null : 'Could not reconnect voice. Leave and rejoin this channel.',
+      error: joined ? null : (useMediaStore.getState().error || 'Voice region connection failed.') });
+    get().setLastEvent(`voice:region:changed ${channelId} ${region} ${joined ? 'connected' : 'failed'}`);
   },
 
   toggleMute: () => {
@@ -1314,7 +1362,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     get().setLastEvent(`voice:sync ${channelId}`);
   },
 
-  handleRoomCount: ({ channelId, count, startedAt }) => {
+  handleRoomCount: ({ channelId, count, startedAt, region }) => {
+    set((s) => ({ voiceRoomRegions: withRoomRegion(s.voiceRoomRegions, channelId, (count || 0) > 0, region) }));
     set((s) => {
       const nextStartedAt = { ...s.voiceRoomStartedAt };
       if ((count || 0) > 0 && typeof startedAt === 'number') nextStartedAt[channelId] = startedAt;
@@ -1329,8 +1378,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     });
   },
 
-  handleRoomSync: ({ channelId, users, startedAt, liveUserIds = [] }) => {
+  handleRoomSync: ({ channelId, users, startedAt, liveUserIds = [], region }) => {
     reconcileAuthoritativeLiveUserIds(channelId, liveUserIds);
+    set((s) => ({ voiceRoomRegions: withRoomRegion(s.voiceRoomRegions, channelId, users.length > 0, region) }));
     set((s) => {
       const nextStartedAt = { ...s.voiceRoomStartedAt };
       if (users.length > 0 && typeof startedAt === 'number') nextStartedAt[channelId] = startedAt;
@@ -1359,7 +1409,23 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       const nextRooms = { ...s.voiceRoomUsers };
       const nextStartedAt = { ...s.voiceRoomStartedAt };
       const nextLiveUserIds = { ...s.liveUserIdsByChannel };
+      // The server snapshot lists every non-empty room, so any room we still hold
+      // that is missing from it emptied while we weren't receiving events
+      // (minimized/suspended client, reconnect). Clear it instead of keeping ghosts.
+      const present = new Set(rooms.map((room) => room.channelId));
+      const known = new Set([...Object.keys(nextCounts), ...Object.keys(nextRooms), ...Object.keys(nextLiveUserIds)]);
+      known.forEach((channelId) => {
+        if (present.has(channelId)) return;
+        reconcileAuthoritativeLiveUserIds(channelId, []);
+        nextCounts[channelId] = 0;
+        nextRooms[channelId] = [];
+        delete nextLiveUserIds[channelId];
+        delete nextStartedAt[channelId];
+      });
+      // Regions are rebuilt from the complete snapshot for the same reason.
+      let nextRegions: Record<string, VoiceRoomRegion> = {};
       rooms.forEach((room) => {
+        nextRegions = withRoomRegion(nextRegions, room.channelId, (room.count || 0) > 0, room.region);
         reconcileAuthoritativeLiveUserIds(room.channelId, room.liveUserIds ?? []);
         nextCounts[room.channelId] = Math.max(0, room.count || 0);
         if (room.users) nextRooms[room.channelId] = room.users;
@@ -1372,6 +1438,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         voiceRoomUsers: nextRooms,
         voiceRoomStartedAt: nextStartedAt,
         liveUserIdsByChannel: nextLiveUserIds,
+        voiceRoomRegions: nextRegions,
       };
     });
   },

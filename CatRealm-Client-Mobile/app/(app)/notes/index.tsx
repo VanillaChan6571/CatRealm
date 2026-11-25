@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { Text, Pressable } from '@/components';
 import { usePersonalNotesStore } from '@/stores/personalNotesStore';
+import { useTopBarPadding } from '@/hooks/useTopBarPadding';
 
 function formatDate(unixSec: number): string {
   const date = new Date(unixSec * 1000);
@@ -27,6 +28,8 @@ function formatDate(unixSec: number): string {
 
 export default function NotesListScreen() {
   const theme = useTheme();
+  // The header steps clear of a side status area (the iPhone Duo's cover screen).
+  const topBarPadding = useTopBarPadding(16);
   const { t } = useTranslation();
   const router = useRouter();
   const notes = usePersonalNotesStore((s) => s.notes);
@@ -57,7 +60,7 @@ export default function NotesListScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bgApp }} edges={['top']}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, topBarPadding]}>
         <Pressable haptic onPress={() => router.back()} style={{ paddingRight: 8 }}>
           <Text variant="body" color={theme.colors.accent}>{t('notes.back')}</Text>
         </Pressable>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { voiceRegionLabel, voiceRegionShortLabel } from '../../lib/voiceRegions';
 import { useAuthStore } from '../../stores/authStore';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { getSocket } from '../../lib/socket';
@@ -17,6 +18,7 @@ export function VoiceStatusPanel() {
   const storedVoiceChannelName = useVoiceStore((s) => s.voiceChannelName);
   const storedVoiceServerName = useVoiceStore((s) => s.voiceServerName);
   const voiceServerUrl = useVoiceStore((s) => s.voiceServerUrl);
+  const voiceRegion = useVoiceStore((s) => (s.activeChannelId ? s.voiceRoomRegions[s.activeChannelId] : undefined));
   const peers = useVoiceStore((s) => s.peers);
   const e2eeSupported = useVoiceStore((s) => s.e2eeSupported);
   const e2eeByPeer = useVoiceStore((s) => s.e2eeByPeer);
@@ -156,7 +158,7 @@ export function VoiceStatusPanel() {
       ? (Object.keys(peers).length === 0 ? 'E2EE - Alone... Nothing to encrypt silly!' : 'E2EE - Disabled or unavailable')
       : 'E2EE';
   const debugText = [
-    `${rtcBanner} - Server Ping ${stats.serverPingMs ?? '-'} ms`,
+    `${rtcBanner} - Server Ping ${stats.serverPingMs ?? '-'} ms${voiceRegion ? ` · ${voiceRegionLabel(voiceRegion)}` : ''}`,
     `Peer Ping ${stats.peerPingMs ?? '-'} ms`,
     `${voiceChannelName ?? 'Voice'} / ${voiceServerName}`,
     '',
@@ -219,6 +221,7 @@ export function VoiceStatusPanel() {
         >
           <div className={`text-[10px] ${pingToneClass}`}>
             {rtcBanner} - Server Ping {stats.serverPingMs ?? '-'} ms
+            {voiceRegion && <span title={`Voice region: ${voiceRegionLabel(voiceRegion)}`}> · {voiceRegionShortLabel(voiceRegion)}</span>}
           </div>
           <div className={`text-[10px] ${pingToneClass}`}>
             Peer Ping {stats.peerPingMs ?? '-'} ms

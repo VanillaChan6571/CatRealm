@@ -1,17 +1,11 @@
 import { useEffect } from 'react';
 import { useDMStore } from '../../stores/dmStore';
 import { useFriendStore } from '../../stores/friendStore';
+import { presenceDotClass } from '../../lib/expressions';
 import { AUTH_BASE } from '../../lib/authApi';
 import { defaultAvatarUrl, resolveAvatarUrl } from '../../utils/avatar';
 import type { DMConversation, Friend } from '../../types';
 import { DevicePhoneMobileIcon } from '@heroicons/react/24/solid';
-
-const getStatusDotClass = (status?: 'online' | 'away' | 'sleeping' | 'invisible') => {
-  if (!status || status === 'invisible') return 'bg-text-muted';
-  if (status === 'away') return 'bg-yellow-500';
-  if (status === 'sleeping') return 'bg-indigo-400';
-  return 'bg-green-500';
-};
 
 export function DMList() {
   const { conversations, openConversation, loadConversations } = useDMStore();
@@ -83,7 +77,7 @@ export function DMList() {
                 className="w-14 h-14 rounded-full"
               />
               <span
-                className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-bg-sidebar ${getStatusDotClass(conv.otherStatus)}`}
+                className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-bg-sidebar ${presenceDotClass(conv.otherStatus)}`}
                 title={conv.otherStatus === 'invisible' || !conv.otherStatus ? 'Offline' : conv.otherStatus}
               />
               {conv.otherClients?.includes('mobile') && (
@@ -149,7 +143,7 @@ export function DMList() {
                     className="w-14 h-14 rounded-full"
                   />
                   <span
-                    className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-bg-sidebar ${getStatusDotClass(friend.status)}`}
+                    className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-bg-sidebar ${presenceDotClass(friend.status)}`}
                     title={friend.status === 'invisible' || !friend.status ? 'Offline' : friend.status}
                   />
                   {friend.clients?.includes('mobile') && (

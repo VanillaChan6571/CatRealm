@@ -14,7 +14,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
-import { View } from 'react-native';
+import { AppState, View } from 'react-native';
 import { ThemeProvider, useTheme } from '@/theme';
 import { useAuthStore } from '@/stores/authStore';
 import { useChannelStore } from '@/stores/channelStore';
@@ -24,11 +24,19 @@ import { Text, Pressable } from '@/components';
 import { LaunchReveal, LAUNCH_BACKGROUND } from '@/components/LaunchReveal';
 import { startMemoryDiagnostics } from '@/lib/memoryDiagnostics';
 import { OverlayProvider } from '@/components/OverlayPortal';
+import { warmVoiceRegionPreference, getPreferredVoiceRegion } from '@/lib/voiceRegions';
 
 const ROOT_BACKGROUND = LAUNCH_BACKGROUND;
 
 export default function RootLayout() {
   useEffect(() => startMemoryDiagnostics(), []);
+  useEffect(() => {
+    warmVoiceRegionPreference();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void getPreferredVoiceRegion();
+    });
+    return () => subscription.remove();
+  }, []);
   useEffect(() => {
     void SystemUI.setBackgroundColorAsync(ROOT_BACKGROUND);
   }, []);

@@ -22,9 +22,12 @@ import { MarkdownText } from '@/components/MarkdownText';
 import { usePersonalNotesStore, type PersonalNoteContent } from '@/stores/personalNotesStore';
 import { NoteUnlockModal } from '@/components/notes/NoteUnlockModal';
 import { NoteLockModal } from '@/components/notes/NoteLockModal';
+import { useTopBarPadding } from '@/hooks/useTopBarPadding';
 
 export default function NoteEditorScreen() {
   const theme = useTheme();
+  // The header steps clear of a side status area (the iPhone Duo's cover screen).
+  const topBarPadding = useTopBarPadding(12);
   const { t } = useTranslation();
   const router = useRouter();
   const { noteId } = useLocalSearchParams<{ noteId: string }>();
@@ -125,7 +128,7 @@ export default function NoteEditorScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bgApp }} edges={['top']}>
       {/* Toolbar */}
-      <View style={[styles.toolbar, { borderBottomColor: theme.colors.lineSoft }]}>
+      <View style={[styles.toolbar, { borderBottomColor: theme.colors.lineSoft }, topBarPadding]}>
         <Pressable haptic onPress={() => router.back()} style={styles.toolbarBtn}>
           <ChevronLeft color={theme.colors.accent} size={20} />
           <Text variant="bodySmall" color={theme.colors.accent}>{t('notes.breadcrumb')}</Text>

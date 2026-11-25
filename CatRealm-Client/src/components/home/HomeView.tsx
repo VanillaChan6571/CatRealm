@@ -64,6 +64,7 @@ import {
   DEFAULT_PICKER_SERVER_URL,
   EMPTY_EXPRESSION_MANIFEST as EMPTY_MANIFEST,
   formatPresenceStatusLabel,
+  presenceDotClass,
   hasBigIntPermission,
   PERSONAL_PICKER_SERVER_URL,
   sanitizeCompactEmoteTokens,
@@ -2938,8 +2939,8 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
 
         {/* Friends List */}
         {tab === 'friends' && (
-          <div className="space-y-1 max-w-2xl">
-            <div className="rounded-xl border border-border bg-bg-elevated/60 p-3 mb-3 space-y-3">
+          <div className="@container max-w-6xl">
+            <div className="max-w-2xl @4xl:max-w-none rounded-xl border border-border bg-bg-elevated/60 p-3 mb-3 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase text-text-muted">{t('friends.personalRolesPrivate')}</p>
                 <span className="text-xs text-text-muted">{personalRoles.length}/69</span>
@@ -2976,9 +2977,15 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
                 <p className="text-text-muted text-sm">{t('friends.noFriends')}</p>
               </div>
             ) : (
-              filteredFriends.map((friend) => (
-                (() => {
+              <div className="grid grid-cols-1 gap-2 max-w-2xl @4xl:grid-cols-2 @4xl:max-w-none">
+              {filteredFriends.map((friend) => {
                   const effectiveFriendStatus = friend.status ?? friendStatusOverrideById.get(friend.id);
+                  const activitySummary = getActivitySummary(
+                    friend.customStatusText,
+                    friend.activityType,
+                    friend.activityText,
+                    friend.activityStartedAt
+                  );
                   return (
                 <div
                   key={friend.id}
@@ -2988,7 +2995,7 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
                     <div className="absolute top-0 right-0 w-56 h-56 bg-indigo-400/15 blur-3xl rounded-full translate-x-24 -translate-y-24" />
                   </div>
 
-                  <div className="absolute inset-0 overflow-hidden border border-indigo-300/30 bg-bg-input origin-top-right transform-gpu will-change-transform transition-transform duration-500 ease-out group-hover:scale-x-[0.72] group-hover:scale-y-[0.56] group-hover:-translate-x-3 group-hover:translate-y-3 group-hover:rounded-xl">
+                  <div className="absolute inset-0 overflow-hidden border border-indigo-300/30 bg-bg-input">
                     {friend.banner ? (
                       <img
                         src={resolveAvatarUrl(friend.banner, AUTH_BASE, 'central') ?? undefined}
@@ -2998,12 +3005,13 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
                     ) : (
                       <div className="w-full h-full bg-[linear-gradient(110deg,rgba(67,56,202,0.45),rgba(99,102,241,0.2)_45%,rgba(30,41,59,0.5))]" />
                     )}
-                    <div className="absolute inset-0 bg-gradient-to-r from-black/45 via-black/25 to-black/35 transition-colors duration-500 group-hover:from-black/10 group-hover:via-transparent group-hover:to-black/20" />
+                    <div className="absolute inset-0 bg-gradient-to-r from-black/45 via-black/25 to-black/35" />
+                    <div className="absolute inset-0 bg-gradient-to-b from-black/35 to-black opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                   </div>
 
                   <div className="absolute left-4 right-4 bottom-3 z-10 flex items-end justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-20 h-20 rounded-full avatar-bg overflow-hidden flex items-center justify-center text-white text-xl font-semibold shrink-0 border-4 border-indigo-400/70 shadow-lg shadow-indigo-500/30 transition-transform duration-500 group-hover:scale-90">
+                    <div className="flex items-center gap-3 min-w-0 transition-transform duration-300 @4xl:group-hover:-translate-y-10">
+                      <div className="w-20 h-20 rounded-full avatar-bg overflow-hidden flex items-center justify-center text-white text-xl font-semibold shrink-0 border-4 border-indigo-400/70 shadow-lg shadow-indigo-500/30">
                         <div className="w-20 h-20 rounded-full overflow-hidden">
                           <AvatarImage
                             src={resolveAvatarUrl(friend.avatar, AUTH_BASE, 'central')}
@@ -3017,20 +3025,20 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
                       <div className="flex flex-col min-w-0">
                         <button
                           type="button"
-                          className="text-left text-base font-semibold text-white drop-shadow truncate group-hover:text-text-primary transition-colors hover:underline"
+                          className="text-left text-base font-semibold text-white drop-shadow truncate hover:underline"
                           onClick={() => openModal('profileView', { userId: friend.id })}
                         >
                           {friend.username}
                         </button>
-                        <span className="text-xs text-text-muted">{t('friends.catRealmFriend')}</span>
-                        <span className="text-xs text-text-muted truncate">
-                          {getActivitySummary(
-                            friend.customStatusText,
-                            friend.activityType,
-                            friend.activityText,
-                            friend.activityStartedAt
-                          ) || formatStatus(effectiveFriendStatus)}
+                        <span className="flex items-center gap-1.5 min-w-0 text-xs text-white drop-shadow">
+                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${presenceDotClass(effectiveFriendStatus)}`} />
+                          <span className="truncate">{formatStatus(effectiveFriendStatus)} · {t('friends.catRealmFriend')}</span>
                         </span>
+                        {activitySummary && (
+                          <span className="text-xs text-white drop-shadow truncate">
+                            {activitySummary}
+                          </span>
+                        )}
                         <div className="mt-1 flex flex-wrap gap-1">
                           {(roleAssignments[friend.id] || []).map((roleId) => {
                             const role = personalRoles.find((r) => r.id === roleId);
@@ -3049,7 +3057,7 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0 opacity-100 translate-y-0 pointer-events-auto transition-all duration-300 delay-75 md:opacity-0 md:translate-y-2 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:translate-y-0 md:group-hover:pointer-events-auto">
+                    <div className="flex items-center gap-2 shrink-0 @4xl:absolute @4xl:right-0 @4xl:bottom-0 opacity-100 translate-y-0 pointer-events-auto transition-all duration-300 delay-75 md:opacity-0 md:translate-y-2 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:translate-y-0 md:group-hover:pointer-events-auto">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -3115,8 +3123,8 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
                   )}
                 </div>
                   );
-                })()
-              ))
+              })}
+              </div>
             )}
           </div>
         )}

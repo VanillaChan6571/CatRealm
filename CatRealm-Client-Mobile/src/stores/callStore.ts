@@ -10,6 +10,7 @@ import { useSettingsStore } from './settingsStore';
 import { startLoopingNotificationSound } from '@/lib/notificationSounds';
 import { acquireAudioSession, releaseAudioSession } from '@/lib/audioSession';
 import { captureAccountSession } from '@/lib/accountSession';
+import { getPreferredVoiceRegion } from '@/lib/voiceRegions';
 import type { NativeCallAction } from '@/native/types';
 
 type MediaType = 'audio' | 'video';
@@ -46,6 +47,7 @@ let callRoomGeneration = 0;
 let releaseCallAudio: (() => void) | null = null;
 const pendingAcceptedCallIds = new Set<string>();
 let callSocket: Socket | null = null;
+export function getCallSocket(): Socket | null { return callSocket; }
 let runtime: any = null;
 let stopRingingSound: null | (() => Promise<void>) = null;
 let ringingGeneration = 0;
@@ -94,9 +96,9 @@ async function joinLiveKit(callId: string, callType: CallType, mediaType: MediaT
   });
   if (!capability?.enabled || !capability.contexts?.includes(callType)) throw new Error('LiveKit calls unavailable');
   let session: MediaToken | null = null;
-  try { session = (await api.post('/api/calls/media/token', { callId, socketId: socket.id })).data ?? null; } catch { /* socket fallback */ }
+  try { session = (await api.post('/api/calls/media/token', { callId, socketId: socket.id, regionSwitchVersion: 1 })).data ?? null; } catch { /* socket fallback */ }
   if (!session?.token || !session.url) session = await new Promise((resolve) => {
-    socket.emit('media:v1:token', { callId }, (r?: MediaToken) => resolve(r?.ok && r.token && r.url ? r : null));
+    socket.emit('media:v1:token', { callId, regionSwitchVersion: 1 }, (r?: MediaToken) => resolve(r?.ok && r.token && r.url ? r : null));
     setTimeout(() => resolve(null), 3000);
   });
   if (!session?.token || !session.url) throw new Error('No call media token received');
@@ -192,12 +194,18 @@ interface CallState {
   handleParticipantState: (p: { callId: string; fromUserId: string; state: Partial<Participant> }) => void;
   handleNativeCallAction: (action: NativeCallAction) => Promise<void>;
   handleError: (error: string) => void;
+  handleRegionChanged: (payload: { callId: string; region: 'eu' | 'us-central'; migrate: boolean; reverted?: boolean }) => Promise<void>;
 }
 
 export const useCallStore = create<CallState>((set, get) => ({
   incomingDMCalls: {}, activeCall: null, muted: false, deafened: false, connecting: false, error: null, notice: null, remoteVideoTracks: [], localVideoTrack: null,
   setSocket: (socket) => { callSocket = socket; if (!socket) pendingAcceptedCallIds.clear(); },
-  initiateDMCall: (conversationId, mediaType = 'audio') => callSocket?.emit('call:initiate', { conversationId, mediaType, privacyMode: false }),
+  initiateDMCall: async (conversationId, mediaType = 'audio') => {
+    const socket = callSocket;
+    if (!socket?.connected) return;
+    const preferredRegion = await getPreferredVoiceRegion();
+    if (socket === callSocket && socket.connected) socket.emit('call:initiate', { conversationId, mediaType, privacyMode: false, preferredRegion });
+  },
   answerDMCall: async (callId, accept) => {
     const incoming = get().incomingDMCalls[callId];
     if (!incoming) return;
@@ -212,7 +220,12 @@ export const useCallStore = create<CallState>((set, get) => ({
       if (get().activeCall?.callId === callId) set({ connecting: false });
     } catch (e) { if (get().activeCall?.callId === callId) set({ connecting: false, error: e instanceof Error ? e.message : 'Failed to connect call audio' }); }
   },
-  initiateGroupCall: (groupChatId, mediaType = 'audio') => callSocket?.emit('gc:call:initiate', { groupChatId, mediaType }),
+  initiateGroupCall: async (groupChatId, mediaType = 'audio') => {
+    const socket = callSocket;
+    if (!socket?.connected) return;
+    const preferredRegion = await getPreferredVoiceRegion();
+    if (socket === callSocket && socket.connected) socket.emit('gc:call:initiate', { groupChatId, mediaType, preferredRegion });
+  },
   joinGroupCall: (callId, groupChatId, mediaType) => { const g = useGroupChatStore.getState().groups.find((x) => x.id === groupChatId); set({ activeCall: { callId, callType: 'group', title: g?.name ?? 'Group Call', mediaType, groupChatId, status: 'ringing', participants: [] } }); callSocket?.emit('gc:call:join', { callId }); },
   recoverActiveCalls: async () => {
     if (!callSocket) return;
@@ -386,4 +399,19 @@ export const useCallStore = create<CallState>((set, get) => ({
     }
   },
   handleError: (error) => { if (get().activeCall || Object.keys(get().incomingDMCalls).length) set({ error }); },
+  handleRegionChanged: async ({ callId, region, migrate, reverted }) => {
+    const call = get().activeCall;
+    if (!migrate || !call || call.callId !== callId) return;
+    set({ connecting: true, error: null });
+    const regionLabel = region === 'eu' ? 'EU' : 'US Central';
+    showNotice(set, reverted
+      ? { title: 'Region change failed', detail: `Returning to ${regionLabel}…`, kind: 'info' }
+      : { title: 'Changing voice region', detail: `Reconnecting to ${regionLabel}…`, kind: 'info' });
+    try {
+      await joinLiveKit(callId, call.callType, call.mediaType, get().muted);
+      if (get().activeCall?.callId === callId) set({ connecting: false });
+    } catch (error) {
+      if (get().activeCall?.callId === callId) set({ connecting: false, error: error instanceof Error ? error.message : 'Could not reconnect call audio' });
+    }
+  },
 }));

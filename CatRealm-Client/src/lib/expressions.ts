@@ -72,7 +72,7 @@ export function formatPresenceStatusLabel(status?: 'online' | 'away' | 'sleeping
 export function presenceDotClass(status?: 'online' | 'away' | 'sleeping' | 'invisible' | null): string {
   if (!status || status === 'invisible') return 'bg-text-muted';
   if (status === 'away') return 'bg-yellow-500';
-  if (status === 'sleeping') return 'bg-indigo-400';
+  if (status === 'sleeping') return 'status-sleeping';
   return 'bg-green-500';
 }
 

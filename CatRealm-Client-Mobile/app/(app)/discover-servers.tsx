@@ -16,11 +16,14 @@ import { useJoinServer } from '@/hooks/useJoinServer';
 import { useOpenServer } from '@/hooks/useOpenServer';
 import { fetchDiscovery, type DiscoveryEntry } from '@/lib/serverDirectory';
 import { resolveMediaUrl } from '@/utils/mediaUrl';
+import { useTopBarPadding } from '@/hooks/useTopBarPadding';
 
 const SEARCH_DEBOUNCE_MS = 350;
 
 export default function DiscoverServersScreen() {
   const theme = useTheme();
+  // The header steps clear of a side status area (the iPhone Duo's cover screen).
+  const topBarPadding = useTopBarPadding(12);
   const { t } = useTranslation();
   const router = useRouter();
   const isCentral = useAuthStore((s) => s.user?.accountType === 'central');
@@ -89,7 +92,7 @@ export default function DiscoverServersScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bgApp }} edges={['top']}>
-      <View style={styles.header}>
+      <View style={[styles.header, topBarPadding]}>
         <Pressable haptic accessibilityRole="button" accessibilityLabel={t('common.back')} onPress={() => router.back()} style={styles.back}>
           <ChevronLeft size={24} color={theme.colors.text2} />
         </Pressable>

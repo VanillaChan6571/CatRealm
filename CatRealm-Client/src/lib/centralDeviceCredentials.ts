@@ -3,6 +3,30 @@ import { decodeToken } from '../utils/token';
 // Central stores only a hash; knowing a listed device ID is not device proof.
 const DEVICE_ID_KEY = 'catrealm.device-id';
 const DEVICE_SECRET_KEY = 'catrealm.device-session-secret';
+const CONVERSATION_SECRET_PREFIX = 'catrealm.dm-conversation-secret.';
+const CONVERSATION_SECRET_OWNER_KEY = 'catrealm.dm-conversation-secret-owner';
+
+export function clearLocalConversationSecrets() {
+  for (let index = localStorage.length - 1; index >= 0; index--) {
+    const key = localStorage.key(index);
+    if (key?.startsWith(CONVERSATION_SECRET_PREFIX)) localStorage.removeItem(key);
+  }
+  localStorage.removeItem(CONVERSATION_SECRET_OWNER_KEY);
+}
+
+// An unconfirmed session keeps its cached DM keys, since the server may no longer
+// hold this device's copy. Record whose they are so no other account inherits them.
+export function keepConversationSecretsFor(userId: string) {
+  localStorage.setItem(CONVERSATION_SECRET_OWNER_KEY, userId);
+}
+
+function claimConversationSecrets(userId: unknown) {
+  const owner = localStorage.getItem(CONVERSATION_SECRET_OWNER_KEY);
+  if (owner === null) return;
+  if (owner !== userId) clearLocalConversationSecrets();
+  localStorage.removeItem(CONVERSATION_SECRET_OWNER_KEY);
+}
+
 export function getCentralDeviceCredentials() {
   let deviceId = localStorage.getItem(DEVICE_ID_KEY);
   if (!deviceId) {
@@ -28,7 +52,9 @@ export function getCentralDeviceHeaders() {
 // per device id (deviceIdentity.ts), so a new id gets fresh keys while another
 // account's device keeps its own; a revoked id's keys are never reused.
 export function adoptCentralSessionDevice(token: string) {
-  const deviceId = decodeToken(token)?.did;
+  const payload = decodeToken(token);
+  claimConversationSecrets(payload?.sub);
+  const deviceId = payload?.did;
   if (typeof deviceId !== 'string' || !/^[a-zA-Z0-9_-]{16,128}$/.test(deviceId)) return;
   const previousDeviceId = localStorage.getItem(DEVICE_ID_KEY);
   if (deviceId !== previousDeviceId) {
@@ -44,9 +70,6 @@ export function adoptCentralSessionDevice(token: string) {
       }
     }
     localStorage.setItem(DEVICE_ID_KEY, deviceId);
-    for (let index = localStorage.length - 1; index >= 0; index--) {
-      const key = localStorage.key(index);
-      if (key?.startsWith('catrealm.dm-conversation-secret.')) localStorage.removeItem(key);
-    }
+    clearLocalConversationSecrets();
   }
 }

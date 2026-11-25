@@ -106,6 +106,7 @@ import { logDMKeyDebug } from '../../messaging/crypto/dmKeyDebug';
 import { UploadCompressionStatus } from './UploadCompressionStatus';
 import { SafetyReportModal, type SafetyReportTarget } from './SafetyReportModal';
 import { useUploadCompression } from '../../hooks/useUploadCompression';
+import { useDropManifestsOnExpressionsChanged } from '../../lib/expressionEvents';
 
 const EXTERNAL_EMOJI_DISCORD_BIT = 0x40000n;
 const EXTERNAL_STICKER_DISCORD_BIT = 0x2000000000n;
@@ -127,6 +128,7 @@ export function DMView() {
   const [defaultEmojiCategory, setDefaultEmojiCategory] = useState<DefaultEmojiCategory>('People');
   const [selectedExpressionServerUrl, setSelectedExpressionServerUrl] = useState<string | null>(null);
   const [expressionStateByServer, setExpressionStateByServer] = useState<Record<string, { loading: boolean; data: ExpressionManifest | null; error: string | null }>>({});
+  useDropManifestsOnExpressionsChanged(setExpressionStateByServer);
   const [personalManifest, setPersonalManifest] = useState<ExpressionManifest | null>(null);
   const [emojiMetadataLookup, setEmojiMetadataLookup] = useState<EmojiMetadataLookup | null>(() => getEmojiMetadataLookupCache());
   const [isTyping, setIsTyping] = useState(false);
