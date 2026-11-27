@@ -17,6 +17,7 @@ import {
 } from '../../lib/desktopNotifications';
 import { resolveAvatarUrl } from '../../utils/avatar';
 import type { DMReaction } from '../../types';
+import type { DMSocketMessage } from '../messages/dmMessageSlice';
 import { useGroupChatStore } from '../../stores/groupChatStore';
 import { useServerStore } from '../../stores/serverStore';
 import { evictIconCacheEntries, fetchGameIconUrl } from '../../hooks/useDesktopGameActivity';
@@ -250,7 +251,7 @@ export function useDMSocket() {
       }
     };
 
-    const onDMMessage = async (msg: any) => {
+    const onDMMessage = async (msg: DMSocketMessage) => {
       console.log('[DM Socket] Received message:', msg);
 
       // Handle incoming message
@@ -301,7 +302,7 @@ export function useDMSocket() {
       useDMStore.getState().applyReactionUpdate(messageId, reactions);
     };
 
-    const onDMMessageUpdate = async (msg: any) => {
+    const onDMMessageUpdate = async (msg: DMSocketMessage) => {
       await useDMStore.getState().handleMessageUpdate(msg);
     };
     const onDMMessageDelete = ({ messageId }: { messageId: string }) => {
@@ -311,9 +312,9 @@ export function useDMSocket() {
       useDMStore.getState().handleDmPinUpdate(payload);
     };
 
-    const onConnectError = (error: any) => {
+    const onConnectError = (error: Error) => {
       console.error('[DM Socket] Connection error:', error);
-      const message = String(error?.message ?? '').trim();
+      const message = error.message.trim();
       if (message === 'Invalid token' || message === 'No token') {
         void confirmOrExpireCentralSession();
       }
@@ -343,12 +344,12 @@ export function useDMSocket() {
       void useGroupChatStore.getState().handleMemberMutation(groupChatId);
     };
 
-    const onGroupMessage = async (payload: any) => {
+    const onGroupMessage = async (payload: Record<string, unknown>) => {
       await useGroupChatStore.getState().handleIncomingMessage(payload);
-      void useGroupChatStore.getState().handleListUpdate(payload?.groupChatId ?? null);
+      void useGroupChatStore.getState().handleListUpdate(typeof payload.groupChatId === 'string' ? payload.groupChatId : null);
     };
 
-    const onGroupMessageUpdate = async (payload: any) => {
+    const onGroupMessageUpdate = async (payload: Record<string, unknown>) => {
       await useGroupChatStore.getState().handleMessageUpdate(payload);
     };
 
@@ -421,7 +422,7 @@ export function useDMSocket() {
     };
 
     const onGroupReactionUpdate = (payload: { groupChatId: string; messageId: string; reactions: DMReaction[] }) => {
-      useGroupChatStore.getState().handleReactionUpdate(payload as any);
+      useGroupChatStore.getState().handleReactionUpdate(payload);
     };
 
     const onDMMessagePublished = ({ id, conversationId }: { id: string; conversationId: string }) => {

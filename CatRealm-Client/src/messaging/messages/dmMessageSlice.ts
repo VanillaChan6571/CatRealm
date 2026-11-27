@@ -1,3 +1,4 @@
+import type { DMSet, DMGet } from '../dm/dmHelpers';
 import { authApi } from '../../lib/authApi';
 import { useAuthStore } from '../../stores/authStore';
 import type { DMConversation, DMMessage } from '../../types';
@@ -29,16 +30,33 @@ export type DMMessageSlice = {
 
   loadMessages: (conversationId: string) => Promise<void>;
   loadOlderMessages: (conversationId: string) => Promise<void>;
-  handleIncomingMessage: (msg: any) => Promise<void>;
+  handleIncomingMessage: (msg: DMSocketMessage) => Promise<void>;
   handleDeliveryAck: (messageId: string) => void;
-  handleMessageUpdate: (msg: any) => Promise<void>;
+  handleMessageUpdate: (msg: DMSocketMessage) => Promise<void>;
   removeMessageLocal: (messageId: string) => void;
 };
 
 const loadMessagesInflight = new Map<string, Promise<void>>();
 
-function v2KeyVersion(raw: any): number | null {
-  const encryptedPayload = raw?.encrypted_payload ?? raw?.encryptedPayload;
+export interface DMSocketMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  recipientId: string;
+  createdAt: number;
+  editedAt?: number | null;
+  attachmentUrl?: string | null;
+  attachmentType?: string | null;
+  attachmentSize?: number | null;
+  attachmentName?: string | null;
+  voice_expires_at?: number | null;
+  reactions?: unknown;
+  [key: string]: unknown;
+}
+
+function v2KeyVersion(input: unknown): number | null {
+  const raw = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+  const encryptedPayload = raw.encrypted_payload ?? raw.encryptedPayload;
   if (typeof encryptedPayload !== 'string') return null;
   try {
     const payload = JSON.parse(encryptedPayload);
@@ -57,7 +75,7 @@ export function resetMessageModuleState() {
   loadMessagesInflight.clear();
 }
 
-export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
+export function createDMMessageSlice(set: DMSet, get: DMGet): DMMessageSlice {
   return {
     messagesByConversation: {},
     hasOlderByConversation: {},
@@ -71,12 +89,12 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
       if (existing) return existing;
 
       const task = (async () => {
-        set((s: any) => ({
+        set((s) => ({
           loadingMessagesByConversation: { ...s.loadingMessagesByConversation, [conversationId]: true },
         }));
         try {
           const localMessages = await getMessagesByConversation(conversationId, 50);
-          set((s: any) => ({
+          set((s) => ({
             messagesByConversation: { ...s.messagesByConversation, [conversationId]: localMessages },
             hasOlderByConversation: { ...s.hasOlderByConversation, [conversationId]: true },
           }));
@@ -87,7 +105,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
             void (async () => {
               const manifest = await fetchDMKeyManifest(conversationId);
               if (manifest.activeKeyVersion != null) {
-                const secret = getLocalConversationSecret(conversationId, manifest.activeKeyVersion);
+                const secret = await getLocalConversationSecret(conversationId, manifest.activeKeyVersion);
                 if (secret) await syncTrustedDeviceKeysForConversation(conversationId, manifest.activeKeyVersion, secret);
               }
             })().catch(() => {});
@@ -145,7 +163,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
             }
           }
 
-          set((s: any) => ({
+          set((s) => ({
             messagesByConversation: { ...s.messagesByConversation, [serverConvId]: decryptedMessages },
             hasOlderByConversation: {
               ...s.hasOlderByConversation,
@@ -178,7 +196,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
         } catch (err) {
           console.error('[DM Store] Failed to load messages:', err);
         } finally {
-          set((s: any) => ({
+          set((s) => ({
             loadingMessagesByConversation: { ...s.loadingMessagesByConversation, [conversationId]: false },
           }));
           loadMessagesInflight.delete(conversationId);
@@ -199,7 +217,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
       const conversation = state.conversations.find((c: DMConversation) => c.id === conversationId);
       if (!conversation) return;
 
-      set((s: any) => ({
+      set((s) => ({
         loadingOlderByConversation: { ...s.loadingOlderByConversation, [conversationId]: true },
       }));
 
@@ -250,7 +268,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
           }
         }
 
-        set((s: any) => {
+        set((s) => {
           const existing = s.messagesByConversation[serverConvId] || [];
           const seen = new Set(existing.map((m: DMMessage) => m.id));
           const mergedOlder = olderMessages.filter((m) => !seen.has(m.id));
@@ -276,13 +294,13 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
       } catch (err) {
         console.error('[DM Store] Failed to load older messages:', err);
       } finally {
-        set((s: any) => ({
+        set((s) => ({
           loadingOlderByConversation: { ...s.loadingOlderByConversation, [conversationId]: false },
         }));
       }
     },
 
-    handleIncomingMessage: async (msg: any) => {
+    handleIncomingMessage: async (msg: DMSocketMessage) => {
       const syncKey = getSyncKey();
       const messageType = normalizeDmMessageType(msg);
       if (!syncKey && messageType !== 'system') { console.error('[DM Store] No sync key available'); return; }
@@ -310,7 +328,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
 
         await saveMessage(dmMessage);
 
-        set((s: any) => {
+        set((s) => {
           const existingMessages = s.messagesByConversation[msg.conversationId] || [];
           const existingIndex = existingMessages.findIndex((entry: DMMessage) => entry.id === dmMessage.id);
           if (existingIndex >= 0) {
@@ -335,7 +353,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
           const updatedConversation = { ...conversation, lastMessageAt: dmMessage.createdAt, unreadCount: newUnreadCount };
           await import('../persistence/dmStorage').then(({ saveConversation }) => saveConversation(updatedConversation));
 
-          set((s: any) => {
+          set((s) => {
             const fresh = s.conversations.find((c: DMConversation) => c.id === msg.conversationId);
             const floor = localReadFloorByConversation.get(msg.conversationId) ?? 0;
             const mergedUnread = (s.dmViewOpen && s.activeConversationId === msg.conversationId && !isAppInBackground())
@@ -354,7 +372,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
             const newConversation = serverConversations.find((c) => c.id === msg.conversationId);
             if (newConversation) {
               await import('../persistence/dmStorage').then(({ saveConversation }) => saveConversation(newConversation));
-              set((s: any) => ({ conversations: [newConversation, ...s.conversations] }));
+              set((s) => ({ conversations: [newConversation, ...s.conversations] }));
             }
           } catch (err) {
             console.error('[DM Store] Failed to fetch conversation:', err);
@@ -366,7 +384,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
     },
 
     handleDeliveryAck: (messageId: string) => {
-      set((s: any) => {
+      set((s) => {
         const newMessagesByConv = { ...s.messagesByConversation };
         for (const convId in newMessagesByConv) {
           const messages = newMessagesByConv[convId];
@@ -383,13 +401,13 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
       });
     },
 
-    handleMessageUpdate: async (msg: any) => {
+    handleMessageUpdate: async (msg: DMSocketMessage) => {
       const syncKey = getSyncKey();
       if (!syncKey && normalizeDmMessageType(msg) !== 'system') { console.error('[DM Store] No sync key available'); return; }
       if (!msg?.id || !msg?.conversationId) return;
       try {
         const text = await decodeDmMessageText(msg, syncKey, msg.conversationId);
-        set((s: any) => {
+        set((s) => {
           const next = { ...s.messagesByConversation };
           const list = next[msg.conversationId];
           if (!Array.isArray(list)) return {};
@@ -419,7 +437,7 @@ export function createDMMessageSlice(set: any, get: any): DMMessageSlice {
     },
 
     removeMessageLocal: (messageId: string) => {
-      set((s: any) => {
+      set((s) => {
         const newMessagesByConv = { ...s.messagesByConversation };
         let changed = false;
         for (const convId in newMessagesByConv) {

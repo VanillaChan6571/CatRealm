@@ -1,5 +1,6 @@
 import { AudioDeafenedIcon, AudioListeningIcon, MicrophoneLiveIcon, MicrophoneMutedIcon } from '../voice/VoiceStateIcons';
 import { useRef, useEffect, useCallback, useState, useLayoutEffect } from 'react';
+import { useTheaterVideoUrl } from '../../lib/theaterVideoUrl';
 import {
   Cog6ToothIcon,
   VideoCameraIcon as VideoCameraIconOutline,
@@ -149,14 +150,6 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
     addDebugEvent(`[player] ${message}`);
   }, [addDebugEvent]);
 
-  // Resolve a relative server path to an absolute authenticated URL
-  const resolveVideoUrl = useCallback((url: string | null | undefined): string | null => {
-    if (!url) return null;
-    if (/^https?:\/\//i.test(url)) return url; // already absolute
-    if (url.startsWith('youtube:')) return url; // YouTube ID — handled by YT iframe player
-    return `${serverBase ?? ''}${url}?token=${encodeURIComponent(serverToken ?? '')}`;
-  }, [serverBase, serverToken]);
-
   // Sync incoming reactions to bubbles
   useEffect(() => {
     if (!reactions.length) return;
@@ -213,7 +206,7 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
   });
 
   // Derive YouTube video ID from the resolved URL
-  const videoUrl = resolveVideoUrl(state?.videoUrl);
+  const videoUrl = useTheaterVideoUrl(state?.videoUrl, serverBase, serverToken);
   const youtubeVideoId = videoUrl?.startsWith('youtube:') ? videoUrl.slice(8) : null;
 
   useEffect(() => {
@@ -718,11 +711,11 @@ export function SyncedVideoPlayer({ channelId, canControl, currentItem }: Synced
     }
 
     if (prevState?.videoUrl !== state.videoUrl && state.videoUrl && !state.videoUrl.startsWith('youtube:')) {
-      video.src = resolveVideoUrl(state.videoUrl) ?? '';
+      video.src = videoUrl ?? '';
       video.currentTime = expectedSec;
       if (state.playing) video.play().catch(() => {});
     }
-  }, [state, resolveVideoUrl, youtubeVideoId, syncYouTubePlayer]);
+  }, [state, videoUrl, youtubeVideoId, syncYouTubePlayer]);
 
   useEffect(() => {
     const video = videoRef.current;

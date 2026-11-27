@@ -106,7 +106,7 @@ export function CentralConsentGate({ children }: { children: ReactNode }) {
         </div>}
         {error && <p className="mt-4 text-sm text-danger" role="alert">{error}</p>}
         <div className="mt-6 flex gap-3">
-          <button type="button" onClick={logout} className="rounded-lg border border-border px-4 py-2">Log out</button>
+          <button type="button" onClick={() => logout()} className="rounded-lg border border-border px-4 py-2">Log out</button>
           {currentRequirement === null
             ? <button type="button" onClick={() => void check()} className="rounded-lg bg-accent px-4 py-2 text-white">Retry</button>
             : <button type="button" disabled={!privacy || !terms || !age || busy} onClick={() => void accept()} className="rounded-lg bg-accent px-4 py-2 text-white disabled:opacity-50">{busy ? 'Saving…' : 'Agree and continue'}</button>}

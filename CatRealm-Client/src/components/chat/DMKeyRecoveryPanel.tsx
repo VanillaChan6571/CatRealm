@@ -41,7 +41,7 @@ export function DMKeyRecoveryPanel({ conversationId, otherUsername, onIncomingCh
     setClockOffsetMs(typeof statusResult.value.data.serverNowMs === 'number' ? statusResult.value.data.serverNowMs - Date.now() : 0);
     setManifest(manifestResult.status === 'fulfilled' ? manifestResult.value : null);
     setHasLocalKey(manifestResult.status === 'fulfilled' && manifestResult.value.activeKeyVersion != null
-      ? Boolean(getLocalConversationSecret(conversationId, manifestResult.value.activeKeyVersion))
+      ? Boolean(await getLocalConversationSecret(conversationId, manifestResult.value.activeKeyVersion))
       : false);
     setEligible(manifestResult.status === 'fulfilled'
       ? canRequestPeerKeyRecovery(manifestResult.value, userId, getLocalDeviceId())

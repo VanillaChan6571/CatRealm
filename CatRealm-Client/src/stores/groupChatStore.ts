@@ -4,7 +4,7 @@ import { createGCMessageSlice, type GCMessageSlice } from '../messaging/groupCha
 import { createGCOperationsSlice, type GCOperationsSlice } from '../messaging/groupChat/gcOperationsSlice';
 import { createGCScheduledSlice, type GCScheduledSlice } from '../messaging/scheduled/gcScheduledSlice';
 
-type GroupChatState = GCConversationSlice & GCMessageSlice & GCOperationsSlice & GCScheduledSlice & {
+export type GroupChatState = GCConversationSlice & GCMessageSlice & GCOperationsSlice & GCScheduledSlice & {
   reset: () => void;
 };
 
@@ -12,7 +12,7 @@ export const useGroupChatStore = create<GroupChatState>((set, get) => ({
   ...createGCConversationSlice(set, get),
   ...createGCMessageSlice(set, get),
   ...createGCOperationsSlice(set, get),
-  ...createGCScheduledSlice(set, get),
+  ...createGCScheduledSlice(set),
 
   reset: () => set({
     groups: [],

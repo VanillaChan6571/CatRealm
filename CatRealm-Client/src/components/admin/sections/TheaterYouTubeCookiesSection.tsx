@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../../lib/apiErrors';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -67,9 +68,9 @@ export function TheaterYouTubeCookiesSection() {
       setStatus(serverStatus);
       setDesktopStatus(nextDesktopStatus);
       if (!quiet) setError(null);
-    } catch (err: any) {
+    } catch (err) {
       if (!quiet) {
-        setError(err?.response?.data?.error || 'Failed to load Theater YouTube cookie status');
+        setError(apiErrorMessage(err, 'Failed to load Theater YouTube cookie status'));
       }
     } finally {
       setLoading(false);
@@ -103,10 +104,10 @@ export function TheaterYouTubeCookiesSection() {
         setAuthorizeModalOpen(false);
         setAuthorizeStep('intro');
       }, 1200);
-    } catch (err: any) {
+    } catch (err) {
       syncTriggeredRef.current = false;
       setAuthorizeStep('waiting');
-      setError(err?.response?.data?.error || err?.message || 'Failed to sync the desktop YouTube session');
+      setError(apiErrorMessage(err, err instanceof Error ? err.message : 'Failed to sync the desktop YouTube session'));
     }
   }, []);
 
@@ -156,8 +157,8 @@ export function TheaterYouTubeCookiesSection() {
       setStatus(nextStatus);
       setManualCookieText('');
       setSuccess(t('admin.cookiesImportedCount', { count: nextStatus.cookieCount }));
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to import the cookie file');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to import the cookie file'));
     } finally {
       setSaving(false);
     }
@@ -172,8 +173,8 @@ export function TheaterYouTubeCookiesSection() {
       const nextStatus = await api.delete('/api/admin/theater-youtube-cookies');
       setStatus(nextStatus);
       setSuccess(t('admin.cookiesRevoked'));
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to remove the server-side cookie file');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to remove the server-side cookie file'));
     } finally {
       setSaving(false);
     }
@@ -192,8 +193,8 @@ export function TheaterYouTubeCookiesSection() {
       const nextStatus = await window.electron.theaterYouTubeCookieStatus();
       setDesktopStatus(nextStatus);
       setSuccess(t('admin.desktopSessionCleared'));
-    } catch (err: any) {
-      setError(err?.message || 'Failed to clear the desktop YouTube session');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear the desktop YouTube session');
     } finally {
       setSaving(false);
     }

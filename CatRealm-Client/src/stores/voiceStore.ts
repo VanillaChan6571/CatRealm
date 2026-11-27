@@ -242,7 +242,7 @@ type VoiceSoundSettingKey =
   | 'soundScreenshareStopped';
 
 function playConfiguredVoiceSound(soundType: SoundType, settingKey: VoiceSoundSettingKey) {
-  const settings = useSettingsStore.getState() as Record<string, any>;
+  const settings = useSettingsStore.getState();
   const soundsDisabled = settings.streamerMode && settings.streamerModeDisableSounds;
   if (soundsDisabled || !settings.notificationsEnabled) return;
   if (!settings[settingKey]) return;
@@ -1239,8 +1239,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     }
     clearRemoteScreenShareState(channelId, userId, true);
     set((s) => {
-      const { [userId]: _, ...restUsers } = s.users;
-      const { [userId]: __, ...restPeers } = s.peers;
+      const restUsers = { ...s.users };
+      delete restUsers[userId];
+      const restPeers = { ...s.peers };
+      delete restPeers[userId];
       return {
         users: restUsers,
         peers: restPeers,
@@ -1533,8 +1535,8 @@ export async function updateVoiceInputDevice(deviceId: string | null) {
   const publication = mediaSession?.localMicrophonePublication;
   if (publication && newTrack) {
     try {
-      await (publication.track as any)?.replaceTrack(newTrack);
-    } catch { }
+      await publication.track?.replaceTrack(newTrack);
+    } catch { /* Keep the original microphone track if replacement fails. */ }
   }
 
   if (newTrack) {
@@ -1564,9 +1566,9 @@ export async function rebuildVoiceAudioProcessing(): Promise<void> {
   const publication = mediaSession?.localMicrophonePublication;
   if (publication && newTrack) {
     try {
-      await (publication.track as any)?.replaceTrack(newTrack);
+      await publication.track?.replaceTrack(newTrack);
       if (newTrack) newTrack.enabled = shouldTransmitLocalAudio(state);
-    } catch { }
+    } catch { /* Keep the original microphone track if replacement fails. */ }
   }
 
   useVoiceStore.setState({ localStream: processedStream });

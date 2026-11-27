@@ -7,7 +7,7 @@ import { createDMScheduledSlice, type DMScheduledSlice } from '../messaging/sche
 import { createDMPinSlice, type DMPinSlice } from '../messaging/pins/dmPinSlice';
 import { localReadFloorByConversation } from '../messaging/dm/dmHelpers';
 
-type DMState = DMConversationSlice & DMMessageSlice & DMOperationsSlice & DMUnreadSlice & DMScheduledSlice & DMPinSlice & {
+export type DMState = DMConversationSlice & DMMessageSlice & DMOperationsSlice & DMUnreadSlice & DMScheduledSlice & DMPinSlice & {
   reset: () => void;
 };
 
@@ -16,7 +16,7 @@ export const useDMStore = create<DMState>((set, get) => ({
   ...createDMMessageSlice(set, get),
   ...createDMOperationsSlice(set, get),
   ...createDMUnreadSlice(set, get),
-  ...createDMScheduledSlice(set, get),
+  ...createDMScheduledSlice(set),
   ...createDMPinSlice(set, get),
 
   reset: () => {

@@ -11,6 +11,7 @@
 
 import { create } from 'zustand';
 import axios from 'axios';
+import { Linking } from 'react-native';
 import type { User, ServerInfo } from '@/types';
 import {
   accountCentralDeviceSecretKey,
@@ -162,14 +163,18 @@ export interface AuthState {
   /** Add a central account (does not sign out first). Returns error string on failure. */
   addCentralAccount: (username: string, totpCode: string) => Promise<string | null>;
   /** Add a local account (does not sign out first). Returns error string on failure. */
-  addLocalAccount: (serverUrl: string, username: string, password: string) => Promise<string | null>;
+  addLocalAccount: (serverUrl: string, username: string, credential: string, method?: 'password' | 'totp') => Promise<string | null>;
   /** Remove a non-active saved account and its per-account SecureStore keys. */
   removeFromSavedAccounts: (userId: string) => Promise<void>;
 
   fetchServerInfo: (rawUrl: string) => Promise<void>;
-  localLogin: (username: string, password: string) => Promise<void>;
+  localLogin: (username: string, credential: string, method?: 'password' | 'totp') => Promise<void>;
   localRegister: (username: string, password: string) => Promise<void>;
+  localTotpStart: (username: string) => Promise<{ enrollmentId: string; qrCode: string; manualCode: string } | null>;
+  localTotpConfirm: (enrollmentId: string, code: string) => Promise<{ token: string; user: User; recoveryCodes: string[] } | null>;
+  completeLocalTotpRegistration: (result: { token: string; user: User }) => Promise<void>;
   centralLogin: (username: string, totpCode: string) => Promise<void>;
+  centralPasskeyLogin: (username: string) => Promise<void>;
   centralRegisterStart: (username: string, captchaToken?: string) => Promise<void>;
   centralRegisterConfirm: (totpCode: string) => Promise<void>;
 }
@@ -438,7 +443,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  localLogin: async (username, password) => {
+  localLogin: async (username, credential, method = 'password') => {
     set({ loading: true, error: null });
     const serverUrl = get().serverUrl;
     if (!serverUrl) {
@@ -448,7 +453,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const res = await axios.post<{ token: string; user: User }>(
         `${serverUrl}/api/auth/login`,
-        { username, password },
+        { username, method, ...(method === 'totp' ? { code: credential } : { password: credential }) },
         { headers: clientHeaders(), timeout: 15000 },
       );
       await get().setSession({ user: res.data.user, token: res.data.token, serverUrl });
@@ -488,6 +493,41 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  localTotpStart: async (username) => {
+    const serverUrl = get().serverUrl;
+    if (!serverUrl) return null;
+    set({ loading: true, error: null });
+    try {
+      const res = await axios.post(`${serverUrl}/api/auth/register/totp/start`, { username }, { headers: clientHeaders(), timeout: 15000 });
+      set({ loading: false });
+      return res.data;
+    } catch (err) {
+      set({ loading: false, error: extractErrorMessage(err, 'Could not start authenticator setup.') });
+      return null;
+    }
+  },
+
+  localTotpConfirm: async (enrollmentId, code) => {
+    const serverUrl = get().serverUrl;
+    if (!serverUrl) return null;
+    set({ loading: true, error: null });
+    try {
+      const res = await axios.post(`${serverUrl}/api/auth/register/totp/confirm`, { enrollmentId, code }, { headers: clientHeaders(), timeout: 15000 });
+      set({ loading: false });
+      return res.data;
+    } catch (err) {
+      set({ loading: false, error: extractErrorMessage(err, 'Invalid authenticator code.') });
+      return null;
+    }
+  },
+
+  completeLocalTotpRegistration: async ({ token, user }) => {
+    const serverUrl = get().serverUrl;
+    if (!serverUrl) return;
+    await get().setSession({ user, token, serverUrl });
+    set({ loading: false });
+  },
+
   centralLogin: async (username, totpCode) => {
     set({ loading: true, error: null });
     try {
@@ -511,6 +551,60 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ loading: false });
     } catch (err) {
       set({ error: extractErrorMessage(err, 'Login failed.'), loading: false });
+    }
+  },
+
+  centralPasskeyLogin: async (username) => {
+    set({ loading: true, error: null });
+    try {
+      const credentials = await getCentralLoginDeviceCredentials(username);
+      const headers = { ...clientHeaders(), ...centralDeviceHeaders(credentials) };
+      const available = await axios.post<{ available: boolean }>(
+        `${AUTH_BASE}/api/security/webauthn/desktop/login/available`,
+        { username }, { headers, timeout: 15000 },
+      );
+      if (!available.data.available) throw new Error('No passkey or security key is registered for this account. Use your 2FA code.');
+      const start = await axios.post<{ flowId: string; pollSecret: string; url: string }>(
+        `${AUTH_BASE}/api/security/webauthn/desktop/login/start`,
+        { username }, { headers, timeout: 15000 },
+      );
+      const hostedUrl = new URL(start.data.url, AUTH_BASE).toString();
+      if (!await Linking.canOpenURL(hostedUrl)) throw new Error('This device cannot open the CatRealm passkey page.');
+      await Linking.openURL(hostedUrl);
+
+      let result: { token: string; user: Pick<User, 'id' | 'username'>; syncKey?: string | null } | null = null;
+      const expiresAt = Date.now() + 5 * 60 * 1000;
+      while (Date.now() < expiresAt) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const status = await axios.post<{
+          status: string; token?: string; user?: Pick<User, 'id' | 'username'>; syncKey?: string | null;
+        }>(`${AUTH_BASE}/api/security/webauthn/desktop/login/status`, {
+          flowId: start.data.flowId,
+          pollSecret: start.data.pollSecret,
+        }, { headers, timeout: 15000 });
+        if (status.data.status === 'failed') throw new Error('Passkey sign-in failed. Please try again.');
+        if (status.data.status === 'complete') {
+          if (!status.data.token || !status.data.user) throw new Error('Passkey sign-in returned an incomplete session.');
+          result = { token: status.data.token, user: status.data.user, syncKey: status.data.syncKey };
+          break;
+        }
+      }
+      if (!result) throw new Error('Passkey sign-in timed out. Please try again.');
+      await adoptCentralSessionDevice(result.user.id, result.user.username, result.token, credentials);
+      await get().setSession({
+        user: { ...result.user, accountType: 'central', status: 'online' },
+        token: result.token,
+        syncKey: result.syncKey ?? null,
+      });
+      try {
+        await get().applyProfile(await fetchOwnProfile(AUTH_BASE, result.token, result.user.id));
+      } catch {
+        // Profile details can be fetched later from settings.
+      }
+      set({ loading: false });
+    } catch (err) {
+      set({ error: axios.isAxiosError(err) ? extractErrorMessage(err, 'Passkey sign-in failed.')
+        : err instanceof Error ? err.message : 'Passkey sign-in failed.', loading: false });
     }
   },
 
@@ -627,7 +721,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  addLocalAccount: async (serverUrl, username, password) => {
+  addLocalAccount: async (serverUrl, username, credential, method = 'password') => {
     const accounts = useSavedAccountsStore.getState().accounts;
     if (accounts.length >= 5) return 'You can only save up to 5 accounts.';
     const normalized = normalizeUrl(serverUrl);
@@ -635,7 +729,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const res = await axios.post<{ token: string; user: User }>(
         `${normalized}/api/auth/login`,
-        { username, password },
+        { username, method, ...(method === 'totp' ? { code: credential } : { password: credential }) },
         { headers: clientHeaders(), timeout: 15000 },
       );
       if (get().user?.accountType === 'central') {

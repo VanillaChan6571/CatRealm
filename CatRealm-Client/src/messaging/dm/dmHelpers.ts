@@ -1,5 +1,10 @@
 import axios from 'axios';
+import type { StoreApi } from 'zustand';
 import { useAuthStore } from '../../stores/authStore';
+import type { DMState } from '../../stores/dmStore';
+
+export type DMSet = StoreApi<DMState>['setState'];
+export type DMGet = StoreApi<DMState>['getState'];
 
 // Shared module-level state used across message and unread slices
 export const localReadFloorByConversation = new Map<string, number>();

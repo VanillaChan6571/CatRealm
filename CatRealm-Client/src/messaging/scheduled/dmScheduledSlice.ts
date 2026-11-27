@@ -1,3 +1,4 @@
+import type { DMSet } from '../dm/dmHelpers';
 import type { DMMessage } from '../../types';
 
 export type DMScheduledSlice = {
@@ -6,12 +7,12 @@ export type DMScheduledSlice = {
   publishScheduledDM: (messageId: string, conversationId: string) => void;
 };
 
-export function createDMScheduledSlice(set: any, _get: any): DMScheduledSlice {
+export function createDMScheduledSlice(set: DMSet): DMScheduledSlice {
   return {
     scheduledDMs: {},
 
     addScheduledDM: (msg: DMMessage) => {
-      set((s: any) => {
+      set((s) => {
         const existing = s.scheduledDMs[msg.conversationId] ?? [];
         if (existing.some((m: DMMessage) => m.id === msg.id)) return s;
         return { scheduledDMs: { ...s.scheduledDMs, [msg.conversationId]: [...existing, msg] } };
@@ -19,7 +20,7 @@ export function createDMScheduledSlice(set: any, _get: any): DMScheduledSlice {
     },
 
     publishScheduledDM: (messageId: string, conversationId: string) => {
-      set((s: any) => {
+      set((s) => {
         const existing = s.scheduledDMs[conversationId] ?? [];
         return { scheduledDMs: { ...s.scheduledDMs, [conversationId]: existing.filter((m: DMMessage) => m.id !== messageId) } };
       });

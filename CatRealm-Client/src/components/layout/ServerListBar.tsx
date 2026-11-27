@@ -375,7 +375,7 @@ export function ServerListBar({ onNavigateToHomeTab }: ServerListBarProps) {
     );
   }
 
-  function renderServerItem(server: ServerEntry, _insideFolder = false, folderId?: string) {
+  function renderServerItem(server: ServerEntry, folderId?: string) {
     const isActive = activeServerUrl === server.url;
     const prefs = normalizeServerPrefs(server.prefs);
     const counts = getCounts(server.url);
@@ -665,7 +665,7 @@ export function ServerListBar({ onNavigateToHomeTab }: ServerListBarProps) {
         {/* Expanded servers inside the same pill */}
         {pillOpen && containedServers.map((server) => (
           <Fragment key={server.url}>
-            {renderServerItem(server, true, folder.id)}
+            {renderServerItem(server, folder.id)}
           </Fragment>
         ))}
 

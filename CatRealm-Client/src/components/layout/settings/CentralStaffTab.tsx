@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createAuthenticatedApi } from '../../../lib/authApi';
+import { apiErrorMessage } from '../../../lib/apiErrors';
 
 type ResetResult = {
   username: string;
@@ -61,19 +62,19 @@ export function CentralStaffTab() {
       const res = await createAuthenticatedApi().get('/api/admin/safety/profile-reports', { params: { status: 'pending' } });
       setProfileCases(Array.isArray(res.data?.reports) ? res.data.reports : []);
       setSelectedProfileCase(null);
-    } catch (err: unknown) { setSafetyError((err as any)?.response?.data?.error ?? 'Failed to load profile reports.'); }
+    } catch (err: unknown) { setSafetyError(apiErrorMessage(err, 'Failed to load profile reports.')); }
   }
   useEffect(() => { void loadProfileCases(); }, []);
 
   async function openProfileCase(id: string) {
     try { const res = await createAuthenticatedApi().get(`/api/admin/safety/profile-reports/${id}`); setSelectedProfileCase(res.data.report); }
-    catch (err: unknown) { setSafetyError((err as any)?.response?.data?.error ?? 'Failed to open profile report.'); }
+    catch (err: unknown) { setSafetyError(apiErrorMessage(err, 'Failed to open profile report.')); }
   }
 
   async function reviewProfileCase(id: string, status: 'confirmed' | 'dismissed' | 'escalated') {
     setSafetyLoading(true);
     try { await createAuthenticatedApi().patch(`/api/admin/safety/profile-reports/${id}`, { status }); await loadProfileCases(); }
-    catch (err: unknown) { setSafetyError((err as any)?.response?.data?.error ?? 'Failed to review profile report.'); }
+    catch (err: unknown) { setSafetyError(apiErrorMessage(err, 'Failed to review profile report.')); }
     finally { setSafetyLoading(false); }
   }
 

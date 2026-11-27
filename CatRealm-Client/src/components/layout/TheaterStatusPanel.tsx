@@ -78,7 +78,7 @@ export function TheaterStatusPanel() {
     const socket = getSocket(socketUrl ?? undefined);
     if (!socket) return;
 
-    let pingSamples: number[] = [];
+    const pingSamples: number[] = [];
     const interval = window.setInterval(() => {
       const start = Date.now();
       socket.emit('voice:ping', (resp: { ok?: boolean } | undefined) => {

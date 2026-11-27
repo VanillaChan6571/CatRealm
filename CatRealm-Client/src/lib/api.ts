@@ -111,12 +111,12 @@ export const api = {
     const response = await instance.get(url);
     return response.data;
   },
-  post: async (url: string, data?: any) => {
+  post: async (url: string, data?: unknown) => {
     const instance = createApi();
     const response = await instance.post(url, data);
     return response.data;
   },
-  put: async (url: string, data?: any) => {
+  put: async (url: string, data?: unknown) => {
     const instance = createApi();
     const response = await instance.put(url, data);
     return response.data;
@@ -126,7 +126,7 @@ export const api = {
     const response = await instance.delete(url);
     return response.data;
   },
-  patch: async (url: string, data?: any) => {
+  patch: async (url: string, data?: unknown) => {
     const instance = createApi();
     const response = await instance.patch(url, data);
     return response.data;

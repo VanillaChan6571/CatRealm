@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ fps: vi.fn(), hardware: vi.fn(), backend: vi.fn() }));
-vi.mock('../../../stores/settingsStore', () => ({ useSettingsStore: (selector: any) => selector({
+vi.mock('../../../stores/settingsStore', () => ({ useSettingsStore: (selector: (state: Record<string, unknown>) => unknown) => selector({
   screenshareFps: 60, screenshareResolution: 1080, screenshareAudio: true,
   screenshareQualityPreset: 'quality', screenshareDegradationPreference: 'maintain-framerate',
   screenshareCodecPreference: 'auto', screenShareEncoderBackend: 'auto',
@@ -18,7 +18,7 @@ import { ScreenshareSettingsPanel } from '../ScreenshareSettingsPanel';
 
 const originalElectron = Object.getOwnPropertyDescriptor(window, 'electron');
 function deferred() {
-  let resolve!: (value: any) => void;
+  let resolve!: (value: unknown) => void;
   let reject!: (error: Error) => void;
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };

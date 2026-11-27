@@ -172,7 +172,8 @@ export function AppLayout() {
   const isMobile = isNarrowViewport || forceMobileViewOnDesktop;
   const voiceActiveChannelId = useVoiceStore((s) => s.activeChannelId);
   const theaterActiveChannelId = useTheaterStore((s) => s.activeChannelId);
-  const showVoiceBar = !!voiceActiveChannelId && !voiceBarRetracted;
+  // Keep floating controls clear of settings and other full-screen overlays.
+  const showVoiceBar = !!voiceActiveChannelId && !voiceBarRetracted && !activeModal && !activeFullscreenView;
   const activeDMCall = useCallStore((s) => s.activeDMCall);
   const activeGroupCall = useCallStore((s) => s.activeGroupCall);
   const isCallSharingScreen = useCallStore((s) => s.isSharingScreen);
@@ -506,7 +507,7 @@ export function AppLayout() {
           </div>
         </div>
       </Modal>
-      {showVoiceBar && <VoiceFloatingBar />}
+      {showVoiceBar && <VoiceFloatingBar key={voiceActiveChannelId} />}
       <VoiceScreenSharePopout />
       <TheaterAudioManager />
       <TheaterVideoManager />

@@ -13,6 +13,7 @@ import { useContentSocialStore } from '../../stores/contentSocialStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useNotificationStore, type CentralNotification } from '../../messaging/notifications/notificationStore';
 import { createApi } from '../../lib/api';
+import { apiErrorMessage } from '../../lib/apiErrors';
 import { isHttpGatewayRealm } from '../../lib/httpRealmGateway';
 import { passiveImageUrl } from '../../lib/localNetworkAccess';
 import { resolveServerIcon } from '../../lib/serverIcon';
@@ -713,8 +714,8 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
             serverBanner: passiveImageUrl(entry.serverBanner),
           }))
         : []);
-    } catch (err: any) {
-      setDiscoverError(err?.response?.data?.error || 'Failed to load discoverable servers');
+    } catch (err) {
+      setDiscoverError(apiErrorMessage(err, 'Failed to load discoverable servers'));
     } finally {
       setDiscoverLoading(false);
     }
@@ -941,8 +942,8 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
       if (filtered.some((entry) => entry.manageBlockedReason)) {
         setDiscoveryManageNotice('Some connected servers are HTTP-only and cannot be managed from the HTTPS web app.');
       }
-    } catch (err: any) {
-      setDiscoveryManageError(err?.response?.data?.error || 'Failed to load server publish status');
+    } catch (err) {
+      setDiscoveryManageError(apiErrorMessage(err, 'Failed to load server publish status'));
       setDiscoveryServers([]);
     } finally {
       setDiscoveryManageLoading(false);
@@ -966,8 +967,8 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
         loadDiscoveryManageStatus(),
         fetchDiscovery(discoverQuery),
       ]);
-    } catch (err: any) {
-      setDiscoveryManageError(err?.response?.data?.error || 'Failed to publish server to discovery');
+    } catch (err) {
+      setDiscoveryManageError(apiErrorMessage(err, 'Failed to publish server to discovery'));
     } finally {
       setDiscoveryActionUrl(null);
     }
@@ -985,8 +986,8 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
         loadDiscoveryManageStatus(),
         fetchDiscovery(discoverQuery),
       ]);
-    } catch (err: any) {
-      setDiscoveryManageError(err?.response?.data?.error || 'Failed to unpublish server from discovery');
+    } catch (err) {
+      setDiscoveryManageError(apiErrorMessage(err, 'Failed to unpublish server from discovery'));
     } finally {
       setDiscoveryActionUrl(null);
     }

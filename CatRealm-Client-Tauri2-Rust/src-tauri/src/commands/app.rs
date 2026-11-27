@@ -179,6 +179,7 @@ pub async fn open_passkey_window(app: AppHandle, url: String) -> Value {
     // Unsupported system WebViews offer an explicit user-selected fallback;
     // opening an auth flow no longer launches the system browser automatically.
     let browser_app = app.clone();
+    let close_app = app.clone();
     let browser_url = parsed.to_string();
     let auth_origin = parsed.origin();
     if let Some(window) = app.get_webview_window(LABEL) {
@@ -196,6 +197,15 @@ pub async fn open_passkey_window(app: AppHandle, url: String) -> Value {
         .on_navigation(move |next| {
             if next.origin() == auth_origin && next.path() == "/__catrealm_open_browser" {
                 let _ = browser_app.opener().open_url(&browser_url, None::<&str>);
+                return false;
+            }
+            if next.origin() == auth_origin && next.path() == "/__catrealm_close_window" {
+                let close_app = close_app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Some(window) = close_app.get_webview_window(LABEL) {
+                        let _ = window.destroy();
+                    }
+                });
                 return false;
             }
             crate::app_security::is_passkey_url(next) && next.origin() == auth_origin

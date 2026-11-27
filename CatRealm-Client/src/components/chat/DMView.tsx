@@ -174,7 +174,7 @@ export function DMView() {
   const [voiceMode, setVoiceMode] = useState(false);
   const [voiceCancelConfirmOpen, setVoiceCancelConfirmOpen] = useState(false);
   const [deleteConfirmMessageId, setDeleteConfirmMessageId] = useState<string | null>(null);
-  const [pendingDMVoiceAttachment, setPendingDMVoiceAttachment] = useState<any>(null);
+  const [pendingDMVoiceAttachment, setPendingDMVoiceAttachment] = useState<{ blob: Blob; waveformData: number[] } | null>(null);
   const [dmVoiceAutoDeleteOpen, setDMVoiceAutoDeleteOpen] = useState(false);
   const [safetyReportTarget, setSafetyReportTarget] = useState<SafetyReportTarget | null>(null);
 
@@ -964,13 +964,13 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
       }
     };
 
-    const handleRetentionRequest = ({ conversationId, requesterId, requesterUsername, retentionDays: reqDays, requestId }: any) => {
+    const handleRetentionRequest = ({ conversationId, requesterId, requesterUsername, retentionDays: reqDays, requestId }: { conversationId: string; requesterId: string; requesterUsername: string; retentionDays: number; requestId: string }) => {
       if (conversationId === activeConversationId) {
         setPendingRetentionRequest({ requesterId, requesterUsername, retentionDays: reqDays, requestId });
       }
     };
 
-    const handleRetentionResponse = ({ conversationId, accepted, retentionDays: newDays }: any) => {
+    const handleRetentionResponse = ({ conversationId, accepted, retentionDays: newDays }: { conversationId: string; accepted: boolean; retentionDays: number }) => {
       if (conversationId === activeConversationId) {
         // Hide the "request sent" banner
         setRequestSent(false);
@@ -2205,7 +2205,7 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
               : 'Encrypted messages are unavailable on this device.'}
           </strong>{' '}
           {localDeviceTrustState !== 'trusted'
-            ? 'Approve this device with your passkey or from a trusted session in Account & Security. A key-holding device must then share the DM key.'
+            ? 'Approve this device with a physical security key or from a trusted session in Account & Security. A key-holding device must then share the DM key.'
             : 'Waiting for a key-holding device to share the conversation key. If that device shows a passkey warning, verify it again in Account & Security.'}
           <button
             type="button"

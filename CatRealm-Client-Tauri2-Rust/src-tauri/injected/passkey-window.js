@@ -3,6 +3,12 @@
 (function () {
   'use strict';
   if (window.top !== window) return;
+  // Hosted pages were not opened by script, so WebKit may turn window.close()
+  // into a blank page without closing the native window. Rust intercepts this
+  // local navigation and destroys the unprivileged WebAuthn window.
+  window.close = () => {
+    window.location.assign(new URL('/__catrealm_close_window', window.location.href).href);
+  };
   const showFallback = () => {
     const supported = window.isSecureContext && typeof window.PublicKeyCredential === 'function'
       && typeof navigator.credentials?.get === 'function' && typeof navigator.credentials?.create === 'function';

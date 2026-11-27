@@ -83,6 +83,7 @@ type CatRealmScreenShareTrack = MediaStreamTrack & {
   catrealmScreenShareDesktopSourceType?: 'screen' | 'window';
   catrealmScreenShareDesktopSourceId?: string;
   catrealmNativeCapture?: true;
+  catrealmStopping?: boolean;
 };
 
 export const NO_SCREEN_SHARE_AUDIO_STATUS: ScreenShareAudioStatus = {
@@ -129,8 +130,8 @@ function rememberScreenShareCaptureMetadata(
         taggedTrack.catrealmStopMonkeyPatched = true;
         const originalStop = track.stop.bind(track);
         track.stop = () => {
-          if ((track as any).catrealmStopping) return;
-          (track as any).catrealmStopping = true;
+          if (taggedTrack.catrealmStopping) return;
+          taggedTrack.catrealmStopping = true;
           try {
             originalStop();
           } finally {

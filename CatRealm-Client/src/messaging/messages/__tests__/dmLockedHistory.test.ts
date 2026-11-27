@@ -39,6 +39,8 @@ vi.mock('../../notifications/notificationStore', () => ({
 }));
 
 import { createDMMessageSlice, resetMessageModuleState } from '../dmMessageSlice';
+import type { DMGet, DMSet } from '../../dm/dmHelpers';
+import type { DMMessageSlice } from '../dmMessageSlice';
 
 function encryptedMessage(index: number) {
   return {
@@ -51,13 +53,14 @@ function encryptedMessage(index: number) {
 }
 
 function createStore() {
-  let state: any;
+  type TestState = DMMessageSlice & { conversations: Array<{ id: string; otherUserId: string }> };
+  let state = {} as TestState;
   const get = () => state;
-  const set = (update: any) => {
+  const set = (update: Partial<TestState> | ((current: TestState) => Partial<TestState>)) => {
     state = { ...state, ...(typeof update === 'function' ? update(state) : update) };
   };
   state = {
-    ...createDMMessageSlice(set, get),
+    ...createDMMessageSlice(set as unknown as DMSet, get as unknown as DMGet),
     conversations: [{ id: 'conversation', otherUserId: 'bob' }],
   };
   return get;

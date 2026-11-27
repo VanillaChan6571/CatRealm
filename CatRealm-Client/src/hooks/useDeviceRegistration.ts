@@ -5,6 +5,7 @@ import { registerCurrentDevice } from '../lib/deviceIdentity';
 import { createAuthenticatedApi } from '../lib/authApi';
 import { completeHostedDeviceProof } from '../lib/hostedDeviceProof';
 import { syncKnownConversationKeys } from '../messaging/crypto/dmKeyStore';
+import { ensureDMVaultReady, refreshLegacyDMKeyNotice } from '../lib/dmKeyVault';
 
 const LAUNCH_PROOF_SESSION_PREFIX = 'catrealm.launch-proof.';
 
@@ -14,8 +15,12 @@ export function useDeviceRegistration() {
 
   useEffect(() => {
     if (!token || user?.accountType !== 'central') return;
+    // Show leftover plaintext keys even when device registration fails before
+    // the encrypted vault can open. This check never reads or moves key values.
+    refreshLegacyDMKeyNotice();
     void registerCurrentDevice()
       .then(async (device) => {
+        await ensureDMVaultReady();
         if (
           !device.proofRequiredOnLaunch
           || device.deviceSecurity === 'software_protected'

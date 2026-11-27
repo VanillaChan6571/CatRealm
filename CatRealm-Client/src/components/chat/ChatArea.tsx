@@ -1612,7 +1612,7 @@ function ScreenTile({
   // ── PIP ───────────────────────────────────────────────────────────────────────
   const enterPip = () => {
     const el = videoRef.current;
-    if (!el || !(document as any).pictureInPictureEnabled) return;
+    if (!el || !document.pictureInPictureEnabled) return;
     // Set MediaSession metadata so the PIP window shows the stream title
     // instead of the browser default ("File on your device" / document title).
     try {
@@ -1626,8 +1626,8 @@ function ScreenTile({
     el.requestPictureInPicture().catch(() => {});
   };
   const exitPip = () => {
-    if ((document as any).pictureInPictureElement) {
-      (document as any).exitPictureInPicture().catch(() => {});
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
     }
   };
 
@@ -1636,7 +1636,7 @@ function ScreenTile({
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
         enterPip();
-      } else if ((document as any).pictureInPictureElement === videoRef.current) {
+      } else if (document.pictureInPictureElement === videoRef.current) {
         exitPip();
       }
     };
@@ -1724,13 +1724,14 @@ function ScreenTile({
     const el = containerRef.current;
     if (!el) return;
     // requestFullscreen is standard; fall back to webkit-prefixed for older Electron.
-    const req = (el as any).requestFullscreen ?? (el as any).webkitRequestFullscreen;
-    req?.call(el).catch(() => {});
+    const req = el.requestFullscreen ?? (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void }).webkitRequestFullscreen;
+    void Promise.resolve(req?.call(el)).catch(() => {});
   };
   const exitFullscreen = () => {
-    const exit = (document as any).exitFullscreen ?? (document as any).webkitExitFullscreen;
-    if ((document as any).fullscreenElement ?? (document as any).webkitFullscreenElement) {
-      exit?.call(document).catch(() => {});
+    const fullscreenDocument = document as Document & { webkitExitFullscreen?: () => Promise<void> | void; webkitFullscreenElement?: Element | null };
+    const exit = fullscreenDocument.exitFullscreen ?? fullscreenDocument.webkitExitFullscreen;
+    if (fullscreenDocument.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement) {
+      void Promise.resolve(exit?.call(document)).catch(() => {});
     }
   };
 
@@ -1753,7 +1754,8 @@ function ScreenTile({
 
   useEffect(() => {
     const onFs = () => {
-      const fsEl = (document as any).fullscreenElement ?? (document as any).webkitFullscreenElement;
+      const fullscreenDocument = document as Document & { webkitFullscreenElement?: Element | null };
+      const fsEl = fullscreenDocument.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement;
       setIsFullscreen(fsEl === containerRef.current);
       setOverlayVisible(true);
     };
@@ -1768,7 +1770,7 @@ function ScreenTile({
   // ── Volume icon helper ────────────────────────────────────────────────────────
   const VolumeIcon = isMuted ? VolumeX : volumePct < 50 ? Volume1 : Volume2;
 
-  const pipSupported = typeof document !== 'undefined' && !!(document as any).pictureInPictureEnabled;
+  const pipSupported = typeof document !== 'undefined' && document.pictureInPictureEnabled;
 
   return (
     <div

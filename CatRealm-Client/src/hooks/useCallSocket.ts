@@ -5,6 +5,20 @@ import { useCallStore, setCallSocket } from '../stores/callStore';
 import { useDMStore } from '../stores/dmStore';
 import { AUTH_BASE, createAuthenticatedApi } from '../lib/authApi';
 
+type RecoverableCall = {
+  callType?: 'dm' | 'group';
+  status?: string;
+  callId?: string;
+  groupChatId?: string;
+  groupName?: string;
+  groupAvatar?: string | null;
+  conversationId?: string;
+  selfJoined?: boolean;
+  otherJoined?: boolean;
+  otherUser?: { userId?: string; displayName?: string; username?: string; avatar?: string | null };
+  mediaType?: 'audio' | 'video';
+};
+
 /**
  * Hook to manage Socket.io call event handlers
  * Registers listeners for call-related events (call:*, gc:call:*)
@@ -47,11 +61,11 @@ export function useCallSocket() {
       lastRecoverAt = now;
       try {
         const api = createAuthenticatedApi();
-        const res = await api.get('/api/calls/active');
+        const res = await api.get<{ activeCalls?: RecoverableCall[] }>('/api/calls/active');
         const activeCalls = Array.isArray(res.data?.activeCalls) ? res.data.activeCalls : [];
         if (activeCalls.length === 0) return;
 
-        const groupCall = activeCalls.find((call: any) => call?.callType === 'group' && call?.status === 'active');
+        const groupCall = activeCalls.find((call) => call?.callType === 'group' && call?.status === 'active');
         if (groupCall?.callId && groupCall?.groupChatId) {
           await useCallStore.getState().joinGroupCall({
             callId: String(groupCall.callId),
@@ -63,7 +77,7 @@ export function useCallSocket() {
           return;
         }
 
-        const dmCall = activeCalls.find((call: any) => call?.callType === 'dm' && call?.status === 'active' && call?.selfJoined !== false);
+        const dmCall = activeCalls.find((call) => call?.callType === 'dm' && call?.status === 'active' && call?.selfJoined !== false);
         if (dmCall?.callId && dmCall?.conversationId && dmCall?.otherUser?.userId) {
           await useCallStore.getState().resumeDMCall({
             callId: String(dmCall.callId),
@@ -403,7 +417,7 @@ export function useCallSocket() {
       socket.off('gc:call:error', onGroupCallError);
 
       // Clear socket reference
-      setCallSocket(null as any);
+      setCallSocket(null);
     };
   }, [isCentral, token, user?.id]);
 }

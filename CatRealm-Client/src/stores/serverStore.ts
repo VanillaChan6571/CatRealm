@@ -695,7 +695,8 @@ export const useServerStore = create<ServerState>((set, get) => ({
       info: infoRes.data,
     };
     set((state) => {
-      const { [url]: oldStatus, ...serverStatus } = state.serverStatus;
+      const serverStatus = { ...state.serverStatus };
+      delete serverStatus[url];
       const { [url]: oldSnapshot, ...snapshots } = state.snapshots;
       if (oldSnapshot) snapshots[gatewayUrl] = oldSnapshot;
       return {
@@ -747,8 +748,10 @@ export const useServerStore = create<ServerState>((set, get) => ({
         if (item.type === 'folder' && emptyFolderIds.has(item.folderId)) return false;
         return true;
       });
-      const { [url]: _status, ...restStatus } = s.serverStatus;
-      const { [url]: _snap, ...restSnapshots } = s.snapshots;
+      const restStatus = { ...s.serverStatus };
+      delete restStatus[url];
+      const restSnapshots = { ...s.snapshots };
+      delete restSnapshots[url];
       return {
         servers: s.servers.filter((sv) => sv.url !== url),
         serverStatus: restStatus,

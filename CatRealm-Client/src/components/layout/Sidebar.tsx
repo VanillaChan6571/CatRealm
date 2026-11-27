@@ -997,7 +997,7 @@ export function Sidebar({ showFooter = true }: { showFooter?: boolean }) {
           const targetIndex = dragOverTarget?.categoryKey === categoryKey ? dragOverTarget.index : catChannels.length;
           const ids = catChannels.map((c) => c.id);
           const isSameCategory = ids.includes(drag.id);
-          let nextIds = [...ids];
+          const nextIds = [...ids];
           if (!isSameCategory) {
             nextIds.splice(targetIndex, 0, drag.id);
             moveChannelCategory(drag.id, category ? category.id : null).catch(() => {});

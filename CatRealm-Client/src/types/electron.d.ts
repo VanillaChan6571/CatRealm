@@ -371,6 +371,7 @@ declare global {
       onProtectedLinkRequest?: (callback: (url: string) => void) => () => void;
       setAdFrameMounted?: (mounted: boolean) => Promise<{ ok: boolean }>;
       openPasskeyWindow?: (url: string) => Promise<{ ok: boolean; reason?: string; message?: string }>;
+      openCaptchaWindow?: (siteKey: string) => Promise<{ ok: boolean; token?: string; reason?: string; message?: string }>;
       onUpdateStatus: (callback: (status: AppUpdateStatus) => void) => () => void;
       obsOverlaySetEnabled: (enabled: boolean, port: number) => Promise<{ ok: boolean }>;
       obsOverlayUpdateState: (state: unknown) => Promise<{ ok: boolean }>;

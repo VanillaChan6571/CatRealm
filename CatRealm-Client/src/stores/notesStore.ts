@@ -16,7 +16,8 @@ export const useNotesStore = create<NotesState>()(
         set((state) => ({ notes: { ...state.notes, [userId]: note } })),
       removeNote: (userId) =>
         set((state) => {
-          const { [userId]: _, ...rest } = state.notes;
+          const rest = { ...state.notes };
+          delete rest[userId];
           return { notes: rest };
         }),
       loadNotes: (notes) =>

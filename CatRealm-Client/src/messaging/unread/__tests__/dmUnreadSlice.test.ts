@@ -21,6 +21,7 @@ vi.mock('../../dm/dmHelpers', () => ({
 vi.mock('../../../lib/desktopNotifications', () => ({ dismissDesktopNotifications: mocks.dismiss }));
 
 import { createDMUnreadSlice, resetUnreadModuleState } from '../dmUnreadSlice';
+import type { DMGet, DMSet } from '../../dm/dmHelpers';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -38,7 +39,7 @@ describe('DM read acknowledgement', () => {
     const set = (updater: (value: typeof state) => Partial<typeof state>) => {
       state = { ...state, ...updater(state) };
     };
-    return { slice: createDMUnreadSlice(set, () => state), getState: () => state };
+    return { slice: createDMUnreadSlice(set as unknown as DMSet, (() => state) as unknown as DMGet), getState: () => state };
   }
 
   it('keeps the unread bubble when the server rejects the read', async () => {

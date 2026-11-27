@@ -59,11 +59,21 @@ describe('central session expiry and DM keys', () => {
     expect(localStorage.getItem(SECRET)).toBe('cached-secret');
   });
 
-  it('erases DM keys when the session was revoked', async () => {
+  it('keeps ambiguous old plaintext keys when the session was revoked', async () => {
+    localStorage.setItem('catrealm.dm-conversation-secret-owner', 'alice');
+    localStorage.setItem('catrealm.dm-conversation-secret-device', 'device-aaaaaaaaaaaaaaaa');
     reject(401, { error: 'Invalid token', code: 'SESSION_REVOKED' });
     await confirmOrExpireCentralSession();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
-    expect(localStorage.getItem(SECRET)).toBeNull();
+    expect(localStorage.getItem(SECRET)).toBe('cached-secret');
+  });
+
+  it('does not erase another device’s legacy key when this device was revoked', async () => {
+    localStorage.setItem('catrealm.dm-conversation-secret-owner', 'alice');
+    localStorage.setItem('catrealm.dm-conversation-secret-device', 'device-bbbbbbbbbbbbbbbb');
+    reject(401, { error: 'Invalid token', code: 'SESSION_REVOKED' });
+    await confirmOrExpireCentralSession();
+    expect(localStorage.getItem(SECRET)).toBe('cached-secret');
   });
 
   it('stays signed in when Central is unreachable or failing', async () => {
@@ -83,21 +93,24 @@ describe('central session expiry and DM keys', () => {
     expect(localStorage.getItem(SECRET)).toBe('cached-secret');
   });
 
-  it('never hands the keys to another account, even on the same device id', () => {
+  it('preserves un-migrated keys for their owner across an account switch', () => {
     useAuthStore.getState().expireCentralSession();
     adoptCentralSessionDevice(sessionToken('bob'));
-    expect(localStorage.getItem(SECRET)).toBeNull();
+    expect(localStorage.getItem(SECRET)).toBe('cached-secret');
+    expect(localStorage.getItem('catrealm.dm-conversation-secret-owner')).toBeNull();
   });
 
-  it('erases the keys when the same account gets a new device id', () => {
+  it('does not erase the only legacy key copy when the device id changes', () => {
     useAuthStore.getState().expireCentralSession();
     adoptCentralSessionDevice(sessionToken('alice', 'device-bbbbbbbbbbbbbbbb'));
-    expect(localStorage.getItem(SECRET)).toBeNull();
+    expect(localStorage.getItem(SECRET)).toBe('cached-secret');
   });
 
-  it('still erases the keys on a normal sign-out', () => {
+  it('keeps un-migrated keys on a normal sign-out', () => {
     vi.spyOn(axios, 'post').mockResolvedValue({ data: {} });
     useAuthStore.getState().logout();
-    expect(localStorage.getItem(SECRET)).toBeNull();
+    expect(localStorage.getItem(SECRET)).toBe('cached-secret');
+    expect(localStorage.getItem('catrealm.dm-conversation-secret-owner')).toBeNull();
+    expect(localStorage.getItem('catrealm.dm-conversation-secret-device')).toBeNull();
   });
 });

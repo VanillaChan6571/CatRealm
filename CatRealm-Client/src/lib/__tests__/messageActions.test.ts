@@ -85,7 +85,7 @@ describe('executeMessageShortcutAction', () => {
 
   it('returns false for unrecognized action', () => {
     const result = executeMessageShortcutAction({
-      action: 'unknown_action' as any,
+      action: 'unknown_action' as Parameters<typeof executeMessageShortcutAction>[0]['action'],
       message: {},
       getText: () => null,
     });

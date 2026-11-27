@@ -13,7 +13,9 @@ interface StoredSession {
   syncKey?: string;
 }
 
-export function saveSession(token: string, serverUrl: string | null, user: User, syncKey?: string | null) {
+export function saveSession(token: string, serverUrl: string | null, user: User, syncKey?: string | null, replaceExisting = false) {
+  const existing = loadSession();
+  if (existing && existing.token !== token && !replaceExisting) return;
   const data: StoredSession = { token, user };
   if (serverUrl) data.serverUrl = serverUrl;
   if (syncKey) data.syncKey = syncKey;
@@ -30,7 +32,8 @@ export function loadSession(): StoredSession | null {
   }
 }
 
-export function clearSession() {
+export function clearSession(expectedToken?: string | null) {
+  if (expectedToken !== undefined && loadSession()?.token !== expectedToken) return;
   localStorage.removeItem(STORAGE_KEY);
 }
 

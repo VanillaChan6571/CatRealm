@@ -12,8 +12,8 @@ vi.mock('../../../stores/authStore', async () => {
   return { useAuthStore: create(() => ({ user: { id: 'alice', accountType: 'central' }, serverUrl: null })) };
 });
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-vi.mock('../../../stores/contentSocialStore', () => ({ useContentSocialStore: (selector: any) => selector({ customAllowedDomains: [] }) }));
-vi.mock('../../../stores/uiStore', () => ({ useUIStore: (selector: any) => selector({ openModal: vi.fn() }) }));
+vi.mock('../../../stores/contentSocialStore', () => ({ useContentSocialStore: (selector: (state: { customAllowedDomains: string[] }) => unknown) => selector({ customAllowedDomains: [] }) }));
+vi.mock('../../../stores/uiStore', () => ({ useUIStore: (selector: (state: { openModal: () => void }) => unknown) => selector({ openModal: vi.fn() }) }));
 vi.mock('../../../utils/externalLinks', () => ({ isAllowedExternalUrl: () => true, openProtectedExternalUrl: vi.fn() }));
 // Bios render through the chat formatter; plain text is enough for these privacy checks.
 vi.mock('../../chat/MessageFormatter', () => ({ MessageFormatter: ({ text }: { text: string }) => <span>{text}</span> }));
@@ -26,7 +26,7 @@ import { ProfileBioEditor } from '../ProfileBioEditor';
 
 beforeEach(() => {
   vi.resetAllMocks();
-  useAuthStore.setState({ user: { id: 'alice', accountType: 'central' } as any, serverUrl: null });
+  useAuthStore.setState({ user: { id: 'alice', accountType: 'central' } as unknown as NonNullable<ReturnType<typeof useAuthStore.getState>['user']>, serverUrl: null });
   useNicknamesStore.getState().reset();
   mocks.central.get.mockResolvedValue({ data: { note: null } });
   mocks.central.put.mockResolvedValue({ data: {} });
@@ -41,14 +41,14 @@ describe('private profile notes', () => {
     mocks.central.get.mockResolvedValueOnce({ data: { note: 'Alice private note' } });
     render(<ProfileNotes userId="bob" isOwnProfile={false} />);
     await screen.findByDisplayValue('Alice private note');
-    await act(async () => useAuthStore.setState({ user: { id: 'carol', accountType: 'central' } as any }));
+    await act(async () => useAuthStore.setState({ user: { id: 'carol', accountType: 'central' } as unknown as NonNullable<ReturnType<typeof useAuthStore.getState>['user']> }));
     await waitFor(() => expect((screen.getByRole('textbox') as HTMLTextAreaElement).disabled).toBe(false));
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('');
     expect(screen.queryByDisplayValue('Legacy private note')).toBeNull();
   });
 
   it('ignores a late response from the previous profile', async () => {
-    let resolve!: (value: any) => void;
+    let resolve!: (value: unknown) => void;
     mocks.central.get.mockReturnValueOnce(new Promise(r => { resolve = r; }));
     const view = render(<ProfileNotes userId="bob" isOwnProfile={false} />);
     view.rerender(<ProfileNotes userId="carol" isOwnProfile={false} />);
@@ -63,7 +63,7 @@ describe('private profile notes', () => {
     vi.useFakeTimers();
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Unfinished draft' } });
     view.unmount();
-    useAuthStore.setState({ user: { id: 'carol', accountType: 'central' } as any });
+    useAuthStore.setState({ user: { id: 'carol', accountType: 'central' } as unknown as NonNullable<ReturnType<typeof useAuthStore.getState>['user']> });
     await act(async () => vi.advanceTimersByTimeAsync(1000));
     expect(mocks.central.put).not.toHaveBeenCalled();
   });
@@ -82,7 +82,7 @@ describe('private nicknames', () => {
     act(() => useAuthStore.setState({ serverUrl: 'https://realm.invalid' }));
     expect(useNicknamesStore.getState().byScope[nicknameScope()]?.bob).toBeUndefined();
     mocks.central.get.mockResolvedValue({ data: [] });
-    await act(async () => useAuthStore.setState({ user: { id: 'carol', accountType: 'central' } as any }));
+    await act(async () => useAuthStore.setState({ user: { id: 'carol', accountType: 'central' } as unknown as NonNullable<ReturnType<typeof useAuthStore.getState>['user']> }));
     expect(useNicknamesStore.getState().byScope[nicknameScope(true)]?.bob).toBeUndefined();
   });
 

@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../lib/apiErrors';
 import { useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -25,8 +26,8 @@ export function KickMemberDialog() {
     try {
       await createApi().post(`/api/admin/users/${modalData.userId}/kick`, { reason: reason.trim() || undefined });
       handleClose();
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to kick member.');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to kick member.'));
     } finally {
       setKicking(false);
     }

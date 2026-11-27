@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import axios from 'axios';
 import {
   ActivityIndicator,
   Keyboard,
@@ -41,6 +42,8 @@ export function AddAccountSheet({ visible, onClose, onSuccess }: AddAccountSheet
   const [totpCode, setTotpCode] = useState('');
   const [serverUrl, setServerUrl] = useState('');
   const [password, setPassword] = useState('');
+  const [localMethod, setLocalMethod] = useState<'password' | 'totp'>('password');
+  const [targetSupportsTotp, setTargetSupportsTotp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Android runs edge-to-edge, so the window no longer shrinks for the keyboard:
@@ -60,6 +63,21 @@ export function AddAccountSheet({ visible, onClose, onSuccess }: AddAccountSheet
     };
   }, [visible, insets.bottom]);
 
+  useEffect(() => {
+    setTargetSupportsTotp(false);
+    setLocalMethod('password');
+    if (!visible || tab !== 'local') return;
+    const target = serverUrl.trim().replace(/\/+$/, '');
+    if (!/^https:\/\/[^/]+$/i.test(target)) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      void axios.get(`${target}/api/server`, { timeout: 5000 })
+        .then((response) => { if (active) setTargetSupportsTotp(response.data?.localTotpAuth === true); })
+        .catch(() => {});
+    }, 500);
+    return () => { active = false; clearTimeout(timer); };
+  }, [visible, tab, serverUrl]);
+
   const atLimit = accounts.length >= 5;
 
   const reset = () => {
@@ -67,6 +85,7 @@ export function AddAccountSheet({ visible, onClose, onSuccess }: AddAccountSheet
     setTotpCode('');
     setServerUrl('');
     setPassword('');
+    setLocalMethod('password');
     setError(null);
     setLoading(false);
     setTab('central');
@@ -86,7 +105,7 @@ export function AddAccountSheet({ visible, onClose, onSuccess }: AddAccountSheet
     if (tab === 'central') {
       err = await addCentralAccount(username.trim(), totpCode.trim());
     } else {
-      err = await addLocalAccount(serverUrl.trim(), username.trim(), password);
+      err = await addLocalAccount(serverUrl.trim(), username.trim(), password, localMethod);
     }
 
     setLoading(false);
@@ -209,14 +228,24 @@ export function AddAccountSheet({ visible, onClose, onSuccess }: AddAccountSheet
                       autoComplete="username"
                       style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.lineSoft }]}
                     />
+                    {targetSupportsTotp ? <View style={{ flexDirection: 'row', gap: 16 }}>
+                      <Pressable onPress={() => { setLocalMethod('password'); setPassword(''); }}>
+                        <Text variant="bodySmall" color={localMethod === 'password' ? theme.colors.accent : theme.colors.text3}>Password</Text>
+                      </Pressable>
+                      <Pressable onPress={() => { setLocalMethod('totp'); setPassword(''); }}>
+                        <Text variant="bodySmall" color={localMethod === 'totp' ? theme.colors.accent : theme.colors.text3}>Authenticator code</Text>
+                      </Pressable>
+                    </View> : null}
                     <TextInput
                       value={password}
                       onChangeText={setPassword}
-                      placeholder={t('auth.passwordPlaceholder')}
+                      placeholder={localMethod === 'totp' ? 'Six-digit or recovery code' : t('auth.passwordPlaceholder')}
                       placeholderTextColor={theme.colors.text3}
-                      secureTextEntry
-                      textContentType="password"
-                      autoComplete="current-password"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      secureTextEntry={localMethod === 'password'}
+                      textContentType={localMethod === 'totp' ? 'oneTimeCode' : 'password'}
+                      autoComplete={localMethod === 'totp' ? 'one-time-code' : 'current-password'}
                       style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.lineSoft }]}
                     />
                   </>

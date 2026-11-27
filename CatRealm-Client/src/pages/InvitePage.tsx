@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useServerStore } from '../stores/serverStore';
 import { AUTH_BASE } from '../lib/authApi';
 import axios from 'axios';
+import { apiErrorMessage } from '../lib/apiErrors';
 import type { ReactNode } from 'react';
 
 interface InviteData {
@@ -68,11 +69,11 @@ export function InvitePage() {
         const response = await axios.get(`${AUTH_BASE}/api/invites/${code}`);
 
         setInviteData(response.data);
-      } catch (err: any) {
-        if (err.response?.status === 404) {
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 404) {
           setError('Invalid invite code');
-        } else if (err.response?.status === 410) {
-          setError(err.response.data.error || 'Invite expired or used up');
+        } else if (axios.isAxiosError(err) && err.response?.status === 410) {
+          setError(apiErrorMessage(err, 'Invite expired or used up'));
         } else {
           setError('Failed to load invite');
         }
@@ -112,9 +113,9 @@ export function InvitePage() {
           window.location.href = serverUrl;
         }, 1500);
       }
-    } catch (err: any) {
-      if (err.response?.status === 410) {
-        setError(err.response.data.error || 'Invite expired or used up');
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 410) {
+        setError(apiErrorMessage(err, 'Invite expired or used up'));
       } else if (err instanceof Error && err.message) {
         setError(err.message);
       } else {

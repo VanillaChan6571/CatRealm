@@ -249,6 +249,7 @@ pub fn run() {
                 .icon(window_icon.clone())?
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(940.0, 560.0)
+                .zoom_hotkeys_enabled(true)
                 .initialization_script(ELECTRON_SHIM)
                 // Tauri's native file-drop handler consumes drag events on
                 // Windows. Disable it so the renderer's HTML5 drag-and-drop
@@ -305,6 +306,19 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Hosted WebAuthn pages and auxiliary login windows can leave an
+            // empty WebKit surface behind after a normal close request.
+            // Destroy only these disposable windows; the main window keeps
+            // its tray and live-call close behavior below.
+            if matches!(window.label(), "passkey" | "theater-youtube-cookie")
+                || window.label().starts_with("embed-login-")
+            {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.destroy();
+                }
+                return;
+            }
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     let minimize = window

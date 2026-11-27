@@ -2,11 +2,12 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SoundToggle } from './SoundToggle';
 import { usePushSettingsStore } from '../../../stores/pushSettingsStore';
+import type { SettingsState } from '../../../stores/settingsStore';
 
 type NotificationsTabProps = {
   notificationsEnabled: boolean;
   setNotificationsEnabled: (v: boolean) => void;
-  settings: any;
+  settings: SettingsState;
   setSoundSetting: (key: string, value: boolean) => void;
   setSoundVolume: (key: string, value: number) => void;
   isCentral?: boolean;

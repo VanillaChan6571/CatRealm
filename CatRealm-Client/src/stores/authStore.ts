@@ -8,8 +8,9 @@ import { saveSession, loadSession, clearSession, clearServers, decodeToken, pars
 import { disconnectSocket } from '../lib/socket';
 import { clearAllDMStorage } from '../messaging/persistence/dmStorage';
 import { usePinnedStore } from './pinnedStore';
-import { adoptCentralSessionDevice, clearLocalConversationSecrets, keepConversationSecretsFor } from '../lib/centralDeviceCredentials';
+import { adoptCentralSessionDevice } from '../lib/centralDeviceCredentials';
 import { shouldDeferPassiveLocalNetworkRequest } from '../lib/localNetworkAccess';
+import { lockDMVault, forgetDMVault } from '../lib/dmKeyVault';
 
 // Callback for resetting serverStore on logout (set by serverStore to avoid circular dep)
 let onLogoutCallback: ((keepServers: boolean) => void) | null = null;
@@ -47,13 +48,16 @@ interface AuthState {
   deferredLocalServerUrl: string | null;
 
   setServerUrl: (url: string) => Promise<void>;
-  localLogin: (username: string, password: string) => Promise<void>;
+  localLogin: (username: string, credential: string, method?: 'password' | 'totp') => Promise<void>;
   localRegister: (username: string, password: string) => Promise<void>;
+  localTotpStart: (username: string) => Promise<{ enrollmentId: string; qrCode: string; manualCode: string } | null>;
+  localTotpConfirm: (enrollmentId: string, code: string) => Promise<{ token: string; user: User; recoveryCodes: string[] } | null>;
+  completeLocalTotpRegistration: (result: { token: string; user: User }) => void;
   centralLogin: (username: string, totpCode: string) => Promise<void>;
   centralRegisterStart: (username: string, captchaToken: string) => Promise<void>;
   centralRegisterConfirm: (totpCode: string) => Promise<void>;
   clearCentralReg: () => void;
-  logout: () => void;
+  logout: (skipCentralRevoke?: boolean) => void;
   restoreSession: (allowLocalNetwork?: boolean) => void;
   resumeLocalSession: () => void;
   claimAdmin: (adminToken: string) => Promise<void>;
@@ -168,14 +172,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  localLogin: async (username, password) => {
+  localLogin: async (username, credential, method = 'password') => {
     const { serverUrl } = get();
     set({ loading: true, error: null });
     try {
-      const res = await axios.post(`${serverUrl}/api/auth/login`, { username, password });
+      const res = await axios.post(`${serverUrl}/api/auth/login`, {
+        username, method, ...(method === 'totp' ? { code: credential } : { password: credential }),
+      });
       const { token, user } = res.data;
       set({ token, user, isAuthenticated: true, loading: false });
-      saveSession(token, serverUrl!, user, null);
+      saveSession(token, serverUrl!, user, null, true);
     } catch (err: unknown) {
       const msg = axios.isAxiosError(err) ? err.response?.data?.error : 'Login failed';
       set({ loading: false, error: msg || 'Login failed' });
@@ -189,11 +195,48 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const res = await axios.post(`${serverUrl}/api/auth/register`, { username, password });
       const { token, user } = res.data;
       set({ token, user, isAuthenticated: true, loading: false });
-      saveSession(token, serverUrl!, user, null);
+      saveSession(token, serverUrl!, user, null, true);
     } catch (err: unknown) {
       const msg = axios.isAxiosError(err) ? err.response?.data?.error : 'Registration failed';
       set({ loading: false, error: msg || 'Registration failed' });
     }
+  },
+
+  localTotpStart: async (username) => {
+    const { serverUrl } = get();
+    if (!serverUrl) return null;
+    set({ loading: true, error: null });
+    try {
+      const res = await axios.post(`${serverUrl}/api/auth/register/totp/start`, { username });
+      set({ loading: false });
+      return res.data;
+    } catch (err: unknown) {
+      const msg = axios.isAxiosError(err) ? err.response?.data?.error : null;
+      set({ loading: false, error: msg || 'Could not start authenticator setup' });
+      return null;
+    }
+  },
+
+  localTotpConfirm: async (enrollmentId, code) => {
+    const { serverUrl } = get();
+    if (!serverUrl) return null;
+    set({ loading: true, error: null });
+    try {
+      const res = await axios.post(`${serverUrl}/api/auth/register/totp/confirm`, { enrollmentId, code });
+      set({ loading: false });
+      return res.data;
+    } catch (err: unknown) {
+      const msg = axios.isAxiosError(err) ? err.response?.data?.error : null;
+      set({ loading: false, error: msg || 'Invalid authenticator code' });
+      return null;
+    }
+  },
+
+  completeLocalTotpRegistration: ({ token, user }) => {
+    const { serverUrl } = get();
+    if (!serverUrl) return;
+    set({ token, user, isAuthenticated: true, loading: false });
+    saveSession(token, serverUrl, user, null, true);
   },
 
   centralLogin: async (username, totpCode) => {
@@ -210,7 +253,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       };
       // For central accounts, save session without serverUrl
       set({ token, user, syncKey: syncKey ?? null, isAuthenticated: true, loading: false });
-      saveSession(token, null, user, syncKey ?? null);
+      saveSession(token, null, user, syncKey ?? null, true);
       // Fetch central profile details (avatar, bio, status, displayName)
       loadCentralProfile('auth:central-login', authUser.id);
     } catch (err: unknown) {
@@ -260,17 +303,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   clearCentralReg: () => set({ centralRegPending: null }),
 
-  logout: () => {
+  logout: (skipCentralRevoke = false) => {
     const current = get();
-    if (current.user?.accountType === 'central' && current.token) {
+    if (!skipCentralRevoke && current.user?.accountType === 'central' && current.token) {
       void revokeCentralToken(current.token);
     }
     onLogoutVoiceCallback?.();
     onLogoutNotesCallback?.();
     disconnectSocket();
-    clearSession();
-    clearLocalConversationSecrets();
-    clearAllDMStorage(); // Clear DM IndexedDB on logout
+    clearSession(current.token);
+    lockDMVault();
+    if (current.user) void clearAllDMStorage(current.user.id);
     usePinnedStore.getState().clearPins(); // Pins are per-device; don't leak across accounts
     set({
       serverUrl: null,
@@ -294,7 +337,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const payload = decodeToken(session.token);
     if (!payload) {
-      clearSession();
+      clearSession(session.token);
       return;
     }
 
@@ -314,7 +357,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         });
         return;
       }
-      clearSession();
+      clearSession(session.token);
       return;
     }
 
@@ -340,7 +383,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           centralRegPending: null,
           error: 'Your session became invalid. Please log in again.',
         });
-        clearSession();
+        clearSession(session.token);
         return;
       }
       // Central accounts: restore auth without serverUrl
@@ -399,7 +442,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       } else {
         set({ token: newToken, user, loading: false });
         const { serverUrl } = get();
-        saveSession(newToken, serverUrl!, user, null);
+        if (loadSession()?.token === state.token) saveSession(newToken, serverUrl!, user, null, true);
       }
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
@@ -481,7 +524,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       if (nextUser.accountType === 'local' && state.serverUrl) {
-        saveSession(nextToken!, state.serverUrl, nextUser, null);
+        if (loadSession()?.token === state.token) saveSession(nextToken!, state.serverUrl, nextUser, null, true);
       } else {
         saveSession(state.token!, null, nextUser, state.syncKey);
       }
@@ -499,7 +542,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     adoptCentralSessionDevice(token);
     const user: User = { id: userId, username, accountType: 'central', permissions: 0 };
     set({ token, user, syncKey: syncKey ?? null, isAuthenticated: true, loading: false });
-    saveSession(token, null, user, syncKey ?? null);
+    saveSession(token, null, user, syncKey ?? null, true);
     loadCentralProfile('auth:central-login-with-token', userId);
   },
 
@@ -511,25 +554,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const revoked = previous.user?.accountType === 'central' && previous.token
       ? revokeCentralToken(previous.token)
       : Promise.resolve();
-    set({ token: null }); // logout must not revoke a second time
-    get().logout();
+    get().logout(true);
     adoptCentralSessionDevice(token);
-    saveSession(token, null, { id: authUser.id, username: authUser.username, accountType: 'central', permissions: 0 }, syncKey);
+    saveSession(token, null, { id: authUser.id, username: authUser.username, accountType: 'central', permissions: 0 }, syncKey, true);
     await Promise.race([revoked, new Promise((resolve) => setTimeout(resolve, 2500))]);
     window.location.reload();
   },
 
   expireCentralSession: (error, { revoked = false } = {}) => {
     const user = get().user;
+    const oldToken = get().token;
+    const oldDeviceId = typeof oldToken === 'string' ? decodeToken(oldToken)?.did : null;
     onLogoutVoiceCallback?.();
     onLogoutNotesCallback?.();
     disconnectSocket();
-    clearSession();
+    clearSession(oldToken);
+    lockDMVault();
     // Only an explicit revocation erases DM keys; plaintext messages always go.
     // A burst of rejected requests can call this again after the user is gone.
-    if (revoked || (user && user.accountType !== 'central')) clearLocalConversationSecrets();
-    else if (user) keepConversationSecretsFor(user.id);
-    clearAllDMStorage();
+    if (revoked && user?.accountType === 'central' && typeof oldDeviceId === 'string') void forgetDMVault(user.id, oldDeviceId).catch(() => {});
+    if (user) void clearAllDMStorage(user.id);
     set({
       serverUrl: null,
       serverInfo: null,
@@ -546,6 +590,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   disconnect: () => {
+    const previousToken = get().token;
     set({
       serverUrl: null,
       serverInfo: null,
@@ -558,6 +603,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       loading: false,
       deferredLocalServerUrl: null,
     });
-    clearSession();
+    clearSession(previousToken);
+    lockDMVault();
   },
 }));

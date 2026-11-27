@@ -1,7 +1,7 @@
 {
   "name": "catrealm-client",
   "private": true,
-  "version": "1.9.6",
+  "version": "1.9.7",
   "description": "Official CatRealm client for web and desktop.",
   "license": "AGPL-3.0-or-later",
   "homepage": "https://catrealm.app",
@@ -133,6 +133,7 @@
     "eslint": "^9.39.3",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.0",
+    "fake-indexeddb": "^6.2.8",
     "globals": "^17.3.0",
     "jsdom": "^28.1.0",
     "tailwindcss": "^4.2.0",

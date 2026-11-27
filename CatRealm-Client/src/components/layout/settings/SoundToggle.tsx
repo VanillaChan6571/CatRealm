@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { playNotificationSound, getSoundCandidates, type SoundType } from '../../../lib/notificationSounds';
+import type { SettingsState } from '../../../stores/settingsStore';
+
+type SoundSettingKey = {
+  [K in keyof SettingsState]: K extends `sound${string}`
+    ? SettingsState[K] extends boolean ? K : never
+    : never;
+}[keyof SettingsState];
 
 type SoundToggleProps = {
   label: string;
-  settingKey: string;
-  settings: any;
+  settingKey: SoundSettingKey;
+  settings: SettingsState;
   setSoundSetting: (key: string, value: boolean) => void;
   setSoundVolume: (key: string, value: number) => void;
   soundType: SoundType;
@@ -20,8 +27,8 @@ export function SoundToggle({
   soundType,
 }: SoundToggleProps) {
   const { t } = useTranslation();
-  const isEnabled = settings[settingKey] as boolean;
-  const volume = (settings.soundVolumes?.[settingKey] ?? 60) as number;
+  const isEnabled = settings[settingKey];
+  const volume = settings.soundVolumes[settingKey] ?? 60;
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopTimerRef = useRef<number | null>(null);
 

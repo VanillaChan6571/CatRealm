@@ -1,3 +1,4 @@
+import type { DMSet, DMGet } from '../dm/dmHelpers';
 import { authApi } from '../../lib/authApi';
 import { useAuthStore } from '../../stores/authStore';
 import type { DMConversation, DMMessage } from '../../types';
@@ -21,7 +22,7 @@ export function resetUnreadModuleState() {
   markAsReadInflight.clear();
 }
 
-export function createDMUnreadSlice(set: any, _get: any): DMUnreadSlice {
+export function createDMUnreadSlice(set: DMSet, _get: DMGet): DMUnreadSlice {
   return {
     markAsRead: async (conversationId: string) => {
       const conversation = _get().conversations.find((c: DMConversation) => c.id === conversationId);
@@ -39,7 +40,7 @@ export function createDMUnreadSlice(set: any, _get: any): DMUnreadSlice {
           }
           localReadFloorByConversation.set(conversationId, Date.now());
 
-          set((s: any) => ({
+          set((s) => ({
             conversations: s.conversations.map((c: DMConversation) =>
               c.id === conversationId ? { ...c, unreadCount: 0 } : c
             ),
@@ -61,7 +62,7 @@ export function createDMUnreadSlice(set: any, _get: any): DMUnreadSlice {
     },
 
     applyUnreadSummary: (dmByConversation: Record<string, number>) => {
-      set((s: any) => ({
+      set((s) => ({
         conversations: s.conversations.map((conversation: DMConversation) => ({
           ...conversation,
           unreadCount: conversation.conversationKind === 'official_system'
@@ -78,7 +79,7 @@ export function createDMUnreadSlice(set: any, _get: any): DMUnreadSlice {
       let updatedMessagesForConv: DMMessage[] | null = null;
       let updatedConversation: DMConversation | null = null;
 
-      set((s: any) => {
+      set((s) => {
         const conversation = s.conversations.find((c: DMConversation) => c.id === conversationId);
         if (!conversation) return {};
 

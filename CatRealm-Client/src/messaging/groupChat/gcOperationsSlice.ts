@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../lib/apiErrors';
 import axios from 'axios';
 import { authApi } from '../../lib/authApi';
 import { useAuthStore } from '../../stores/authStore';
@@ -6,6 +7,7 @@ import type { GroupChatMessage } from '../../types';
 import { normalizeGCReactions as normalizeReactions, normalizeGCNsfwTags as normalizeNsfwTags, normalizeGCServerAttachments as normalizeServerAttachments } from '../normalizers/groupChatNormalizers';
 import { mergeAndDeduplicateMessages as mergeAndSortMessages } from '../messages/messageCacheHelpers';
 import { getAuthHeader, keyMaterialForVersion } from './gcHelpers';
+import type { GCSet, GCGet } from './gcHelpers';
 import { showUploadQuotaModal, uploadBytesHeader } from '../../lib/uploadQuota';
 import { buildSafetyMessageMetadata } from '../../lib/safetyMetadata';
 
@@ -17,7 +19,7 @@ export type GCOperationsSlice = {
   deleteMessage: (groupId: string, messageId: string) => Promise<void>;
 };
 
-export function createGCOperationsSlice(set: any, get: any): GCOperationsSlice {
+export function createGCOperationsSlice(set: GCSet, get: GCGet): GCOperationsSlice {
   return {
     sendingByGroupId: {},
   sendMessage: async (groupId: string, text: string, attachment?: File | null, nsfwTags?: string[], scheduledAt?: number) => {
@@ -27,7 +29,7 @@ export function createGCOperationsSlice(set: any, get: any): GCOperationsSlice {
     if (!groupId || (!hasText && !hasAttachment)) return;
 
     try {
-      set((s: any) => ({
+      set((s) => ({
         error: null,
         sendingByGroupId: { ...s.sendingByGroupId, [groupId]: true },
       }));
@@ -88,19 +90,19 @@ export function createGCOperationsSlice(set: any, get: any): GCOperationsSlice {
       };
 
       if (message.scheduledAt) {
-        set((s: any) => ({
+        set((s) => ({
           scheduledGCMessages: {
             ...s.scheduledGCMessages,
             [groupId]: [...(s.scheduledGCMessages[groupId] ?? []), message],
           },
         }));
       } else {
-        set((s: any) => ({
+        set((s) => ({
           messagesByGroupId: {
             ...s.messagesByGroupId,
             [groupId]: mergeAndSortMessages(s.messagesByGroupId[groupId] || [], [message]),
           },
-          groups: s.groups.map((g: any) => (g.id === groupId ? { ...g, lastMessageAt: message.createdAt, updatedAt: message.createdAt } : g)),
+          groups: s.groups.map((g) => (g.id === groupId ? { ...g, lastMessageAt: message.createdAt, updatedAt: message.createdAt } : g)),
         }));
       }
     } catch (err: unknown) {
@@ -114,7 +116,7 @@ export function createGCOperationsSlice(set: any, get: any): GCOperationsSlice {
       const msg = axios.isAxiosError(err) ? err.response?.data?.error : (err instanceof Error ? err.message : 'Failed to send message');
       set({ error: msg || 'Failed to send message' });
     } finally {
-      set((s: any) => ({ sendingByGroupId: { ...s.sendingByGroupId, [groupId]: false } }));
+      set((s) => ({ sendingByGroupId: { ...s.sendingByGroupId, [groupId]: false } }));
     }
   },
 
@@ -127,8 +129,8 @@ export function createGCOperationsSlice(set: any, get: any): GCOperationsSlice {
         { emoji: emoji.trim() },
         { headers: getAuthHeader() }
       );
-    } catch (err: any) {
-      set({ error: err?.response?.data?.error || 'Failed to toggle reaction' });
+    } catch (err) {
+      set({ error: apiErrorMessage(err, 'Failed to toggle reaction') });
     }
   },
 
@@ -151,8 +153,8 @@ export function createGCOperationsSlice(set: any, get: any): GCOperationsSlice {
         { encryptedPayload, keyVersion: detail.activeKeyVersion },
         { headers: getAuthHeader() }
       );
-    } catch (err: any) {
-      set({ error: err?.response?.data?.error || err?.message || 'Failed to edit message' });
+    } catch (err) {
+      set({ error: apiErrorMessage(err, err instanceof Error ? err.message : 'Failed to edit message') });
     }
   },
 
@@ -161,8 +163,8 @@ export function createGCOperationsSlice(set: any, get: any): GCOperationsSlice {
     try {
       set({ error: null });
       await authApi.delete(`/api/group-chats/${groupId}/messages/${messageId}`, { headers: getAuthHeader() });
-    } catch (err: any) {
-      set({ error: err?.response?.data?.error || 'Failed to delete message' });
+    } catch (err) {
+      set({ error: apiErrorMessage(err, 'Failed to delete message') });
     }
   },
 

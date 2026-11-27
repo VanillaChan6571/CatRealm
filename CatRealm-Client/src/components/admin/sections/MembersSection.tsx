@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../../lib/apiErrors';
 import { useState, useEffect } from 'react';
 import { Search, UserX, Ban } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -30,10 +31,6 @@ export function MembersSection() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   const loadData = async () => {
     try {
       setLoading(true);
@@ -50,6 +47,10 @@ export function MembersSection() {
     }
   };
 
+  useEffect(() => {
+    void loadData();
+  }, []);
+
   const handleToggleRole = async (userId: string, roleId: string, currentRoleIds: string[]) => {
     try {
       const newRoleIds = currentRoleIds.includes(roleId)
@@ -58,8 +59,8 @@ export function MembersSection() {
 
       await api.put(`/api/admin/users/${userId}/roles`, { roleIds: newRoleIds });
       await loadData();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update roles');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to update roles'));
       console.error(err);
     }
   };
@@ -71,8 +72,8 @@ export function MembersSection() {
       await api.post(`/api/admin/users/${userId}/kick`, { reason: '' });
       alert(t('admin.kicked', { username }));
       await loadData();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to kick user');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to kick user'));
       console.error(err);
     }
   };
@@ -86,8 +87,8 @@ export function MembersSection() {
       await api.post(`/api/admin/users/${userId}/ban`, { reason: '' });
       alert(t('admin.banned', { username }));
       await loadData();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to ban user');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to ban user'));
       console.error(err);
     }
   };

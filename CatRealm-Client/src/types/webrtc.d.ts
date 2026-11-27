@@ -2,10 +2,10 @@ export {};
 
 declare global {
   interface RTCRtpSender {
-    createEncodedStreams?: () => { readable: ReadableStream<any>; writable: WritableStream<any> };
+    createEncodedStreams?: () => { readable: ReadableStream<RTCEncodedAudioFrame | RTCEncodedVideoFrame>; writable: WritableStream<RTCEncodedAudioFrame | RTCEncodedVideoFrame> };
   }
 
   interface RTCRtpReceiver {
-    createEncodedStreams?: () => { readable: ReadableStream<any>; writable: WritableStream<any> };
+    createEncodedStreams?: () => { readable: ReadableStream<RTCEncodedAudioFrame | RTCEncodedVideoFrame>; writable: WritableStream<RTCEncodedAudioFrame | RTCEncodedVideoFrame> };
   }
 }

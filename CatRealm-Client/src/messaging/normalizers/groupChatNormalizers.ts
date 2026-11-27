@@ -1,5 +1,15 @@
-import type { GroupChatDetail, GroupChatKeyVersion, GroupChatMessage, GroupChatReaction, GroupChatSummary, MessageAttachment } from '../../types';
+import type { GroupChatDetail, GroupChatKeyVersion, GroupChatMessage, GroupChatReaction, GroupChatSummary, MessageAttachment, SafetyArtifactVisibility } from '../../types';
 import { decryptGroupChatMessage } from '../crypto/groupChatCrypto';
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
 
 export function normalizeDetailToSummary(detail: GroupChatDetail): GroupChatSummary {
   return {
@@ -30,16 +40,17 @@ export function normalizeGCReactions(reactions: unknown, selfId?: string | null)
   return reactions
     .map((r) => {
       if (!r || typeof r !== 'object') return null;
-      const emoji = typeof (r as any).emoji === 'string' ? (r as any).emoji : '';
+      const reaction = asRecord(r);
+      const emoji = typeof reaction.emoji === 'string' ? reaction.emoji : '';
       if (!emoji) return null;
-      const users = Array.isArray((r as any).users)
-        ? (r as any).users.filter((u: unknown): u is string => typeof u === 'string')
+      const users = Array.isArray(reaction.users)
+        ? reaction.users.filter((u: unknown): u is string => typeof u === 'string')
         : [];
       return {
         emoji,
-        count: typeof (r as any).count === 'number' ? (r as any).count : users.length,
+        count: typeof reaction.count === 'number' ? reaction.count : users.length,
         users,
-        reacted: selfId && Array.isArray((r as any).users) ? users.includes(selfId) : (r as any).reacted === true,
+        reacted: selfId && Array.isArray(reaction.users) ? users.includes(selfId) : reaction.reacted === true,
       } satisfies GroupChatReaction;
     })
     .filter((r): r is GroupChatReaction => Boolean(r));
@@ -51,29 +62,34 @@ function keyMaterialForVersion(keys: GroupChatKeyVersion[] | undefined, keyVersi
   return match?.keyMaterial ?? null;
 }
 
-export function normalizeGCMessageType(raw: any): 'user' | 'system' {
-  return (raw?.message_type ?? raw?.messageType) === 'system' ? 'system' : 'user';
+export function normalizeGCMessageType(raw: unknown): 'user' | 'system' {
+  const message = asRecord(raw);
+  return (message.message_type ?? message.messageType) === 'system' ? 'system' : 'user';
 }
 
-export function normalizeGCSystemType(raw: any): string | null {
-  const value = raw?.system_type ?? raw?.systemType;
+export function normalizeGCSystemType(raw: unknown): string | null {
+  const message = asRecord(raw);
+  const value = message.system_type ?? message.systemType;
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-export function normalizeGCSystemData(raw: any): Record<string, unknown> | null {
-  const value = raw?.system_data ?? raw?.systemData;
+export function normalizeGCSystemData(raw: unknown): Record<string, unknown> | null {
+  const message = asRecord(raw);
+  const value = message.system_data ?? message.systemData;
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
-export function normalizeGCSystemText(raw: any): string {
-  const value = raw?.system_text ?? raw?.systemText ?? raw?.content ?? raw?.text;
+export function normalizeGCSystemText(raw: unknown): string {
+  const message = asRecord(raw);
+  const value = message.system_text ?? message.systemText ?? message.content ?? message.text;
   return typeof value === 'string' ? value : '';
 }
 
-export function normalizeGCNsfwTags(raw: any): string[] {
-  const value = raw?.nsfw_tags ?? raw?.nsfwTags;
+export function normalizeGCNsfwTags(raw: unknown): string[] {
+  const message = asRecord(raw);
+  const value = message.nsfw_tags ?? message.nsfwTags;
   if (!Array.isArray(value)) return [];
   return value
     .filter((tag): tag is string => typeof tag === 'string')
@@ -81,25 +97,32 @@ export function normalizeGCNsfwTags(raw: any): string[] {
     .filter(Boolean);
 }
 
-export function normalizeGCServerAttachments(raw: any): MessageAttachment[] | null {
-  const list = raw?.attachments;
+export function normalizeGCServerAttachments(raw: unknown): MessageAttachment[] | null {
+  const list = asRecord(raw).attachments;
   if (!Array.isArray(list) || list.length === 0) return null;
-  return list.map((a: any) => ({
-    url: a.url ?? '',
-    type: a.type ?? null,
-    mime: a.mime ?? a.type ?? null,
-    size: typeof a.size === 'number' ? a.size : null,
-    name: a.name ?? null,
-    thumbnailUrl: a.thumbnailUrl ?? a.thumbnail_url ?? null,
-    thumbnail_url: a.thumbnail_url ?? a.thumbnailUrl ?? null,
-  }));
+  return list.map((entry: unknown) => {
+    const a = asRecord(entry);
+    const type = stringOrNull(a.type);
+    const thumbnailUrl = stringOrNull(a.thumbnailUrl);
+    const thumbnail_url = stringOrNull(a.thumbnail_url);
+    return {
+      url: stringOrNull(a.url) ?? '',
+      type,
+      mime: stringOrNull(a.mime) ?? type,
+      size: typeof a.size === 'number' ? a.size : null,
+      name: stringOrNull(a.name),
+      thumbnailUrl: thumbnailUrl ?? thumbnail_url,
+      thumbnail_url: thumbnail_url ?? thumbnailUrl,
+    };
+  });
 }
 
 export async function decryptServerMessage(
-  raw: any,
+  input: unknown,
   keys: GroupChatKeyVersion[] | undefined,
   fallbackMembers: GroupChatDetail['members'] | undefined,
 ): Promise<GroupChatMessage> {
+  const raw = asRecord(input);
   const messageType = normalizeGCMessageType(raw);
   const keyVersion = Number(raw.key_version ?? raw.keyVersion ?? 1);
   const keyMaterial = keyMaterialForVersion(keys, keyVersion);
@@ -126,22 +149,22 @@ export async function decryptServerMessage(
     groupChatId: String(raw.group_chat_id ?? raw.groupChatId),
     senderId,
     senderUsername: String(raw.username ?? member?.username ?? 'unknown'),
-    senderDisplayName: raw.display_name ?? raw.displayName ?? member?.displayName ?? null,
-    senderAvatar: raw.avatar ?? member?.avatar ?? null,
+    senderDisplayName: stringOrNull(raw.display_name ?? raw.displayName) ?? member?.displayName ?? null,
+    senderAvatar: stringOrNull(raw.avatar) ?? member?.avatar ?? null,
     senderIsOwner: Boolean(raw.is_owner ?? raw.isOwner ?? member?.isOwner),
     text,
     messageType,
     systemType: normalizeGCSystemType(raw),
     systemData: normalizeGCSystemData(raw),
     keyVersion,
-    attachmentUrl: raw.attachment_url ?? raw.attachmentUrl ?? null,
-    attachmentType: raw.attachment_type ?? raw.attachmentType ?? null,
-    attachmentSize: raw.attachment_size ?? raw.attachmentSize ?? null,
-    attachmentName: raw.attachment_name ?? raw.attachmentName ?? null,
+    attachmentUrl: stringOrNull(raw.attachment_url ?? raw.attachmentUrl),
+    attachmentType: stringOrNull(raw.attachment_type ?? raw.attachmentType),
+    attachmentSize: typeof (raw.attachment_size ?? raw.attachmentSize) === 'number' ? (raw.attachment_size ?? raw.attachmentSize) as number : null,
+    attachmentName: stringOrNull(raw.attachment_name ?? raw.attachmentName),
     attachments: normalizeGCServerAttachments(raw),
     nsfwTags: normalizeGCNsfwTags(raw),
     reactions: normalizeGCReactions(raw.reactions),
-    safetyArtifacts: Array.isArray(raw.safety_artifacts) ? raw.safety_artifacts : (Array.isArray(raw.safetyArtifacts) ? raw.safetyArtifacts : []),
+    safetyArtifacts: (Array.isArray(raw.safety_artifacts) ? raw.safety_artifacts : (Array.isArray(raw.safetyArtifacts) ? raw.safetyArtifacts : [])) as SafetyArtifactVisibility[],
     createdAt: Number(raw.created_at ?? raw.createdAt ?? 0) * (Number(raw.created_at ?? raw.createdAt ?? 0) < 10_000_000_000 ? 1000 : 1),
   };
 }

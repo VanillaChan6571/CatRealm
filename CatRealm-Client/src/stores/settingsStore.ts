@@ -40,7 +40,7 @@ export const THEATER_CAPTION_LANGUAGES = [
   'en', 'es', 'fr', 'de', 'pt', 'it', 'nl', 'pl', 'ru', 'uk', 'tr', 'ar', 'hi', 'id', 'vi', 'th', 'ja', 'ko', 'zh',
 ] as const;
 
-interface SettingsState {
+export interface SettingsState {
   playGifAvatars: boolean;
   showAvatarBackground: boolean;
   enableImageThumbnailing: boolean;
@@ -470,18 +470,18 @@ function loadSettings(): SettingsData {
     const result: SettingsData = { ...DEFAULT_SETTINGS };
     for (const key in DEFAULT_SETTINGS) {
       if (key in parsed && parsed[key as keyof SettingsData] !== undefined) {
-        (result as any)[key] = parsed[key as keyof SettingsData];
+        (result as unknown as Record<string, unknown>)[key] = parsed[key as keyof SettingsData];
       }
     }
 
     // Normalize legacy or malformed values from previous releases.
-    const rawTimeFormat = (result as any).timeFormat;
+    const rawTimeFormat: unknown = result.timeFormat;
     if (rawTimeFormat === 24 || rawTimeFormat === '24' || rawTimeFormat === '24h' || rawTimeFormat === '24-hour') {
       result.timeFormat = '24';
     } else {
       result.timeFormat = '12';
     }
-    const rawVoiceUserVolumes = (result as any).voiceUserVolumes;
+    const rawVoiceUserVolumes: unknown = result.voiceUserVolumes;
     const normalizedVoiceUserVolumes: Record<string, number> = {};
     if (rawVoiceUserVolumes && typeof rawVoiceUserVolumes === 'object' && !Array.isArray(rawVoiceUserVolumes)) {
       for (const [userId, rawValue] of Object.entries(rawVoiceUserVolumes as Record<string, unknown>)) {
@@ -495,7 +495,7 @@ function loadSettings(): SettingsData {
       }
     }
     result.voiceUserVolumes = normalizedVoiceUserVolumes;
-    const rawUpdateChannel = normalizeUpdateChannelId((result as any).updateChannel);
+    const rawUpdateChannel = normalizeUpdateChannelId(result.updateChannel);
     result.updateChannel = rawUpdateChannel || (result.devBuilds ? 'dev' : DEFAULT_UPDATE_CHANNEL);
     result.devBuilds = result.updateChannel !== DEFAULT_UPDATE_CHANNEL;
     if (!LANGUAGE_OPTIONS.includes(result.language as AppLanguage)) {
@@ -599,7 +599,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     const state = get();
     const snapshot: Partial<SettingsData> = {};
     for (const key in DEFAULT_SETTINGS) {
-      snapshot[key as keyof SettingsData] = state[key as keyof SettingsData] as any;
+      (snapshot as Record<string, unknown>)[key] = state[key as keyof SettingsData];
     }
     return snapshot as SettingsData;
   };
@@ -788,7 +788,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
       saveSettings({ ...getSnapshot(), notificationsEnabled: value });
     },
     setSoundSetting: (key, value) => {
-      set({ [key]: value } as any);
+      set({ [key]: value } as Partial<SettingsState>);
       saveSettings({ ...getSnapshot(), [key]: value });
     },
     setSoundVolume: (key, value) => {

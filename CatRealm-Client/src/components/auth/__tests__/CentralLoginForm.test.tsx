@@ -41,9 +41,9 @@ describe('desktop passkey login ownership', () => {
       throw new Error('Unexpected endpoint');
     });
     const view = render(<CentralLoginForm />);
+    expect(screen.getByRole('button', { name: 'Login with Passkey / Security Key' }).hasAttribute('disabled')).toBe(true);
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'Alice' } });
-    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Use passkey / security key' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Login with Passkey / Security Key' })); });
     await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
     expect(h.open).toHaveBeenCalledWith('https://auth.catrealm.app/webauthn/login/flow?secret=ceremony-only');
     expect(h.post.mock.calls.some(([url]) => url.endsWith('/status'))).toBe(true);
@@ -73,6 +73,16 @@ describe('desktop passkey login ownership', () => {
     await act(async () => { pending.resolve(result); });
     expect(h.loginWithToken).not.toHaveBeenCalled();
     expect(h.setState).not.toHaveBeenCalled();
+  });
+
+  it('lets the user cancel a passkey login that is waiting for the browser', async () => {
+    const { pending } = await beginLogin();
+    const statusRequest = h.post.mock.calls.find(([url]) => url.endsWith('/status'));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel passkey login' }));
+    expect(statusRequest?.[2].signal.aborted).toBe(true);
+    expect(screen.getByRole('button', { name: 'Login with Passkey / Security Key' })).toBeTruthy();
+    await act(async () => { pending.resolve(result); });
+    expect(h.loginWithToken).not.toHaveBeenCalled();
   });
 });
 

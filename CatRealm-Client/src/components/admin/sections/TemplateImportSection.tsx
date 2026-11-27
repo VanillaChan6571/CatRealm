@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Upload, CheckCircle, AlertCircle, Download, Link } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../../lib/api';
+import { apiErrorMessage } from '../../../lib/apiErrors';
 import {
   generateImportPreview,
   type ParsedTemplate,
@@ -44,8 +45,8 @@ export function TemplateImportSection() {
       const parsed = await api.post('/api/admin/preview-template', { template });
       setParsedTemplate(parsed);
       setError(null);
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.error || err.message || 'Failed to fetch template';
+    } catch (err) {
+      const errorMsg = apiErrorMessage(err, err instanceof Error ? err.message : 'Failed to fetch template');
       setError(errorMsg + ' — Try using Method 2 (Raw JSON) below instead.');
       console.error('Fetch error:', err);
     } finally {
@@ -61,8 +62,8 @@ export function TemplateImportSection() {
 
       const parsed = await api.post('/api/admin/preview-template', { template: JSON.parse(templateJson) });
       setParsedTemplate(parsed);
-    } catch (err: any) {
-      setValidationErrors([err.message]);
+    } catch (err) {
+      setValidationErrors([err instanceof Error ? err.message : 'Failed to validate template']);
     }
   };
 
@@ -96,8 +97,8 @@ export function TemplateImportSection() {
       setTemplateJson('');
 
       setTimeout(() => setSuccess(false), 5000);
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Failed to import template');
+    } catch (err) {
+      setError(apiErrorMessage(err, err instanceof Error ? err.message : 'Failed to import template'));
       console.error(err);
     } finally {
       setImporting(false);

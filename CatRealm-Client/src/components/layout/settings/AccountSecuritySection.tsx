@@ -13,10 +13,11 @@ import { approveSurvivingDevice } from '../../../lib/approveSurvivingDevice';
 import { ConfirmDialog } from '../../ui/ConfirmDialog';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { httpRealmGatewayEnabled } from '../../../lib/httpRealmGateway';
+import { auditCurrentDMVault, forgetDMVault, type DMVaultAudit } from '../../../lib/dmKeyVault';
 
 type BackupCode = { code: string; used: boolean };
 type BackupStatus = { generated: false } | { generated: true; total: number; remaining: number; generatedAt: number };
-type Credential = { id: string; name: string; createdAt: number; transports: string[] };
+type Credential = { id: string; name: string; createdAt: number; transports: string[]; hardwareAttested?: boolean };
 
 function getWebAuthnOriginSupport() {
   if (typeof window === 'undefined') {
@@ -53,6 +54,7 @@ function DevicesSection() {
   const { t } = useTranslation();
   const [devices, setDevices] = useState<UserDevice[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [showRemovedDevices, setShowRemovedDevices] = useState(false);
   const [revokeId, setRevokeId] = useState<string | null>(null);
   const [approveId, setApproveId] = useState<string | null>(null);
   const [retrustId, setRetrustId] = useState<string | null>(null);
@@ -67,6 +69,10 @@ function DevicesSection() {
   const [error, setError] = useState<string | null>(null);
   const currentDeviceId = getLocalDeviceId();
   const logout = useAuthStore((s) => s.logout);
+  const removedDeviceCount = devices.filter((device) => device.dmTrustState === 'revoked' || Boolean(device.revokedAt)).length;
+  const visibleDevices = showRemovedDevices
+    ? devices
+    : devices.filter((device) => device.dmTrustState !== 'revoked' && !device.revokedAt);
 
   function deviceSecurity(device: UserDevice) {
     return device.deviceSecurity || 'software_protected';
@@ -121,7 +127,9 @@ function DevicesSection() {
         pushCapable: false,
       } : d));
       if (revokeId === currentDeviceId) {
-        clearLocalDeviceIdentity();
+        const userId = useAuthStore.getState().user?.id;
+        if (userId) await forgetDMVault(userId, currentDeviceId).catch(() => {});
+        clearLocalDeviceIdentity(userId);
         logout();
         return;
       }
@@ -378,11 +386,13 @@ function DevicesSection() {
           {t('security.devicesDesc')}
         </p>
       </div>
-      {loaded && devices.length === 0 && <p className="text-xs text-text-muted">{t('security.noDevices')}</p>}
+      {loaded && visibleDevices.length === 0 && (
+        <p className="text-xs text-text-muted">{t(devices.length ? 'security.noActiveDevices' : 'security.noDevices')}</p>
+      )}
       <div className="space-y-2">
-        {devices.map((device) => {
+        {visibleDevices.map((device) => {
           const current = device.id === currentDeviceId;
-          const revoked = Boolean(device.revokedAt);
+          const revoked = device.dmTrustState === 'revoked' || Boolean(device.revokedAt);
           const currentDevice = devices.find((entry) => entry.id === currentDeviceId);
           const canApproveWithPasskey = !current
             && device.dmTrustState === 'untrusted'
@@ -401,10 +411,10 @@ function DevicesSection() {
             && !!currentDevice
             && currentDevice.dmTrustState === 'trusted';
           return (
-            <div key={device.id} className="flex items-start justify-between gap-3 px-3 py-2 rounded border border-border bg-bg-primary/40">
-              <div className="flex items-start gap-2 min-w-0">
+            <div key={device.id} className="flex min-w-0 flex-col gap-2 rounded border border-border bg-bg-primary/40 px-3 py-2">
+              <div className="flex min-w-0 items-start gap-2">
                 <Icon platform={device.platform} />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   {renameId === device.id ? (
                     <input
                       type="text"
@@ -418,22 +428,22 @@ function DevicesSection() {
                       }}
                       onBlur={() => void handleRename()}
                       disabled={loading}
-                      className="w-48 bg-bg-input border border-border rounded px-2 py-0.5 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent/50"
+                      className="w-48 max-w-full bg-bg-input border border-border rounded px-2 py-0.5 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent/50"
                     />
                   ) : (
                     <p className="text-sm text-text-primary truncate">
                       {device.deviceName} {current && <span className="text-xs text-accent">{t('security.thisDevice')}</span>}
                     </p>
                   )}
-                  <p className="text-xs text-text-muted">
+                  <p className="break-words text-xs text-text-muted">
                     {device.platform === 'web' ? t('security.webBrowser') : device.platform} · {securityLabel(device)}
                     {device.pushCapable ? ` ${t('security.pushEnabled')}` : ''}
                   </p>
-                  <p className="text-xs text-text-muted">
+                  <p className="break-words text-xs text-text-muted">
                     {t('security.firstSeen', { date: new Date(device.firstSeenAt * 1000).toLocaleDateString(), time: new Date(device.lastSeenAt * 1000).toLocaleString() })}
                   </p>
                   {current && device.dmTrustState === 'trusted' && !revoked && (
-                    <label className="mt-1 flex items-center gap-2 text-xs text-text-muted">
+                    <label className="mt-1 flex min-w-0 items-center gap-2 text-xs text-text-muted">
                       <input
                         type="checkbox"
                         checked={device.proofRequiredOnLaunch}
@@ -446,7 +456,7 @@ function DevicesSection() {
                 </div>
               </div>
               {!revoked && (
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex w-full min-w-0 flex-wrap items-center gap-1 [&>button]:max-w-full [&>button]:whitespace-normal [&>button]:break-words">
                   {current && device.dmTrustState === 'trusted' && deviceSecurity(device) === 'software_protected' && (
                     <button
                       type="button"
@@ -493,7 +503,7 @@ function DevicesSection() {
                     <>
                       {canSelfApproveWithPasskey && (
                         <>
-                        <span className="text-xs text-text-muted">If this device held a DM key before it lost trust, verify with 2FA and its existing encryption key. Keep this app’s data intact.</span>
+                        <span className="basis-full break-words text-xs text-text-muted">If this device held a DM key before it lost trust, verify with 2FA and its existing encryption key. Keep this app’s data intact.</span>
                         <input
                           aria-label="2FA code to verify this device"
                           inputMode="numeric"
@@ -502,7 +512,7 @@ function DevicesSection() {
                           value={selfApprovalCode}
                           onChange={(event) => setSelfApprovalCode(event.target.value.replace(/\D/g, ''))}
                           placeholder="6-digit 2FA code"
-                          className="px-2 py-1 rounded border border-border bg-transparent text-xs text-text-primary"
+                          className="w-28 max-w-full rounded border border-border bg-transparent px-2 py-1 text-xs text-text-primary"
                         />
                         <button
                           type="button"
@@ -518,7 +528,7 @@ function DevicesSection() {
                           disabled={selfApprovingId === device.id}
                           className="px-2 py-1 rounded border border-border text-xs text-text-muted hover:text-text-primary disabled:opacity-60"
                         >
-                          {selfApprovingId === device.id ? t('security.waiting') : t('security.approveWithPasskey')}
+                          {selfApprovingId === device.id ? t('security.waiting') : 'Self-approve with physical security key'}
                         </button>
                         </>
                       )}
@@ -552,26 +562,44 @@ function DevicesSection() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setError(null); setRevokeId(device.id); }}
-                    className="p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-danger transition-colors"
+                    onClick={() => {
+                      setError(null);
+                      setApproveId(null);
+                      setRetrustId(null);
+                      setRevokeId((selected) => selected === device.id ? null : device.id);
+                    }}
+                    aria-expanded={revokeId === device.id}
+                    disabled={loading}
+                    className="p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-danger transition-colors disabled:opacity-60"
                     aria-label={t('security.removeDevice')}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               )}
+              {revokeId === device.id && (
+                <TotpPrompt
+                  label={t('security.removeTotpPrompt')}
+                  loading={loading}
+                  onConfirm={handleRevoke}
+                  onCancel={() => { setRevokeId(null); setError(null); }}
+                  error={error}
+                />
+              )}
             </div>
           );
         })}
       </div>
-      {revokeId && (
-        <TotpPrompt
-          label={t('security.removeTotpPrompt')}
-          loading={loading}
-          onConfirm={handleRevoke}
-          onCancel={() => { setRevokeId(null); setError(null); }}
-          error={error}
-        />
+      {removedDeviceCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowRemovedDevices((shown) => !shown)}
+          className="text-xs text-text-muted underline hover:text-text-primary"
+        >
+          {showRemovedDevices
+            ? t('security.hideRemovedDevices')
+            : t('security.showRemovedDevices', { count: removedDeviceCount })}
+        </button>
       )}
       {approveId && (
         <TotpPrompt
@@ -618,7 +646,7 @@ function TotpPrompt({
   return (
     <div className="rounded border border-border bg-bg-primary/40 p-3 space-y-2">
       <p className="text-sm text-text-primary">{label}</p>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2 [&>button]:max-w-full [&>button]:whitespace-normal">
         <input
           ref={ref}
           type="text"
@@ -628,7 +656,7 @@ function TotpPrompt({
           onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
           onKeyDown={(e) => { if (e.key === 'Enter' && code.length === 6) onConfirm(code); }}
           placeholder="000000"
-          className="w-28 bg-bg-input border border-border rounded px-3 py-1.5 text-sm text-text-primary font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-accent/50"
+          className="w-28 max-w-full bg-bg-input border border-border rounded px-3 py-1.5 text-sm text-text-primary font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-accent/50"
         />
         <button
           type="button"
@@ -1020,7 +1048,7 @@ function SecurityKeysSection() {
       <div>
         <p className="text-sm font-medium text-text-primary">{t('security.securityKeys')}</p>
         <p className="text-xs text-text-muted mt-0.5">
-          {t('security.securityKeysDesc')}
+          Passkeys and security keys can sign you in. A newly enrolled, verified physical security key can also recover trust for this device.
         </p>
       </div>
 
@@ -1048,6 +1076,7 @@ function SecurityKeysSection() {
                 <div className="min-w-0">
                   <p className="text-sm text-text-primary truncate">{cred.name}</p>
                   <p className="text-xs text-text-muted">{t('security.addedDate', { date: new Date(cred.createdAt * 1000).toLocaleDateString() })}</p>
+                  <p className="text-xs text-text-muted">{cred.hardwareAttested ? 'Verified physical key · can recover device trust' : 'Passkey · sign-in and trusted-device verification'}</p>
                 </div>
               </div>
               <button
@@ -1136,7 +1165,9 @@ function DangerZoneSection() {
     setError(null);
     try {
       await createAuthenticatedApi().delete('/api/security/account', { data: { totpCode } });
-      clearLocalDeviceIdentity();
+      const userId = useAuthStore.getState().user?.id;
+      if (userId) await forgetDMVault(userId, getLocalDeviceId()).catch(() => {});
+      clearLocalDeviceIdentity(userId);
       logout();
     } catch (err: unknown) {
       const data = (err as { response?: { status?: number; data?: { error?: string; blockingGroupChats?: BlockingGroupChat[] } } })?.response;
@@ -1235,6 +1266,51 @@ function DangerZoneSection() {
   );
 }
 
+function LocalDMKeyAuditSection() {
+  const accountId = useAuthStore((state) => state.user?.id);
+  const [audit, setAudit] = useState<DMVaultAudit | null>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAudit(null);
+    setError(null);
+    setRunning(false);
+  }, [accountId]);
+
+  async function runAudit() {
+    setRunning(true);
+    setAudit(null);
+    setError(null);
+    try {
+      setAudit(await auditCurrentDMVault());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not check local DM keys.');
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div>
+      <h5 className="text-sm font-semibold text-text-primary">Local DM key check</h5>
+      <p className="mt-1 text-xs text-text-muted">Check whether this account can access the conversations named by keys in this device’s encrypted vault. This check does not move, reveal, or delete keys.</p>
+      <button type="button" onClick={() => void runAudit()} disabled={running} className="mt-3 rounded bg-accent px-3 py-2 text-xs font-medium text-white disabled:opacity-60">
+        {running ? 'Checking DM keys…' : 'Check local DM keys'}
+      </button>
+      {audit && (
+        <div role="status" className="mt-3 text-xs text-text-secondary">
+          <p>Encrypted key records: {audit.records}. Accessible to this account: {audit.accessible}. Need review: {audit.needsReview}. Could not check: {audit.couldNotCheck}.</p>
+          {audit.needsReview > 0 && <p className="mt-1 text-amber-400">Some records name conversations this account cannot access. They may belong to another account or an unavailable conversation. Keep this app’s data for review.</p>}
+          {audit.couldNotCheck > 0 && <p className="mt-1 text-amber-400">Some conversations could not be checked. Try again when Central is available.</p>}
+          {audit.records > 0 && audit.needsReview === 0 && audit.couldNotCheck === 0 && <p className="mt-1">Every local key record names a conversation accessible to this account. This does not prove which account originally saved each key.</p>}
+        </div>
+      )}
+      {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
+    </div>
+  );
+}
+
 // ── Top-level export ────────────────────────────────────────────────────────────
 export function AccountSecuritySection() {
   const { t } = useTranslation();
@@ -1274,6 +1350,9 @@ export function AccountSecuritySection() {
         </div>
         <div className="bg-bg-hover/30 p-4 rounded-lg">
           <SecurityKeysSection />
+        </div>
+        <div className="bg-bg-hover/30 p-4 rounded-lg">
+          <LocalDMKeyAuditSection />
         </div>
         <div className="bg-bg-hover/30 p-4 rounded-lg">
           <DevicesSection />

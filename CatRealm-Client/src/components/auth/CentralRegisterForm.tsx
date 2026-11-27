@@ -20,6 +20,9 @@ export function CentralRegisterForm({ onRegistered }: { onRegistered: () => void
   const [confirmAge18, setConfirmAge18] = useState(false);
   const [hcaptchaSiteKey, setHcaptchaSiteKey] = useState(isDesktopClient ? '' : DEFAULT_HCAPTCHA_SITEKEY);
   const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(!isDesktopClient && Boolean(DEFAULT_HCAPTCHA_SITEKEY));
+  const [captchaConfigLoading, setCaptchaConfigLoading] = useState(true);
+  const [captchaError, setCaptchaError] = useState('');
+  const [captchaLoading, setCaptchaLoading] = useState(false);
   const usernameValid = /^[a-zA-Z0-9_]{4,32}$/.test(username);
   const captchaRef = useRef<HCaptcha>(null);
 
@@ -46,9 +49,40 @@ export function CentralRegisterForm({ onRegistered }: { onRegistered: () => void
         }
       })
       .catch(() => {
-        // Keep local defaults if config cannot be fetched.
-      });
+        setCaptchaError('Could not load captcha settings. Please try again later.');
+      })
+      .finally(() => setCaptchaConfigLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!error || !captchaToken) return;
+    setCaptchaToken('');
+    captchaRef.current?.resetCaptcha();
+  }, [error, captchaToken]);
+
+  useEffect(() => {
+    if (!isDesktopClient || !captchaToken) return;
+    const timer = window.setTimeout(() => {
+      setCaptchaToken('');
+      setCaptchaError('Verification expired. Please verify again.');
+    }, 110_000);
+    return () => window.clearTimeout(timer);
+  }, [captchaToken, isDesktopClient]);
+
+  const handleDesktopCaptcha = async () => {
+    if (!hcaptchaSiteKey || !window.electron?.openCaptchaWindow) return;
+    setCaptchaLoading(true);
+    setCaptchaError('');
+    try {
+      const result = await window.electron.openCaptchaWindow(hcaptchaSiteKey);
+      if (result.ok && result.token) setCaptchaToken(result.token);
+      else if (result.reason !== 'cancelled') setCaptchaError(result.message || 'Verification could not load. Please try again.');
+    } catch {
+      setCaptchaError('Verification could not load. Please try again.');
+    } finally {
+      setCaptchaLoading(false);
+    }
+  };
 
   const handleStartSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,7 +193,16 @@ export function CentralRegisterForm({ onRegistered }: { onRegistered: () => void
         <label className="flex items-start gap-2"><input type="checkbox" checked={confirmAge18} onChange={(e) => setConfirmAge18(e.target.checked)} className="mt-1" /><span>I confirm that I am 18 years of age or older.</span></label>
       </div>
 
-      {captchaEnabled && hcaptchaSiteKey && (
+      {captchaEnabled && isDesktopClient && hcaptchaSiteKey && (
+        <div className="space-y-2">
+          <Button type="button" variant="secondary" className="w-full" onClick={() => void handleDesktopCaptcha()} disabled={captchaLoading}>
+            {captchaLoading ? <Spinner size="sm" /> : captchaToken ? 'Verified with hCaptcha' : 'Verify with hCaptcha'}
+          </Button>
+          {captchaToken && <p className="text-xs text-success text-center">Verification complete. Continue to create your account.</p>}
+        </div>
+      )}
+
+      {captchaEnabled && !isDesktopClient && hcaptchaSiteKey && (
         <div className="flex justify-center">
           <HCaptcha
             ref={captchaRef}
@@ -171,12 +214,14 @@ export function CentralRegisterForm({ onRegistered }: { onRegistered: () => void
         </div>
       )}
 
+      {captchaError && <p className="text-sm text-danger">{captchaError}</p>}
+
       {error && <p className="text-sm text-danger">{error}</p>}
 
       <Button
         type="submit"
         className="w-full"
-        disabled={loading || !usernameValid || !acceptPrivacy || !acceptTerms || !confirmAge18 || (captchaEnabled && !!hcaptchaSiteKey && !captchaToken)}
+        disabled={loading || captchaConfigLoading || !!captchaError || !usernameValid || !acceptPrivacy || !acceptTerms || !confirmAge18 || (captchaEnabled && (!hcaptchaSiteKey || !captchaToken))}
       >
         {loading ? <Spinner size="sm" /> : 'Continue'}
       </Button>

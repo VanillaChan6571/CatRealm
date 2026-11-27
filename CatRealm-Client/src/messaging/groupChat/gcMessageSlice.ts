@@ -1,9 +1,11 @@
+import { apiErrorMessage } from '../../lib/apiErrors';
 import { authApi } from '../../lib/authApi';
 import { useAuthStore } from '../../stores/authStore';
 import type { GroupChatMessage, GroupChatReaction } from '../../types';
 import { normalizeGCReactions as normalizeReactions, decryptServerMessage } from '../normalizers/groupChatNormalizers';
 import { mergeAndDeduplicateMessages as mergeAndSortMessages } from '../messages/messageCacheHelpers';
 import { getAuthHeader } from './gcHelpers';
+import type { GCSet, GCGet } from './gcHelpers';
 
 export type GCMessageSlice = {
   messagesByGroupId: Record<string, GroupChatMessage[]>;
@@ -12,18 +14,18 @@ export type GCMessageSlice = {
   loadMessages: (groupId: string) => Promise<void>;
   loadOlderMessages: (groupId: string) => Promise<void>;
   markAsRead: (groupId: string) => Promise<void>;
-  handleIncomingMessage: (payload: any) => Promise<void>;
-  handleMessageUpdate: (payload: any) => Promise<void>;
+  handleIncomingMessage: (payload: Record<string, unknown>) => Promise<void>;
+  handleMessageUpdate: (payload: Record<string, unknown>) => Promise<void>;
   handleMessageDelete: (payload: { groupChatId: string; messageId: string }) => void;
   handleReactionUpdate: (payload: { groupChatId: string; messageId: string; reactions: GroupChatReaction[] }) => void;
 };
 
-export function createGCMessageSlice(set: any, get: any): GCMessageSlice {
+export function createGCMessageSlice(set: GCSet, get: GCGet): GCMessageSlice {
   return {
     messagesByGroupId: {}, loadingMessagesByGroupId: {}, hasOlderByGroupId: {},
   loadMessages: async (groupId: string) => {
     if (!groupId) return;
-    set((s: any) => ({ loadingMessagesByGroupId: { ...s.loadingMessagesByGroupId, [groupId]: true } }));
+    set((s) => ({ loadingMessagesByGroupId: { ...s.loadingMessagesByGroupId, [groupId]: true } }));
     try {
       if (!get().groupKeysById[groupId]?.length) {
         await get().loadGroupKeys(groupId);
@@ -39,15 +41,15 @@ export function createGCMessageSlice(set: any, get: any): GCMessageSlice {
       for (const raw of rawMessages) {
         messages.push(await decryptServerMessage(raw, keys, detail?.members));
       }
-      set((s: any) => ({
+      set((s) => ({
         messagesByGroupId: { ...s.messagesByGroupId, [groupId]: messages },
         hasOlderByGroupId: { ...s.hasOlderByGroupId, [groupId]: rawMessages.length >= 50 },
       }));
       await get().markAsRead(groupId);
-    } catch (err: any) {
-      set({ error: err?.response?.data?.error || 'Failed to load group messages' });
+    } catch (err) {
+      set({ error: apiErrorMessage(err, 'Failed to load group messages') });
     } finally {
-      set((s: any) => ({ loadingMessagesByGroupId: { ...s.loadingMessagesByGroupId, [groupId]: false } }));
+      set((s) => ({ loadingMessagesByGroupId: { ...s.loadingMessagesByGroupId, [groupId]: false } }));
     }
   },
 
@@ -55,7 +57,7 @@ export function createGCMessageSlice(set: any, get: any): GCMessageSlice {
     const existing = get().messagesByGroupId[groupId] || [];
     const earliestCreatedAt = existing[0]?.createdAt;
     if (!earliestCreatedAt) return;
-    set((s: any) => ({ loadingMessagesByGroupId: { ...s.loadingMessagesByGroupId, [groupId]: true } }));
+    set((s) => ({ loadingMessagesByGroupId: { ...s.loadingMessagesByGroupId, [groupId]: true } }));
     try {
       if (!get().groupKeysById[groupId]?.length) {
         await get().loadGroupKeys(groupId);
@@ -71,17 +73,17 @@ export function createGCMessageSlice(set: any, get: any): GCMessageSlice {
       for (const raw of rawMessages) {
         older.push(await decryptServerMessage(raw, keys, detail?.members));
       }
-      set((s: any) => ({
+      set((s) => ({
         messagesByGroupId: {
           ...s.messagesByGroupId,
           [groupId]: mergeAndSortMessages(s.messagesByGroupId[groupId] || [], older),
         },
         hasOlderByGroupId: { ...s.hasOlderByGroupId, [groupId]: rawMessages.length >= 50 },
       }));
-    } catch (err: any) {
-      set({ error: err?.response?.data?.error || 'Failed to load older messages' });
+    } catch (err) {
+      set({ error: apiErrorMessage(err, 'Failed to load older messages') });
     } finally {
-      set((s: any) => ({ loadingMessagesByGroupId: { ...s.loadingMessagesByGroupId, [groupId]: false } }));
+      set((s) => ({ loadingMessagesByGroupId: { ...s.loadingMessagesByGroupId, [groupId]: false } }));
     }
   },
 
@@ -89,15 +91,15 @@ export function createGCMessageSlice(set: any, get: any): GCMessageSlice {
     if (!groupId) return;
     try {
       await authApi.post(`/api/group-chats/${groupId}/mark-read`, {}, { headers: getAuthHeader() });
-      set((s: any) => ({
-        groups: s.groups.map((g: any) => (g.id === groupId ? { ...g, unreadCount: 0 } : g)),
+      set((s) => ({
+        groups: s.groups.map((g) => (g.id === groupId ? { ...g, unreadCount: 0 } : g)),
       }));
     } catch {
       // best effort
     }
   },
 
-  handleIncomingMessage: async (payload: any) => {
+  handleIncomingMessage: async (payload: Record<string, unknown>) => {
     const groupId = typeof payload?.groupChatId === 'string' ? payload.groupChatId : '';
     if (!groupId) return;
     try {
@@ -127,7 +129,7 @@ export function createGCMessageSlice(set: any, get: any): GCMessageSlice {
         get().groupKeysById[groupId],
         detail?.members,
       );
-      set((s: any) => {
+      set((s) => {
         const isActive = s.activeGroupId === groupId;
         const currentUserId = useAuthStore.getState().user?.id;
         const isSystemMessage = msg.messageType === 'system';
@@ -136,7 +138,7 @@ export function createGCMessageSlice(set: any, get: any): GCMessageSlice {
             ...s.messagesByGroupId,
             [groupId]: mergeAndSortMessages(s.messagesByGroupId[groupId] || [], [msg]),
           },
-          groups: s.groups.map((g: any) => g.id === groupId
+          groups: s.groups.map((g) => g.id === groupId
             ? {
                 ...g,
                 lastMessageAt: msg.createdAt,
@@ -154,7 +156,7 @@ export function createGCMessageSlice(set: any, get: any): GCMessageSlice {
     }
   },
 
-  handleMessageUpdate: async (payload: any) => {
+  handleMessageUpdate: async (payload: Record<string, unknown>) => {
     const groupId = typeof payload?.groupChatId === 'string' ? payload.groupChatId : '';
     if (!groupId) return;
     try {
@@ -184,10 +186,10 @@ export function createGCMessageSlice(set: any, get: any): GCMessageSlice {
         get().groupKeysById[groupId],
         detail?.members,
       );
-      set((s: any) => ({
+      set((s) => ({
         messagesByGroupId: {
           ...s.messagesByGroupId,
-          [groupId]: mergeAndSortMessages((s.messagesByGroupId[groupId] || []).filter((m: any) => m.id !== msg.id), [msg]),
+          [groupId]: mergeAndSortMessages((s.messagesByGroupId[groupId] || []).filter((m) => m.id !== msg.id), [msg]),
         },
       }));
     } catch {
@@ -197,20 +199,20 @@ export function createGCMessageSlice(set: any, get: any): GCMessageSlice {
 
   handleMessageDelete: ({ groupChatId, messageId }) => {
     if (!groupChatId || !messageId) return;
-    set((s: any) => ({
+    set((s) => ({
       messagesByGroupId: {
         ...s.messagesByGroupId,
-        [groupChatId]: (s.messagesByGroupId[groupChatId] || []).filter((m: any) => m.id !== messageId),
+        [groupChatId]: (s.messagesByGroupId[groupChatId] || []).filter((m) => m.id !== messageId),
       },
     }));
   },
 
   handleReactionUpdate: ({ groupChatId, messageId, reactions }) => {
     if (!groupChatId || !messageId) return;
-    set((s: any) => ({
+    set((s) => ({
       messagesByGroupId: {
         ...s.messagesByGroupId,
-        [groupChatId]: (s.messagesByGroupId[groupChatId] || []).map((m: any) => (
+        [groupChatId]: (s.messagesByGroupId[groupChatId] || []).map((m) => (
           m.id === messageId ? { ...m, reactions: normalizeReactions(reactions, useAuthStore.getState().user?.id) } : m
         )),
       },

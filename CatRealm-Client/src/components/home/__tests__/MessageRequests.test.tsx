@@ -12,7 +12,7 @@ beforeEach(() => {
   useDMStore.setState({ conversations: [
     { id: '1', otherUserId: 'alice', otherUsername: 'Alice', requestState: 'pending' },
     { id: '2', otherUserId: 'bob', otherUsername: 'Bob', requestState: 'accepted' },
-  ] as any });
+  ] as unknown as ReturnType<typeof useDMStore.getState>['conversations'] });
 });
 afterEach(cleanup);
 it('shows only requests; preview does not accept; accepting invokes the recipient decision', async () => {
@@ -30,7 +30,7 @@ it('displays decline failures and supports accepting a previously declined reque
   render(<MessageRequests onOpen={vi.fn()} />);
   fireEvent.click(screen.getByText('Decline'));
   expect((await screen.findByRole('alert')).textContent).toContain('Could not update');
-  act(() => useDMStore.setState({ conversations: [{ id: '1', otherUserId: 'alice', otherUsername: 'Alice', requestState: 'declined' }] as any }));
+  act(() => useDMStore.setState({ conversations: [{ id: '1', otherUserId: 'alice', otherUsername: 'Alice', requestState: 'declined' }] as unknown as ReturnType<typeof useDMStore.getState>['conversations'] }));
   expect(screen.queryByText('Decline')).toBeNull();
   fireEvent.click(screen.getByText('Accept'));
   await waitFor(() => expect(actions.respond).toHaveBeenLastCalledWith('alice', 'accept'));

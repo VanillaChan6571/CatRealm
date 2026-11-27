@@ -2076,6 +2076,7 @@ type MobilePasskeyCredential = {
   createdAt: number;
   transports: string[];
   rpId?: string;
+  hardwareAttested?: boolean;
 };
 
 function passkeyErrorMessage(err: unknown, fallback: string) {
@@ -2225,7 +2226,7 @@ function AccountPasskeysSection() {
       <View style={[styles.card, { backgroundColor: theme.colors.bgElev1, borderRadius: theme.radius.lg, marginHorizontal: theme.spacing.lg }]}>
         <View style={[styles.infoBlock, { gap: 8 }]}>
           <Text variant="bodySmall" color={theme.colors.text3}>
-            {t('settings.passkeysDesc')}
+            Passkeys and security keys can sign you in. A newly enrolled, verified physical security key can also recover trust for this device.
           </Text>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <Pressable haptic onPress={() => void registerPasskey()} disabled={registering} style={[styles.smallActionBtn, { borderColor: theme.colors.lineSoft }]}>
@@ -2249,6 +2250,9 @@ function AccountPasskeysSection() {
               <Text variant="body" numberOfLines={1}>{credential.name || 'Passkey'}</Text>
               <Text variant="bodySmall" color={theme.colors.text3}>
                 {credential.rpId || 'auth.catrealm.app'} · {t('settings.passkeyAdded')} {new Date(credential.createdAt * 1000).toLocaleDateString()}
+              </Text>
+              <Text variant="bodySmall" color={theme.colors.text3}>
+                {credential.hardwareAttested ? 'Verified physical security key · can recover device trust' : 'Passkey · sign-in and trusted-device verification'}
               </Text>
             </View>
             <Pressable haptic onPress={() => void removePasskey(credential.id)} disabled={removingId === credential.id} style={{ padding: 8 }}>
@@ -2563,7 +2567,7 @@ function AccountDevicesSection() {
                     style={[styles.smallActionBtn, { alignSelf: 'flex-start', marginTop: 8, borderColor: theme.colors.lineSoft }]}
                   >
                     <Text variant="bodySmall" color={theme.colors.text2}>
-                      {selfApprovingId === device.id ? t('settings.waitingPasskey') : t('settings.approveWithPasskey')}
+                      {selfApprovingId === device.id ? t('settings.waitingPasskey') : 'Self-approve with physical security key'}
                     </Text>
                   </Pressable>
                   </>

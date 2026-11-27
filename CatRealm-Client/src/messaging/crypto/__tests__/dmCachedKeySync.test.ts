@@ -13,6 +13,10 @@ vi.mock('../../../lib/deviceIdentity', () => ({
   getLocalDmPrivateKey: vi.fn(),
 }));
 vi.mock('../../persistence/dmStorage', () => ({ getAllConversations: mock.getAllConversations }));
+vi.mock('../../../lib/dmKeyVault', () => ({
+  getVaultConversationSecret: vi.fn().mockResolvedValue('cached-secret'),
+  saveVaultConversationSecret: vi.fn(),
+}));
 
 import { canRequestPeerKeyRecovery, loadConversationSecretForCurrentDevice, needsProofToShareDMKey, reconcileConversationKeys, syncTrustedDeviceKeysForConversation, useDMKeyHealthStore, type DMKeyManifest } from '../dmKeyStore';
 
@@ -35,8 +39,6 @@ beforeEach(() => {
 
 describe('cached DM key reads', () => {
   it('does not fetch a manifest for every decrypted message, while reconciliation still checks peers', async () => {
-    localStorage.setItem('catrealm.dm-conversation-secret.conversation.1', 'cached-secret');
-
     for (let index = 0; index < 50; index++) {
       await expect(loadConversationSecretForCurrentDevice('conversation', 1)).resolves.toBe('cached-secret');
     }

@@ -65,7 +65,7 @@ export async function createWindowsAppAudioStream(sourceId: string): Promise<App
       resolveStartupProbe?.();
     }
   };
-  let unsubscribeStatus = window.electron.onAppAudioCaptureStatus?.((payload) => {
+  const unsubscribeStatus = window.electron.onAppAudioCaptureStatus?.((payload) => {
     if (!activeCaptureId) {
       pendingStatusMessages.push(payload);
       return;
@@ -86,7 +86,7 @@ export async function createWindowsAppAudioStream(sourceId: string): Promise<App
   }
   activeCaptureId = started.captureId;
   let earlyStop: AppAudioCaptureStopPayload | null = null;
-  let unsubscribeStartupStopped = window.electron.onAppAudioCaptureStopped?.((payload) => {
+  const unsubscribeStartupStopped = window.electron.onAppAudioCaptureStopped?.((payload) => {
     if (payload.captureId !== started.captureId) return;
     earlyStop = {
       code: payload.code,

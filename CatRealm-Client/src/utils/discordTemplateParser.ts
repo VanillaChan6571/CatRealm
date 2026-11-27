@@ -80,7 +80,7 @@ export interface DiscordChannel {
   parent_id?: string | null;
   topic?: string;
   nsfw?: boolean;
-  permission_overwrites?: any[];
+  permission_overwrites?: unknown[];
 }
 
 export interface DiscordTemplate {
@@ -106,7 +106,7 @@ export interface ParsedChannel {
   parentId: string | null;
   description?: string;
   nsfw?: boolean;
-  permissionOverwrites?: any[];
+  permissionOverwrites?: unknown[];
 }
 
 export interface ParsedTemplate {
@@ -220,13 +220,14 @@ export function mapDiscordPermissions(discordPerms: string | number): number {
 /**
  * Validates a Discord template JSON structure
  */
-export function validateTemplate(template: any): { valid: boolean; errors: string[] } {
+export function validateTemplate(input: unknown): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
-  if (!template || typeof template !== 'object') {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
     errors.push('Template must be a valid JSON object');
     return { valid: false, errors };
   }
+  const template = input as Record<string, unknown>;
 
   if (typeof template.name !== 'string' || template.name.trim().length === 0) {
     errors.push('Template must have a valid name');
@@ -242,7 +243,8 @@ export function validateTemplate(template: any): { valid: boolean; errors: strin
 
   // Validate roles structure
   if (Array.isArray(template.roles)) {
-    template.roles.forEach((role: any, index: number) => {
+    template.roles.forEach((entry: unknown, index: number) => {
+      const role = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {};
       if (!role.name || typeof role.name !== 'string') {
         errors.push(`Role at index ${index} is missing a valid name`);
       }
@@ -251,7 +253,8 @@ export function validateTemplate(template: any): { valid: boolean; errors: strin
 
   // Validate channels structure
   if (Array.isArray(template.channels)) {
-    template.channels.forEach((channel: any, index: number) => {
+    template.channels.forEach((entry: unknown, index: number) => {
+      const channel = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {};
       if (!channel.name || typeof channel.name !== 'string') {
         errors.push(`Channel at index ${index} is missing a valid name`);
       }
@@ -273,7 +276,7 @@ export function parseDiscordTemplate(json: string): ParsedTemplate {
 
   try {
     template = JSON.parse(json);
-  } catch (error) {
+  } catch {
     throw new Error('Invalid JSON format');
   }
 
@@ -405,18 +408,19 @@ export function generateImportPreview(parsed: ParsedTemplate): string {
   lines.push('');
 
   lines.push(`**Channels to Import:** ${parsed.channels.length}`);
-  const nsfwChannels = parsed.channels.filter((c: any) => c.nsfw);
-  const channelsWithOverwrites = parsed.channels.filter((c: any) => c.permissionOverwrites?.length > 0);
+  const nsfwChannels = parsed.channels.filter((c) => c.nsfw);
+  const channelsWithOverwrites = parsed.channels.filter((c) => (c.permissionOverwrites?.length ?? 0) > 0);
   if (nsfwChannels.length > 0) {
     lines.push(`  (${nsfwChannels.length} NSFW channels)`);
   }
   if (channelsWithOverwrites.length > 0) {
     lines.push(`  (${channelsWithOverwrites.length} channels with permission overwrites)`);
   }
-  parsed.channels.forEach((ch: any) => {
+  parsed.channels.forEach((ch) => {
     const typeIcon = ch.type === 'voice' ? '🔊' : ch.type === 'announcement' ? '📢' : ch.type === 'forum' ? '💬' : '#';
     const nsfwBadge = ch.nsfw ? ' 🔞' : '';
-    const overwriteBadge = ch.permissionOverwrites?.length > 0 ? ` [${ch.permissionOverwrites.length} overwrites]` : '';
+    const overwriteCount = ch.permissionOverwrites?.length ?? 0;
+    const overwriteBadge = overwriteCount > 0 ? ` [${overwriteCount} overwrites]` : '';
     lines.push(`  • ${typeIcon}${ch.name}${nsfwBadge}${overwriteBadge}`);
   });
 

@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../../lib/apiErrors';
 import { useState, useEffect } from 'react';
 import type { DragEvent } from 'react';
 import { ChevronDown, ChevronRight, Copy, Eye, GripVertical, MoreHorizontal, Pencil, Plus, Save, Search, Shield, Trash2, Upload, Users, X } from 'lucide-react';
@@ -100,12 +101,6 @@ export function RolesSection() {
   });
 
   useEffect(() => {
-    loadRoles();
-    loadUsers();
-    loadRoleCategories();
-  }, []);
-
-  useEffect(() => {
     const handleWindowClick = () => setOpenRoleMenuId(null);
     window.addEventListener('click', handleWindowClick);
     return () => window.removeEventListener('click', handleWindowClick);
@@ -158,6 +153,12 @@ export function RolesSection() {
       console.error('Failed to load role categories:', err);
     }
   };
+
+  useEffect(() => {
+    void loadRoles();
+    void loadUsers();
+    void loadRoleCategories();
+  }, []);
 
   const handleEndRoleView = async () => {
     try {
@@ -219,8 +220,8 @@ export function RolesSection() {
       });
       setShowCreateForm(false);
       await loadRoles();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to create role');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to create role'));
       console.error(err);
     }
   };
@@ -252,8 +253,8 @@ export function RolesSection() {
         }
         return { ...entry, ...role };
       }));
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update role');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to update role'));
       console.error(err);
       throw err;
     }
@@ -278,8 +279,8 @@ export function RolesSection() {
         return next;
       });
       await loadRoles();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to delete role');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to delete role'));
       console.error(err);
     }
   };
@@ -377,8 +378,8 @@ export function RolesSection() {
       } else {
         await loadRoles();
       }
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to upload icon');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to upload icon'));
       console.error(err);
     }
   };
@@ -391,8 +392,8 @@ export function RolesSection() {
         if (!prev[roleId]) return prev;
         return { ...prev, [roleId]: { ...prev[roleId], icon: null } };
       });
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to remove icon');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to remove icon'));
       console.error(err);
     }
   };
@@ -408,8 +409,8 @@ export function RolesSection() {
       setNewCategoryName('');
       setShowCreateCategoryForm(false);
       await loadRoleCategories();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to create role category');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to create role category'));
       console.error(err);
     }
   };
@@ -418,7 +419,7 @@ export function RolesSection() {
     try {
       await navigator.clipboard.writeText(roleId);
       alert(t('admin.roleIdCopied'));
-    } catch (_err) {
+    } catch {
       alert(`Failed to copy role ID. Role ID: ${roleId}`);
     }
   };

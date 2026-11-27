@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../lib/apiErrors';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Link as LinkIcon, Copy, CheckCircle, ChevronDown, Check } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
@@ -152,8 +153,8 @@ export function CreateInviteModal() {
       }
 
       setInviteUrl(resolvedInviteUrl);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create invite');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to create invite'));
     } finally {
       setLoading(false);
     }

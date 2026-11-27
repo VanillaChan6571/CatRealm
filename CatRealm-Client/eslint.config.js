@@ -19,5 +19,16 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // The client does not currently run React Compiler. Keep its migration
+      // guidance visible without blocking the existing client lint gate.
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/refs': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/immutability': 'warn',
+      'react-hooks/preserve-manual-memoization': 'warn',
+      // Mixed utility/component exports affect development Fast Refresh only.
+      'react-refresh/only-export-components': 'warn',
+    },
   },
 ])

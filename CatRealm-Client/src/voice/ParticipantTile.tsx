@@ -54,7 +54,6 @@ function getStatusLabel(
   isDeafened: boolean,
   isSharing: boolean,
   rtcState: RtcState,
-  _context: string,
 ): { label: string; className: string } {
   if (isSharing) return { label: 'Live', className: 'text-fuchsia-300' };
   if (isDeafened) return { label: 'Deafened', className: 'text-amber-300' };
@@ -78,7 +77,6 @@ export function ParticipantTile({
   volumePct = 100,
   onVolumeChange,
   rtcState = 'connected',
-  context: _context,
   isHost = false,
   isSharing = false,
   isCameraEnabled = false,
@@ -115,7 +113,7 @@ export function ParticipantTile({
       : `${baseTileBorderClass} shadow-[0_0_14px_rgba(168,85,247,0.55)]`)
     : baseTileBorderClass;
   const avatarRingClass = getAvatarRingClass(isSpeaking, isMuted, isDeafened);
-  const status = getStatusLabel(isSpeaking, isMuted, isDeafened, isSharing, rtcState, _context);
+  const status = getStatusLabel(isSpeaking, isMuted, isDeafened, isSharing, rtcState);
 
   return (
     <div

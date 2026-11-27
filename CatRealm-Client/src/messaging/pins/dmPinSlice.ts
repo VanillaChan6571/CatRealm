@@ -1,3 +1,4 @@
+import type { DMSet, DMGet } from '../dm/dmHelpers';
 import { authApi } from '../../lib/authApi';
 import type { DMMessage } from '../../types';
 import { decodeDmMessageText, normalizeDmMessageType, normalizeDmServerAttachments, normalizeDmNsfwTags } from '../normalizers/dmNormalizers';
@@ -18,7 +19,7 @@ export interface DMPinSlice {
   handleDmPinUpdate: (payload: { conversationId: string; messageId: string; pinned: boolean }) => void;
 }
 
-export function createDMPinSlice(set: any, get: any): DMPinSlice {
+export function createDMPinSlice(set: DMSet, get: DMGet): DMPinSlice {
   return {
     dmPinsByConversation: {},
 
@@ -61,7 +62,7 @@ export function createDMPinSlice(set: any, get: any): DMPinSlice {
             },
           });
         }
-        set((s: any) => ({
+        set((s) => ({
           dmPinsByConversation: { ...s.dmPinsByConversation, [conversationId]: entries },
         }));
       } catch (err) {
@@ -84,7 +85,7 @@ export function createDMPinSlice(set: any, get: any): DMPinSlice {
         void get().fetchDmPins(conversationId);
         return;
       }
-      set((s: any) => {
+      set((s) => {
         const existing = s.dmPinsByConversation[conversationId];
         if (!existing) return {};
         return {

@@ -2502,6 +2502,22 @@ handleAppIpc('open-passkey-window', async (_event, url) => {
     return { ok: false, reason: 'unsupported_origin' };
   }
 
+  // The hosted ceremony is bound to a one-time flow, while the private poll
+  // secret remains in the app. On macOS the system browser offers the native
+  // passkey and hardware-key UI; a modal Electron sheet can fail to appear.
+  if (process.platform === 'darwin') {
+    try {
+      await shell.openExternal(parsed.toString());
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: 'open_failed',
+        message: error instanceof Error ? error.message : 'Could not open the system browser.',
+      };
+    }
+  }
+
   const parent = BrowserWindow.fromWebContents(_event.sender) ?? undefined;
   const child = new BrowserWindow({
     width: 500,
@@ -2524,8 +2540,86 @@ handleAppIpc('open-passkey-window', async (_event, url) => {
   child.webContents.on('will-navigate', restrictAuthNavigation);
   child.webContents.on('will-redirect', restrictAuthNavigation);
   child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  child.loadURL(parsed.toString());
-  return { ok: true };
+  try {
+    await child.loadURL(parsed.toString());
+    if (child.isDestroyed()) return { ok: false, reason: 'closed', message: 'The passkey window closed before it loaded.' };
+    child.show();
+    child.focus();
+    return { ok: true };
+  } catch (error) {
+    if (!child.isDestroyed()) child.destroy();
+    return {
+      ok: false,
+      reason: 'load_failed',
+      message: error instanceof Error ? error.message : 'Could not load the passkey window.',
+    };
+  }
+});
+
+handleAppIpc('open-captcha-window', async (event, siteKey) => {
+  if (typeof siteKey !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(siteKey)) {
+    return { ok: false, reason: 'invalid_site_key', message: 'Captcha is not configured.' };
+  }
+
+  const captchaUrl = new URL('https://catrealm.app/desktop-captcha/');
+  captchaUrl.searchParams.set('sitekey', siteKey);
+  const isCaptchaUrl = (value) => {
+    try {
+      const url = new URL(value);
+      return url.origin === captchaUrl.origin && url.pathname === captchaUrl.pathname;
+    } catch { return false; }
+  };
+  const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+  const child = new BrowserWindow({
+    width: 460,
+    height: 600,
+    minWidth: 420,
+    minHeight: 520,
+    title: 'CatRealm Registration Verification',
+    parent,
+    modal: Boolean(parent),
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      preload: path.join(__dirname, 'captcha-preload.cjs'),
+      partition: `catrealm-captcha-${Date.now()}`,
+    },
+  });
+  const restrictNavigation = (navigationEvent, nextUrl) => {
+    if (!isCaptchaUrl(nextUrl)) navigationEvent.preventDefault();
+  };
+  child.webContents.on('will-navigate', restrictNavigation);
+  child.webContents.on('will-redirect', restrictNavigation);
+  child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      ipcMain.removeListener('desktop-captcha-result', onResult);
+      ipcMain.removeListener('desktop-captcha-cancel', onCancel);
+      if (!child.isDestroyed()) child.destroy();
+      resolve(result);
+    };
+    const isTrustedCaptchaFrame = (messageEvent) => messageEvent.sender === child.webContents
+      && messageEvent.senderFrame === child.webContents.mainFrame
+      && isCaptchaUrl(messageEvent.senderFrame?.url);
+    const onResult = (messageEvent, token) => {
+      if (!isTrustedCaptchaFrame(messageEvent)) return;
+      if (typeof token !== 'string' || token.length < 20 || token.length > 8192) return;
+      finish({ ok: true, token });
+    };
+    const onCancel = (messageEvent) => {
+      if (isTrustedCaptchaFrame(messageEvent)) finish({ ok: false, reason: 'cancelled' });
+    };
+    ipcMain.on('desktop-captcha-result', onResult);
+    ipcMain.on('desktop-captcha-cancel', onCancel);
+    child.on('closed', () => finish({ ok: false, reason: 'cancelled' }));
+    child.loadURL(captchaUrl.toString()).catch(() => finish({ ok: false, reason: 'load_failed', message: 'Could not load captcha verification.' }));
+  });
 });
 
 // ─── OBS Voice Overlay HTTP/SSE Server ───────────────────────────────────────

@@ -1,4 +1,3 @@
-import { clearLocalConversationSecrets } from './centralDeviceCredentials';
 import { createAuthenticatedApi } from './authApi';
 import { x25519 } from '@noble/curves/ed25519.js';
 
@@ -80,15 +79,18 @@ export function getLocalDeviceId() {
   return id;
 }
 
-export function clearLocalDeviceIdentity() {
-  clearLocalConversationSecrets();
+export function clearLocalDeviceIdentity(userId?: string) {
   const deviceId = localStorage.getItem(DEVICE_ID_KEY);
+  // Old unlabelled plaintext DM keys may belong to another account on this
+  // installation. Device removal cannot safely erase them without review.
   if (deviceId) {
     // Only this device id's keys: other accounts' devices on this machine keep theirs.
     localStorage.removeItem(deviceKeyStorageKey(DEVICE_DM_PRIVATE_KEY, deviceId));
     localStorage.removeItem(deviceKeyStorageKey(DEVICE_NOTIFICATION_PRIVATE_KEY, deviceId));
   }
-  localStorage.removeItem('catrealm.device-session-secret');
+  // The session proof secret can also identify another account's device on
+  // this browser; a scoped removal must leave it available for that account.
+  if (!userId) localStorage.removeItem('catrealm.device-session-secret');
   localStorage.removeItem(DEVICE_ID_KEY);
   localStorage.removeItem(DEVICE_NAME_KEY);
   localStorage.removeItem(DEVICE_DM_PRIVATE_KEY);

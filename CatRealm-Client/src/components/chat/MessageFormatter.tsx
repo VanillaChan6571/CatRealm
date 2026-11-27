@@ -860,6 +860,7 @@ export function MessageFormatter({
         while (i < text.length) {
           // Handle sentinel inline image \x00imgN\x00
           if (text[i] === '\x00') {
+            // eslint-disable-next-line no-control-regex -- NUL delimiters identify inline image sentinels.
             const sentinelMatch = /^\x00img(\d+)\x00/.exec(text.slice(i));
             if (sentinelMatch) {
               if (i > plainStart) {

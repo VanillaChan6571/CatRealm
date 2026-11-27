@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../lib/apiErrors';
 import { useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -28,8 +29,8 @@ export function TemplateImportConfirmModal({
       await api.post('/api/admin/generate-import-token');
 
       alert('Token generated! Check your server console for the verification token.');
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to generate token');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to generate token'));
     } finally {
       setGeneratingToken(false);
     }

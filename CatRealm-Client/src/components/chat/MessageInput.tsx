@@ -1199,7 +1199,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
 
   const handleVoiceAutoDeleteConfirm = useCallback((expiresAt: number | null) => {
     if (!activeChannelId || !pendingVoiceAttachment) return;
-    const { uploadResult } = pendingVoiceAttachment as any;
+    const { uploadResult } = pendingVoiceAttachment;
     if (!uploadResult) return;
     sendMessage(
       activeChannelId,

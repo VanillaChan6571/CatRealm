@@ -59,6 +59,9 @@ interface DMDatabase extends DBSchema {
 }
 
 let dbInstance: IDBPDatabase<DMDatabase> | null = null;
+let dbInstanceName: string | null = null;
+let openEpoch = 0;
+let openingName: string | null = null;
 
 /**
  * Initialize IndexedDB for DMs
@@ -67,7 +70,10 @@ let dbInstance: IDBPDatabase<DMDatabase> | null = null;
 export async function initDMStorage(userId: string): Promise<void> {
   const dbName = `catrealm-dms-${userId}`;
 
-  dbInstance = await openDB<DMDatabase>(dbName, 2, {
+  if (dbInstance && dbInstanceName === dbName) return;
+  const epoch = ++openEpoch;
+  openingName = dbName;
+  const opened = await openDB<DMDatabase>(dbName, 2, {
     upgrade(db, oldVersion) {
       // If upgrading from old version, delete old stores
       if (oldVersion < 2) {
@@ -93,6 +99,11 @@ export async function initDMStorage(userId: string): Promise<void> {
       }
     },
   });
+  if (epoch !== openEpoch) { opened.close(); return; }
+  dbInstance?.close();
+  dbInstance = opened;
+  dbInstanceName = dbName;
+  openingName = null;
 }
 
 /**
@@ -231,21 +242,21 @@ export async function markConversationAsRead(conversationId: string): Promise<vo
 /**
  * Clear all DM IndexedDB databases (useful for logout)
  */
-export async function clearAllDMStorage(): Promise<void> {
+export async function clearAllDMStorage(userId: string): Promise<void> {
   try {
-    // Close current connection
-    if (dbInstance) {
+    const dbName = `catrealm-dms-${userId}`;
+    if (openingName === dbName) { openEpoch++; openingName = null; }
+    if (dbInstance && dbInstanceName === dbName) {
       dbInstance.close();
       dbInstance = null;
+      dbInstanceName = null;
     }
-
-    // Delete all DM databases
-    const databases = await indexedDB.databases();
-    for (const db of databases) {
-      if (db.name?.startsWith('catrealm-dms-')) {
-        indexedDB.deleteDatabase(db.name);
-      }
-    }
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(dbName);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error('Another tab is using DM storage'));
+    });
   } catch (err) {
     console.error('[DM Storage] Failed to clear all DM storage:', err);
   }

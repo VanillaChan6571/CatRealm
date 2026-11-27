@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from '../stores/authStore';
-import { decodeToken, saveSession } from '../utils/token';
+import { decodeToken, saveSession, loadSession } from '../utils/token';
 import { getCentralDeviceHeaders } from './centralDeviceCredentials';
 export { getCentralDeviceHeaders } from './centralDeviceCredentials';
 
@@ -55,10 +55,8 @@ function getTokenExpiryMs(token: string | null): number | null {
 
 function getRequestBearerToken(error: unknown): string | null {
   if (!axios.isAxiosError(error)) return null;
-  const headers = error.config?.headers as any;
-  const auth = typeof headers?.get === 'function'
-    ? headers.get('Authorization')
-    : (headers?.Authorization ?? headers?.authorization);
+  const headers = error.config?.headers;
+  const auth = headers?.get?.('Authorization') ?? headers?.Authorization ?? headers?.authorization;
   if (typeof auth !== 'string') return null;
   const match = auth.match(/^Bearer\s+(.+)$/i);
   return match?.[1] ?? null;
@@ -68,8 +66,9 @@ function persistFreshCentralToken(token: string) {
   const state = useAuthStore.getState();
   const user = state.user;
   if (user?.accountType !== 'central') return;
+  if (loadSession()?.token !== state.token) return;
   useAuthStore.setState({ token });
-  saveSession(token, null, user, state.syncKey);
+  saveSession(token, null, user, state.syncKey, true);
 }
 
 async function refreshCentralSession(): Promise<string | null> {

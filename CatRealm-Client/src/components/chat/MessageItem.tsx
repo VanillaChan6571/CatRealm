@@ -145,6 +145,10 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
     );
   }
 
+  return <RegularMessageItem key={message.id} message={message} showHeader={showHeader} isHighlighted={isHighlighted} isScheduled={isScheduled} />;
+});
+
+function RegularMessageItem({ message, showHeader, isHighlighted, isScheduled }: MessageItemProps) {
   const user = useAuthStore((s) => s.user);
   const serverUrl = useAuthStore((s) => s.serverUrl);
   const requestEdit = useMessageStore((s) => s.requestEdit);
@@ -222,10 +226,6 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
       editRef.current.selectionStart = editRef.current.value.length;
     }
   }, [editing]);
-
-  useEffect(() => {
-    setMediaRevealed(false);
-  }, [message.id]);
 
   // Listen for the edit event dispatched from the mobile action drawer
   useEffect(() => {
@@ -772,4 +772,4 @@ export const MessageItem = memo(function MessageItem({ message, showHeader, isHi
       )}
     </>
   );
-});
+}

@@ -923,7 +923,7 @@ function isDeviceScreenShareCapture(track: MediaStreamTrack | null) {
 function getMediaTrackCapabilitiesSnapshot(track: MediaStreamTrack | null) {
   if (!track || typeof track.getCapabilities !== 'function') return null;
   try {
-    const capabilities = track.getCapabilities() as Record<string, any>;
+    const capabilities = track.getCapabilities() as Record<string, unknown>;
     const range = (value: unknown) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
       const record = value as Record<string, unknown>;
@@ -1652,6 +1652,17 @@ function percent(numerator: number | null, denominator: number | null) {
   return Math.round((numerator / denominator) * 1000) / 10;
 }
 
+type InspectedRTCStats = RTCStats & {
+  kind?: string;
+  mediaType?: string;
+  frameWidth?: number;
+  selectedCandidatePairId?: string;
+  selected?: boolean;
+  nominated?: boolean;
+  state?: string;
+  trackIdentifier?: string;
+};
+
 async function getScreenShareRawStats(
   sender: RTCRtpSender | undefined,
   streamId: string | undefined,
@@ -1669,24 +1680,25 @@ async function getScreenShareRawStats(
   let codec: ExtendedCodecStats | null = null;
   let selectedCandidatePairId: string | undefined;
 
-  report.forEach((entry: any) => {
-    if (entry.type === 'outbound-rtp' && (entry.kind === 'video' || entry.mediaType === 'video')) {
-      if (!outbound || entry.id === streamId || (entry.frameWidth ?? 0) > (outbound.frameWidth ?? 0)) {
-        outbound = entry as ExtendedOutboundVideoStats;
+  report.forEach((entry) => {
+    const stat = entry as InspectedRTCStats;
+    if (stat.type === 'outbound-rtp' && (stat.kind === 'video' || stat.mediaType === 'video')) {
+      if (!outbound || stat.id === streamId || (stat.frameWidth ?? 0) > (outbound.frameWidth ?? 0)) {
+        outbound = stat as ExtendedOutboundVideoStats;
       }
     }
-    if (entry.type === 'transport' && typeof entry.selectedCandidatePairId === 'string') {
-      selectedCandidatePairId = entry.selectedCandidatePairId;
+    if (stat.type === 'transport' && typeof stat.selectedCandidatePairId === 'string') {
+      selectedCandidatePairId = stat.selectedCandidatePairId;
     }
     if (
-      entry.type === 'candidate-pair'
-      && (entry.selected === true || entry.nominated === true || entry.id === selectedCandidatePairId)
-      && entry.state !== 'failed'
+      stat.type === 'candidate-pair'
+      && (stat.selected === true || stat.nominated === true || stat.id === selectedCandidatePairId)
+      && stat.state !== 'failed'
     ) {
-      candidatePair = entry as ExtendedCandidatePairStats;
+      candidatePair = stat as ExtendedCandidatePairStats;
     }
-    if (entry.type === 'media-source' && (entry.kind === 'video' || entry.trackIdentifier === captureTrack?.id)) {
-      mediaSource = entry as ExtendedVideoSourceStats;
+    if (stat.type === 'media-source' && (stat.kind === 'video' || stat.trackIdentifier === captureTrack?.id)) {
+      mediaSource = stat as ExtendedVideoSourceStats;
     }
   });
 
@@ -1709,10 +1721,11 @@ async function getScreenShareReceiverRawStats(receiver: RTCRtpReceiver | undefin
   let inbound: ExtendedInboundVideoStats | null = null;
   let codec: ExtendedCodecStats | null = null;
 
-  report.forEach((entry: any) => {
-    if (entry.type === 'inbound-rtp' && (entry.kind === 'video' || entry.mediaType === 'video')) {
-      if (!inbound || (entry.frameWidth ?? 0) > (inbound.frameWidth ?? 0)) {
-        inbound = entry as ExtendedInboundVideoStats;
+  report.forEach((entry) => {
+    const stat = entry as InspectedRTCStats;
+    if (stat.type === 'inbound-rtp' && (stat.kind === 'video' || stat.mediaType === 'video')) {
+      if (!inbound || (stat.frameWidth ?? 0) > (inbound.frameWidth ?? 0)) {
+        inbound = stat as ExtendedInboundVideoStats;
       }
     }
   });
@@ -1971,7 +1984,7 @@ function publishScreenShareWatchersSnapshot(
 }
 
 function playConfiguredScreenShareViewerSound(soundType: SoundType, settingKey: ScreenShareViewerSoundSettingKey) {
-  const settings = useSettingsStore.getState() as Record<string, any>;
+  const settings = useSettingsStore.getState();
   const soundsDisabled = settings.streamerMode && settings.streamerModeDisableSounds;
   if (soundsDisabled || !settings.notificationsEnabled) return;
   if (!settings[settingKey]) return;

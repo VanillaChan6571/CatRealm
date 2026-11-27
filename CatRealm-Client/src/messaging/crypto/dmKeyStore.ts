@@ -3,11 +3,11 @@ import { x25519 } from '@noble/curves/ed25519.js';
 import { createAuthenticatedApi } from '../../lib/authApi';
 import { getLocalDeviceId, getLocalDmPrivateKey } from '../../lib/deviceIdentity';
 import { getAllConversations } from '../persistence/dmStorage';
+import { getVaultConversationSecret, saveVaultConversationSecret } from '../../lib/dmKeyVault';
 
 import { bytesToBase64, base64ToBytes } from './base64';
 import { logDMKeyDebug, logDMKeyError } from './dmKeyDebug';
 
-const STORAGE_PREFIX = 'catrealm.dm-conversation-secret.';
 const RECENT_DEVICE_TRUST_MS = 24 * 60 * 60 * 1000;
 
 // Surfaces silent key-upload failures: when this device holds a conversation
@@ -147,11 +147,11 @@ function isParticipantUnreadyError(err: unknown): boolean {
   return response?.status === 409 && response?.data?.code === 'DM_V2_PARTICIPANT_UNREADY';
 }
 
-export function getLocalConversationSecret(conversationId: string, keyVersion: number): string | null {
-  return localStorage.getItem(`${STORAGE_PREFIX}${conversationId}.${keyVersion}`);
+export async function getLocalConversationSecret(conversationId: string, keyVersion: number): Promise<string | null> {
+  return getVaultConversationSecret(conversationId, keyVersion);
 }
 export async function createSurvivorTrustProof(request: DMKeyRecoveryRequest): Promise<string> {
-  const secret = getLocalConversationSecret(request.conversationId, request.keyVersion)
+  const secret = await getLocalConversationSecret(request.conversationId, request.keyVersion)
     ?? await loadConversationSecretForCurrentDevice(request.conversationId, request.keyVersion);
   if (!secret) throw new Error('This device cannot read the DM key needed to verify the other device.');
   const raw = base64ToBytes(secret);
@@ -160,8 +160,8 @@ export async function createSurvivorTrustProof(request: DMKeyRecoveryRequest): P
   const message = new TextEncoder().encode(`catrealm:dm-survivor-trust:v1:${request.id}:${request.conversationId}:${request.keyVersion}:${request.requesterUserId}:${request.requesterDeviceId}`);
   return bytesToBase64(new Uint8Array(await crypto.subtle.sign('HMAC', key, message)));
 }
-function saveLocalConversationSecret(conversationId: string, keyVersion: number, secret: string) {
-  localStorage.setItem(`${STORAGE_PREFIX}${conversationId}.${keyVersion}`, secret);
+async function saveLocalConversationSecret(conversationId: string, keyVersion: number, secret: string) {
+  await saveVaultConversationSecret(conversationId, keyVersion, secret);
 }
 
 async function wrapSecretForDevice(secretBase64: string, recipientPublicKeyBase64: string, conversationId: string, keyVersion: number) {
@@ -231,12 +231,12 @@ export async function ensureNewConversationSecret(conversationId: string): Promi
     if (isParticipantUnreadyError(err)) return null;
     throw err;
   }
-  saveLocalConversationSecret(conversationId, keyVersion, secret);
+  await saveLocalConversationSecret(conversationId, keyVersion, secret);
   return { secret, keyVersion };
 }
 
 export async function loadConversationSecretForCurrentDevice(conversationId: string, keyVersion: number): Promise<string | null> {
-  const existing = getLocalConversationSecret(conversationId, keyVersion);
+  const existing = await getLocalConversationSecret(conversationId, keyVersion);
   if (existing) {
     return existing;
   }
@@ -270,7 +270,7 @@ export async function loadConversationSecretForCurrentDevice(conversationId: str
     logDMKeyError('Failed to unwrap conversation key', error, { conversationId, keyVersion, deviceId });
     throw error;
   }
-  saveLocalConversationSecret(conversationId, keyVersion, secret);
+  await saveLocalConversationSecret(conversationId, keyVersion, secret);
   logDMKeyDebug('Conversation key unwrapped and cached', { conversationId, keyVersion, deviceId });
   void syncTrustedDeviceKeysForConversation(conversationId, keyVersion, secret).catch((error) => {
     logDMKeyError('Trusted-device key sync failed', error, { conversationId, keyVersion });
@@ -373,7 +373,7 @@ export async function syncKnownConversationKeys() {
   await Promise.allSettled(conversations.map(async (conversation) => {
     const manifest = await fetchDMKeyManifest(conversation.id);
     if (manifest.activeKeyVersion == null) return;
-    const secret = getLocalConversationSecret(conversation.id, manifest.activeKeyVersion);
+    const secret = await getLocalConversationSecret(conversation.id, manifest.activeKeyVersion);
     if (!secret) return;
     await backfillMissingTrustedDeviceKeys(manifest, secret);
   }));
@@ -392,7 +392,7 @@ export async function reconcileConversationKeys(onMissingKey?: (conversationId: 
     try {
       const manifest = await fetchDMKeyManifest(conversation.id);
       if (manifest.activeKeyVersion == null) continue;
-      const hadLocalSecret = Boolean(getLocalConversationSecret(conversation.id, manifest.activeKeyVersion));
+      const hadLocalSecret = Boolean(await getLocalConversationSecret(conversation.id, manifest.activeKeyVersion));
       const secret = await loadConversationSecretForCurrentDevice(conversation.id, manifest.activeKeyVersion).catch(() => null);
       if (!secret) onMissingKey?.(conversation.id);
       else if (hadLocalSecret) await syncTrustedDeviceKeysForConversation(conversation.id, manifest.activeKeyVersion, secret);

@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../../lib/apiErrors';
 import { useState, useEffect } from 'react';
 import { Save, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -43,11 +44,6 @@ export function OverviewSection({ onSettingsChange }: OverviewSectionProps) {
   }>({});
   const serverUrl = useAuthStore((s) => s.serverUrl);
 
-  useEffect(() => {
-    loadSettings();
-    loadServerInfo();
-  }, []);
-
   const loadSettings = async () => {
     try {
       setLoading(true);
@@ -74,6 +70,11 @@ export function OverviewSection({ onSettingsChange }: OverviewSectionProps) {
     }
   };
 
+  useEffect(() => {
+    void loadSettings();
+    void loadServerInfo();
+  }, []);
+
   const handleSave = async () => {
     try {
       setSaving(true);
@@ -88,8 +89,8 @@ export function OverviewSection({ onSettingsChange }: OverviewSectionProps) {
       if (onSettingsChange) {
         onSettingsChange();
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to save settings');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to save settings'));
       console.error(err);
     } finally {
       setSaving(false);
@@ -122,8 +123,8 @@ export function OverviewSection({ onSettingsChange }: OverviewSectionProps) {
       } else {
         setSettings((prev) => ({ ...prev, serverBanner: res.data.serverBanner ?? null }));
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error || `Failed to upload server ${type}`);
+    } catch (err) {
+      setError(apiErrorMessage(err, `Failed to upload server ${type}`));
     } finally {
       setUploading(false);
     }
@@ -148,8 +149,8 @@ export function OverviewSection({ onSettingsChange }: OverviewSectionProps) {
       } else {
         setSettings((prev) => ({ ...prev, serverBanner: null }));
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error || `Failed to remove server ${type}`);
+    } catch (err) {
+      setError(apiErrorMessage(err, `Failed to remove server ${type}`));
     } finally {
       setUploading(false);
     }

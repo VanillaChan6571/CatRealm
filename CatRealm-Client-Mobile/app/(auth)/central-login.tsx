@@ -23,6 +23,7 @@ export default function CentralLoginScreen() {
   const [totpCode, setTotpCode] = useState('');
 
   const centralLogin = useAuthStore((s) => s.centralLogin);
+  const centralPasskeyLogin = useAuthStore((s) => s.centralPasskeyLogin);
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
   const loading = useAuthStore((s) => s.loading);
@@ -146,6 +147,21 @@ export default function CentralLoginScreen() {
                 {t('auth.signIn')}
               </Text>
             )}
+          </Pressable>
+
+          <Pressable
+            haptic
+            onPress={() => { clearError(); void centralPasskeyLogin(username.trim()); }}
+            disabled={loading || !username.trim()}
+            style={[styles.btn, {
+              borderWidth: 1,
+              borderColor: theme.colors.line,
+              borderRadius: theme.radius.lg,
+            }]}
+          >
+            <Text variant="subtitle" color={loading || !username.trim() ? theme.colors.text3 : theme.colors.text}>
+              {t('auth.signInWithPasskey', { defaultValue: 'Login with Security Key / Passkey' })}
+            </Text>
           </Pressable>
 
           <Text variant="caption" color={theme.colors.text3} style={{ textAlign: 'center' }}>

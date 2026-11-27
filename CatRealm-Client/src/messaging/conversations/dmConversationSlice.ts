@@ -1,3 +1,4 @@
+import type { DMSet, DMGet } from '../dm/dmHelpers';
 import { createAuthenticatedApi } from '../../lib/authApi';
 import { useAuthStore } from '../../stores/authStore';
 import type { DMConversation } from '../../types';
@@ -31,7 +32,7 @@ export function resetConversationModuleState() {
   loadConversationsInflight = null;
 }
 
-export function createDMConversationSlice(set: any, get: any): DMConversationSlice {
+export function createDMConversationSlice(set: DMSet, get: DMGet): DMConversationSlice {
   return {
     conversations: [],
     activeConversationId: null,
@@ -78,7 +79,7 @@ export function createDMConversationSlice(set: any, get: any): DMConversationSli
           })) });
           const { dmViewOpen, activeConversationId } = get();
           if (dmViewOpen && activeConversationId && !isAppInBackground()) {
-            set((s: any) => ({
+            set((s) => ({
               conversations: s.conversations.map((c: DMConversation) =>
                 c.id === activeConversationId ? { ...c, unreadCount: 0 } : c
               ),
@@ -124,7 +125,7 @@ export function createDMConversationSlice(set: any, get: any): DMConversationSli
           };
           await saveConversation(conversation);
           if (useAuthStore.getState().user?.id !== accountId) return;
-          set({ conversations: [conversation, ...get().conversations.filter((c: DMConversation) => c.id !== conversation.id)] });
+          set({ conversations: [conversation, ...get().conversations.filter((c: DMConversation) => c.id !== conversationId)] });
         } catch (err) {
           console.error('[DM Store] Failed to open conversation:', err);
           if (useAuthStore.getState().user?.id === accountId) set({ error: 'Could not open this conversation. The user may not accept messages from you.' });

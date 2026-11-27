@@ -9,8 +9,10 @@ import {
 } from '../voice/VoiceStateIcons';
 import { useTranslation } from 'react-i18next';
 import {
+  useCallback,
   useEffect,
   useRef,
+  useState,
   type ButtonHTMLAttributes,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -114,6 +116,8 @@ export function VoiceFloatingBar() {
   const stopVoiceCamera = useMediaStore((s) => s.stopCamera);
 
   const barRef = useRef<HTMLDivElement | null>(null);
+  const hideTimerRef = useRef<number | null>(null);
+  const [autoHidden, setAutoHidden] = useState(false);
   const channel = channels.find((c) => c.id === voiceChannelId);
   const channelPermissions = channel?.effective_permissions;
   const canShareVideo = !!channel && (
@@ -145,11 +149,40 @@ export function VoiceFloatingBar() {
     pressPushToTalk();
   };
 
+  const clearHideTimer = useCallback(() => {
+    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = null;
+  }, []);
+  const scheduleHide = useCallback((delayMs = 6000) => {
+    clearHideTimer();
+    hideTimerRef.current = window.setTimeout(() => {
+      if (barRef.current?.contains(document.activeElement)) return;
+      setAutoHidden(true);
+    }, delayMs);
+  }, [clearHideTimer]);
+
   useEffect(() => {
-    if (!barRef.current) return;
-  }, [voiceChannelId]);
+    scheduleHide();
+    return clearHideTimer;
+  }, [voiceChannelId, scheduleHide, clearHideTimer]);
 
   if (!voiceChannelId) return null;
+
+  if (autoHidden) {
+    return (
+      <button
+        type="button"
+        className="fixed left-1/2 -translate-x-1/2 z-50 rounded-t-lg border border-border bg-bg-elevated/95 px-4 py-1 text-xs font-medium text-text-secondary shadow-lg hover:text-text-primary"
+        style={{ bottom: 'var(--mobile-dock-offset, 0px)' }}
+        onPointerEnter={() => { setAutoHidden(false); scheduleHide(); }}
+        onClick={() => { setAutoHidden(false); scheduleHide(); }}
+        aria-label="Show voice controls"
+        title="Show voice controls"
+      >
+        Voice controls
+      </button>
+    );
+  }
 
   return (
     <div
@@ -157,6 +190,10 @@ export function VoiceFloatingBar() {
       style={{ bottom: 'calc(20px + var(--mobile-dock-offset, 0px))' }}
       data-debug-name="Voice Floating Bar"
       data-debug-file="src/components/layout/VoiceFloatingBar.tsx"
+      onPointerEnter={clearHideTimer}
+      onPointerLeave={() => scheduleHide(2000)}
+      onFocus={clearHideTimer}
+      onBlur={() => scheduleHide(2000)}
     >
       <div
         ref={barRef}

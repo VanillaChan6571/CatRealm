@@ -28,7 +28,7 @@ function readJSON<T>(key: string): T[] {
   try { return JSON.parse(localStorage.getItem(key) ?? '[]') as T[]; } catch { return []; }
 }
 function writeJSON<T>(key: string, items: T[]) {
-  try { localStorage.setItem(key, JSON.stringify(items)); } catch {}
+  try { localStorage.setItem(key, JSON.stringify(items)); } catch { /* Storage may be unavailable. */ }
 }
 
 // ── DM ────────────────────────────────────────────────────────────────────────

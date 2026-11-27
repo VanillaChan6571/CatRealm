@@ -3,6 +3,7 @@ export interface ServerInfo {
   description: string;
   mode: 'central_only' | 'mixed' | 'decentral_only';
   registrationOpen: boolean;
+  localTotpAuth?: boolean;
   userCount: number;
   mentionAlias?: string;
   defaultRoleName?: string | null;

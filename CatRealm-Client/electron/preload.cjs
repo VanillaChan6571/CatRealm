@@ -106,6 +106,7 @@ if (process.isMainFrame) contextBridge.exposeInMainWorld('electron', {
   },
   setAdFrameMounted: (mounted) => ipcRenderer.invoke('ad-frame-mounted', mounted === true),
   openPasskeyWindow: (url) => ipcRenderer.invoke('open-passkey-window', url),
+  openCaptchaWindow: (siteKey) => ipcRenderer.invoke('open-captcha-window', siteKey),
   onUpdateStatus: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const handler = (_event, status) => callback(status);

@@ -19,7 +19,6 @@ type CentralLoginFormProps = {
 export function CentralLoginForm({ initialUsername = '', onSession }: CentralLoginFormProps = {}) {
   const [username, setUsername] = useState(initialUsername);
   const [totpCode, setTotpCode] = useState('');
-  const [hasPasskey, setHasPasskey] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const { centralLogin, centralLoginWithToken, loading: storeLoading, error: storeError, clearError: clearStoreError } = useAuthStore();
   const [switchLoading, setSwitchLoading] = useState(false);
@@ -42,22 +41,6 @@ export function CentralLoginForm({ initialUsername = '', onSession }: CentralLog
       passkeyAbort.current?.abort();
     };
   }, []);
-
-  // Detect if the user has registered security keys (debounced on username change)
-  useEffect(() => {
-    if (!username.trim()) return;
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const desktop = Boolean(window.electron?.openPasskeyWindow);
-        const path = desktop ? 'desktop/login/available' : 'login-options';
-        const res = await axios.post(`${AUTH_BASE}/api/security/webauthn/${path}`, { username: username.trim() }, { signal: controller.signal });
-        if (controller.signal.aborted) return;
-        setHasPasskey(desktop ? res.data.available === true : Array.isArray(res.data.allowCredentials) && res.data.allowCredentials.length > 0);
-      } catch { if (!controller.signal.aborted) setHasPasskey(false); }
-    }, 500);
-    return () => { controller.abort(); clearTimeout(timer); };
-  }, [username]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,6 +82,9 @@ export function CentralLoginForm({ initialUsername = '', onSession }: CentralLog
     try {
       if (window.electron?.openPasskeyWindow) {
         const headers = getCentralDeviceHeaders();
+        const available = await axios.post(`${AUTH_BASE}/api/security/webauthn/desktop/login/available`, { username: username.trim() }, { signal: controller.signal });
+        if (!isCurrentAttempt()) return;
+        if (available.data.available !== true) throw new Error('No passkey or security key is registered for this account. Use your authenticator code.');
         const start = await axios.post(`${AUTH_BASE}/api/security/webauthn/desktop/login/start`, { username: username.trim() }, { headers, signal: controller.signal });
         if (!isCurrentAttempt()) return;
         const opened = await window.electron.openPasskeyWindow(new URL(start.data.url, AUTH_BASE).toString());
@@ -123,6 +109,9 @@ export function CentralLoginForm({ initialUsername = '', onSession }: CentralLog
       }
       const optionsRes = await axios.post(`${AUTH_BASE}/api/security/webauthn/login-options`, { username: username.trim() }, { signal: controller.signal });
       if (!isCurrentAttempt()) return;
+      if (!Array.isArray(optionsRes.data.allowCredentials) || optionsRes.data.allowCredentials.length === 0) {
+        throw new Error('No passkey or security key is registered for this account. Use your authenticator code.');
+      }
       const authResp = await startAuthentication({ optionsJSON: optionsRes.data });
       if (!isCurrentAttempt()) return;
       const verifyRes = await axios.post(`${AUTH_BASE}/api/security/webauthn/login-verify`, {
@@ -141,6 +130,12 @@ export function CentralLoginForm({ initialUsername = '', onSession }: CentralLog
     } finally { if (mounted.current && attempt === passkeyAttempt.current) setPasskeyLoading(false); }
   };
 
+  const cancelPasskeyLogin = () => {
+    passkeyAttempt.current++;
+    passkeyAbort.current?.abort();
+    setPasskeyLoading(false);
+  };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <Input
@@ -148,7 +143,6 @@ export function CentralLoginForm({ initialUsername = '', onSession }: CentralLog
         value={username}
         onChange={(e) => {
           setUsername(e.target.value);
-          setHasPasskey(false);
           if (error) clearError();
         }}
         autoFocus
@@ -179,16 +173,20 @@ export function CentralLoginForm({ initialUsername = '', onSession }: CentralLog
         {loading ? <Spinner size="sm" /> : 'Log In'}
       </Button>
 
-      {hasPasskey && (
-        <Button
-          type="button"
-          variant="secondary"
-          className="w-full"
-          onClick={() => void handlePasskeyLogin()}
-          disabled={loading || passkeyLoading || !username.trim()}
-        >
-          {passkeyLoading ? <Spinner size="sm" /> : 'Use passkey / security key'}
-        </Button>
+      <Button
+        type="button"
+        variant="secondary"
+        className="w-full"
+        onClick={() => void handlePasskeyLogin()}
+        disabled={loading || passkeyLoading || !username.trim()}
+      >
+        {passkeyLoading ? <><Spinner size="sm" /> Waiting for passkey sign-in</> : 'Login with Passkey / Security Key'}
+      </Button>
+      {passkeyLoading && (
+        <div className="text-center space-y-2">
+          <p className="text-xs text-text-secondary">Complete sign-in in the opened browser or window.</p>
+          <button type="button" className="text-xs text-accent hover:underline" onClick={cancelPasskeyLogin}>Cancel passkey login</button>
+        </div>
       )}
     </form>
   );

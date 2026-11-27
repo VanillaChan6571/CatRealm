@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../../lib/apiErrors';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ScrollText,
@@ -27,7 +28,7 @@ interface AuditLogEntry {
   target_id: string | null;
   target_type: string | null;
   channel_id: string | null;
-  details: any;
+  details: unknown;
   created_at: number;
 }
 
@@ -127,16 +128,16 @@ function formatActionType(actionType: string) {
     .join(' ');
 }
 
-function formatDetailValue(value: any): string {
+function formatDetailValue(value: unknown): string {
   if (value === null || value === undefined) return '—';
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }
 
-function DetailsBlock({ details }: { details: any }) {
+function DetailsBlock({ details }: { details: unknown }) {
   if (!details || typeof details !== 'object') return null;
 
-  const { changes, before, after, ...rest } = details;
+  const { changes, before, after, ...rest } = details as Record<string, unknown>;
   const rows: { label: string; value: string }[] = [];
 
   for (const [key, value] of Object.entries(rest)) {
@@ -146,7 +147,8 @@ function DetailsBlock({ details }: { details: any }) {
     rows.push({ label: 'Change', value: `${formatDetailValue(before)} → ${formatDetailValue(after)}` });
   }
   if (changes && typeof changes === 'object') {
-    for (const [field, change] of Object.entries<any>(changes)) {
+    for (const [field, rawChange] of Object.entries(changes)) {
+      const change = rawChange && typeof rawChange === 'object' ? rawChange as Record<string, unknown> : {};
       rows.push({
         label: formatActionType(field),
         value: `${formatDetailValue(change?.before)} → ${formatDetailValue(change?.after)}`,
@@ -218,8 +220,8 @@ export function AuditLogSection() {
         setUsersMap((prev) => ({ ...prev, ...(data.users || {}) }));
         setCursor(data.cursor ?? null);
         setTotal(data.total ?? 0);
-      } catch (err: any) {
-        setError(err.response?.data?.error || 'Failed to load audit log');
+      } catch (err) {
+        setError(apiErrorMessage(err, 'Failed to load audit log'));
         console.error('Failed to load audit log:', err);
       } finally {
         setLoading(false);
@@ -237,7 +239,7 @@ export function AuditLogSection() {
     // Members list feeds the actor filter; requires MANAGE_ROLES, so ignore failures.
     api
       .get('/api/admin/users')
-      .then((data) => setMembers(data.map((m: any) => ({ id: m.id, username: m.username, avatar: m.avatar }))))
+      .then((data) => setMembers(data.map((m: MemberOption) => ({ id: m.id, username: m.username, avatar: m.avatar }))))
       .catch(() => {});
     api
       .get('/api/moderation/audit-log/retention')
@@ -301,8 +303,8 @@ export function AuditLogSection() {
       setRetentionSaving(true);
       await api.put('/api/moderation/audit-log/retention', { retention_days: value });
       setRetentionDays(value);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to update retention');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to update retention'));
     } finally {
       setRetentionSaving(false);
     }

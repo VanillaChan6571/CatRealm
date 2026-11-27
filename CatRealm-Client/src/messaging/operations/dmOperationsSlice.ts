@@ -1,3 +1,4 @@
+import type { DMSet, DMGet } from '../dm/dmHelpers';
 import axios from 'axios';
 import { authApi } from '../../lib/authApi';
 import { useAuthStore } from '../../stores/authStore';
@@ -33,7 +34,7 @@ export type DMOperationsSlice = {
   deleteMessage: (messageId: string) => Promise<void>;
 };
 
-export function createDMOperationsSlice(set: any, get: any): DMOperationsSlice {
+export function createDMOperationsSlice(set: DMSet, get: DMGet): DMOperationsSlice {
   return {
     sendMessage: async (otherUserId, text, attachments, nsfwTags, voiceExpiresAt, scheduledAt) => {
       const filesArray: File[] = !attachments ? [] : Array.isArray(attachments) ? attachments : [attachments];
@@ -115,7 +116,7 @@ export function createDMOperationsSlice(set: any, get: any): DMOperationsSlice {
             voiceExpiresAt: serverMessage.voice_expires_at ?? null,
             scheduledAt: serverMessage.scheduled_at,
           };
-          set((s: any) => ({
+          set((s) => ({
             loading: false,
             scheduledDMs: {
               ...s.scheduledDMs,
@@ -143,7 +144,7 @@ export function createDMOperationsSlice(set: any, get: any): DMOperationsSlice {
 
         await saveMessage(dmMessage);
 
-        set((s: any) => {
+        set((s) => {
           const existing = s.messagesByConversation[conversation.id] || [];
           if (existing.some((m: DMMessage) => m.id === dmMessage.id)) return { loading: false };
           return {
@@ -164,7 +165,7 @@ export function createDMOperationsSlice(set: any, get: any): DMOperationsSlice {
           } : {}),
         };
         await saveConversation(updatedConversation);
-        set((s: any) => ({
+        set((s) => ({
           conversations: s.conversations.map((c: DMConversation) =>
             c.id === conversation.id ? updatedConversation : c
           ),
@@ -193,7 +194,7 @@ export function createDMOperationsSlice(set: any, get: any): DMOperationsSlice {
 
     applyReactionUpdate: (messageId, reactions) => {
       const normalized = normalizeDmReactions(reactions, useAuthStore.getState().user?.id);
-      set((s: any) => {
+      set((s) => {
         const next = { ...s.messagesByConversation };
         let found = false;
         for (const convId of Object.keys(next)) {
@@ -231,7 +232,7 @@ export function createDMOperationsSlice(set: any, get: any): DMOperationsSlice {
         if (!provisioned) throw new Error('Secure messaging is not ready. Both participants need an approved device before editing.');
         const encryptedPayload = await encryptDMV2(trimmed, provisioned.secret, targetMessage.conversationId, provisioned.keyVersion);
         await authApi.patch(`/api/dms/${messageId}`, { encryptedPayload }, { headers: getAuthHeader() });
-        set((s: any) => {
+        set((s) => {
           const next = { ...s.messagesByConversation };
           for (const convId of Object.keys(next)) {
             const idx = next[convId].findIndex((m: DMMessage) => m.id === messageId);

@@ -457,7 +457,7 @@ export function ProfileSettingsModal() {
     setContentSocialLoaded(false);
     devUnlockCountRef.current = 0;
     setDevPanelVisible(false);
-  }, [activeModal, modalData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeModal, modalData]);
 
   // Settings tab swaps create short-lived Blink/layout trees. Reclaim them once
   // the transition and initial data render have settled, never on the hot path.

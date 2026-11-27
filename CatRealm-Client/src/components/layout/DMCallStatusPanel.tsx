@@ -77,22 +77,11 @@ export function DMCallStatusPanel() {
       }
     };
 
-    const socket = getCallSocket();
-    const manager = (socket as any)?.io;
-    const onPong = (latency: number) => {
-      if (cancelled) return;
-      if (typeof latency === 'number' && Number.isFinite(latency)) {
-        setServerPingMs(Math.round(latency));
-      }
-    };
-    manager?.on?.('pong', onPong);
-
     void pingServer();
     const interval = window.setInterval(() => { void pingServer(); }, 2000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
-      manager?.off?.('pong', onPong);
     };
   }, [active]);
 

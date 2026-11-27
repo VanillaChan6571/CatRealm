@@ -86,6 +86,8 @@ export function DMCallPanel({ messageChatOpen = false, onToggleMessageChat }: DM
     void loadCentralPeerVolumes();
   }, [user?.accountType, user?.id, loadCentralPeerVolumes]);
 
+  const localScreenShareStream = useMediaStore((s) => s.localScreenShareStream);
+
   if (!activeDMCall || activeDMCall.status !== 'active') return null;
 
   const otherUserId = activeDMCall.otherUserId;
@@ -112,7 +114,6 @@ export function DMCallPanel({ messageChatOpen = false, onToggleMessageChat }: DM
   const showLocalCameraInBox = isVideoEnabled && !isSharingScreen && !!localCameraStream;
 
   // Local share preview for the sharer
-  const localScreenShareStream = useMediaStore((s) => s.localScreenShareStream);
   const showLocalSharePreview = isSharingScreen && !!localScreenShareStream;
 
   const handleEndCall = () => endCall(activeDMCall.callId);

@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../../lib/apiErrors';
 import { useState, useEffect } from 'react';
 import { Link as LinkIcon, Copy, Trash2, CheckCircle, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -30,8 +31,8 @@ export function InvitesSection() {
       setError(null);
       const response = await api.get('/api/invites');
       setInvites(response || []);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to load invites');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to load invites'));
     } finally {
       setLoading(false);
     }
@@ -56,8 +57,8 @@ export function InvitesSection() {
     try {
       await api.delete(`/api/invites/${code}`);
       setInvites((prev) => prev.filter((inv) => inv.code !== code));
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to revoke invite');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to revoke invite'));
     }
   };
 

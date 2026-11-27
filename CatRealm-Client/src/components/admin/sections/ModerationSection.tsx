@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../../lib/apiErrors';
 import { useState, useEffect } from 'react';
 import { Save, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -6,7 +7,7 @@ import { api } from '../../../lib/api';
 interface ModerationSettings {
   banned_words: string[];
   default_slowmode: number;
-  timeout_defaults: Record<string, any>;
+  timeout_defaults: Record<string, unknown>;
 }
 
 type RealmSafetyCase = {
@@ -29,8 +30,8 @@ function RealmSafetyQueue() {
       const data = await api.get('/api/safety/reports?status=pending') as { reports?: RealmSafetyCase[] };
       setReports(data.reports ?? []);
       setSelected(null);
-    } catch (err: any) {
-      setQueueError(err?.response?.data?.error || 'Failed to load child-safety reports');
+    } catch (err) {
+      setQueueError(apiErrorMessage(err, 'Failed to load child-safety reports'));
     } finally { setQueueLoading(false); }
   };
 
@@ -42,7 +43,7 @@ function RealmSafetyQueue() {
       const data = await api.get(`/api/safety/reports/${id}`) as { report: RealmSafetyCase };
       setSelected(data.report);
       setNote('');
-    } catch (err: any) { setQueueError(err?.response?.data?.error || 'Failed to open report'); }
+    } catch (err) { setQueueError(apiErrorMessage(err, 'Failed to open report')); }
     finally { setQueueLoading(false); }
   };
 
@@ -52,7 +53,7 @@ function RealmSafetyQueue() {
     try {
       await api.patch(`/api/safety/reports/${selected.id}`, { status, note });
       await load();
-    } catch (err: any) { setQueueError(err?.response?.data?.error || 'Failed to review report'); setQueueLoading(false); }
+    } catch (err) { setQueueError(apiErrorMessage(err, 'Failed to review report')); setQueueLoading(false); }
   };
 
   return <div className="p-6 rounded-lg bg-gray-800/50 border border-gray-700 space-y-4">
@@ -79,10 +80,6 @@ export function ModerationSection() {
   const [bannedWordsInput, setBannedWordsInput] = useState('');
 
   useEffect(() => {
-    loadSettings();
-  }, []);
-
-  useEffect(() => {
     setBannedWordsInput(settings.banned_words.join(', '));
   }, [settings.banned_words]);
 
@@ -98,6 +95,10 @@ export function ModerationSection() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    void loadSettings();
+  }, []);
 
   const handleSave = async () => {
     try {
@@ -119,8 +120,8 @@ export function ModerationSection() {
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
       await loadSettings();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to save settings');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to save settings'));
       console.error(err);
     } finally {
       setSaving(false);

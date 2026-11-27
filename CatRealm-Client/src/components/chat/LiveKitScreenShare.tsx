@@ -532,7 +532,7 @@ export function LiveKitScreenTile({
   const isMuted = volumePct === 0;
   const getLastAudibleVolumePct = useLastAudibleVolume(volumePct);
   const VolumeIcon = !hasStreamAudio || isMuted ? VolumeX : volumePct < 50 ? Volume1 : Volume2;
-  const pipSupported = typeof document !== 'undefined' && !!(document as any).pictureInPictureEnabled;
+  const pipSupported = typeof document !== 'undefined' && document.pictureInPictureEnabled;
   const effectiveViewerQuality: ScreenShareViewerQuality = peerId ? viewerQuality : 'high';
   const selectedQualityLabel = formatQualityLabel(effectiveViewerQuality, videoTarget);
   // Whether the element is actually decoding video (frames are arriving). This is
@@ -786,26 +786,28 @@ export function LiveKitScreenTile({
 
   const enterPip = () => {
     const el = videoRef.current;
-    if (!el || !(document as any).pictureInPictureEnabled) return;
+    if (!el || !document.pictureInPictureEnabled) return;
     el.requestPictureInPicture().catch(() => {});
   };
 
   const exitPip = () => {
-    if ((document as any).pictureInPictureElement) {
-      (document as any).exitPictureInPicture().catch(() => {});
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
     }
   };
 
   const enterFullscreen = () => {
     const el = containerRef.current;
-    const req = (el as any)?.requestFullscreen ?? (el as any)?.webkitRequestFullscreen;
-    req?.call(el).catch(() => {});
+    if (!el) return;
+    const req = el.requestFullscreen ?? (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void }).webkitRequestFullscreen;
+    void Promise.resolve(req?.call(el)).catch(() => {});
   };
 
   const exitFullscreen = () => {
-    const exit = (document as any).exitFullscreen ?? (document as any).webkitExitFullscreen;
-    if ((document as any).fullscreenElement ?? (document as any).webkitFullscreenElement) {
-      exit?.call(document).catch(() => {});
+    const fullscreenDocument = document as Document & { webkitExitFullscreen?: () => Promise<void> | void; webkitFullscreenElement?: Element | null };
+    const exit = fullscreenDocument.exitFullscreen ?? fullscreenDocument.webkitExitFullscreen;
+    if (fullscreenDocument.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement) {
+      void Promise.resolve(exit?.call(document)).catch(() => {});
     }
   };
 
@@ -820,7 +822,8 @@ export function LiveKitScreenTile({
 
   useEffect(() => {
     const onFs = () => {
-      const fsEl = (document as any).fullscreenElement ?? (document as any).webkitFullscreenElement;
+      const fullscreenDocument = document as Document & { webkitFullscreenElement?: Element | null };
+      const fsEl = fullscreenDocument.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement;
       setIsFullscreen(fsEl === containerRef.current);
       setOverlayVisible(true);
     };

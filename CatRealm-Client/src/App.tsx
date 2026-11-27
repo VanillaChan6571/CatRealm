@@ -39,6 +39,7 @@ import { useDesktopGameActivity } from './hooks/useDesktopGameActivity';
 import { useDeviceRegistration } from './hooks/useDeviceRegistration';
 import { useNicknameSync } from './hooks/useNicknameSync';
 import { DeviceApprovalPrompt } from './components/security/DeviceApprovalPrompt';
+import { DMVaultNotice } from './components/security/DMVaultNotice';
 
 const SOFT_RELOAD_SPLASH_BYPASS_KEY = 'catrealm.softReloadBypassSplash';
 const SOFT_RELOAD_OVERLAY_KEY = 'catrealm.softReloadOverlay';
@@ -53,6 +54,12 @@ function MainApp() {
     return (
       <div className="h-full min-h-0 flex flex-col">
         <UpdateBanner />
+        {!window.electron && (
+          <div role="status" className="bg-amber-500 text-black text-center text-sm font-semibold px-3 py-2">
+            Browser-stored DM keys may be erased when private browsing ends or site data is cleared. Keep another trusted device for recovery.
+          </div>
+        )}
+        <DMVaultNotice />
         <div className="flex-1 min-h-0">
           <CentralConsentGate><AppLayout /></CentralConsentGate>
         </div>

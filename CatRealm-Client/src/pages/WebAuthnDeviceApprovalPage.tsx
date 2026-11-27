@@ -10,7 +10,7 @@ type Step = 'ready' | 'waiting' | 'complete' | 'error';
 
 function friendlyWebAuthnError(message: string) {
   if (message.includes('timed out') || message.includes('not allowed') || message.includes('NotAllowedError')) {
-    return 'Passkey approval was cancelled, timed out, or was not allowed by the authenticator.';
+    return 'Security check was cancelled, timed out, or was not allowed by the authenticator.';
   }
   return message;
 }
@@ -81,7 +81,7 @@ export function WebAuthnDeviceApprovalPage() {
             <p className="text-sm leading-6 text-text-secondary">
               {mode === 'protection'
                 ? 'Use your CatRealm passkey, security key, Touch ID, Windows Hello, or phone passkey to protect this trusted device.'
-                : 'Use your CatRealm passkey, security key, Touch ID, Windows Hello, or phone passkey to trust this device.'}
+                : 'Use a previously registered, verified physical security key to trust this device. A phone or synced passkey can sign you in but cannot self-approve it.'}
             </p>
             <button
               type="button"
@@ -99,7 +99,7 @@ export function WebAuthnDeviceApprovalPage() {
           <div className="space-y-4 text-center">
             <Loader2 className="mx-auto h-10 w-10 animate-spin text-accent" />
             <div>
-              <p className="font-medium text-text-primary">Waiting for your passkey</p>
+              <p className="font-medium text-text-primary">Waiting for your {mode === 'approval' ? 'physical security key' : 'passkey or security key'}</p>
               <p className="mt-1 text-sm text-text-secondary">Follow the browser or operating system prompt.</p>
             </div>
           </div>

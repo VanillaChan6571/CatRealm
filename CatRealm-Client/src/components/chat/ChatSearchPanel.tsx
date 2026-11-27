@@ -336,7 +336,7 @@ export function ChatSearchPanel({
   const [autoIdx, setAutoIdx] = useState(0);
 
   const activeFilterCount = countActiveFilters(filters);
-  const { textQuery: _tq, inlineFilters } = parseInlineOperators(query);
+  const { inlineFilters } = parseInlineOperators(query);
   const inlineFilterCount = countActiveFilters(inlineFilters);
 
   // Auto-focus / reset on open/close

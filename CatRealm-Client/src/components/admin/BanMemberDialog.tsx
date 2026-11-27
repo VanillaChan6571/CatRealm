@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../lib/apiErrors';
 import { useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -25,8 +26,8 @@ export function BanMemberDialog() {
     try {
       await createApi().post(`/api/admin/users/${modalData.userId}/ban`, { reason: reason.trim() || undefined });
       handleClose();
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to ban member.');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to ban member.'));
     } finally {
       setBanning(false);
     }

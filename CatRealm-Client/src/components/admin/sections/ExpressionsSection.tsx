@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '../../../lib/apiErrors';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, createApi } from '../../../lib/api';
@@ -113,8 +114,8 @@ export function ExpressionsSection() {
         maxStickers: Number(settingsRes?.maxStickers ?? 100),
         maxAnimatedStickers: Number(settingsRes?.maxAnimatedStickers ?? 50),
       });
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to load expressions');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to load expressions'));
     } finally {
       setLoading(false);
     }
@@ -156,8 +157,8 @@ export function ExpressionsSection() {
           await client.post(`/api/expressions/${selectedType}`, form, {
             headers: { 'Content-Type': 'multipart/form-data' },
           });
-        } catch (err: any) {
-          const msg = err.response?.data?.error || 'Upload failed';
+        } catch (err) {
+          const msg = apiErrorMessage(err, 'Upload failed');
           failures.push(`${file.name}: ${msg}`);
         }
       }
@@ -193,8 +194,8 @@ export function ExpressionsSection() {
       const client = createApi();
       await client.delete(`/api/expressions/${id}`);
       setItems((prev) => prev.filter((i) => i.id !== id));
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to delete expression');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to delete expression'));
     }
   };
 

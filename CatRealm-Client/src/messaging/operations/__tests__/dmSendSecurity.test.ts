@@ -10,6 +10,7 @@ vi.mock('../../crypto/dmCrypto', () => ({ encryptDM: h.legacy, encryptDMV2: h.v2
 vi.mock('../../crypto/notificationPreviewCrypto', () => ({ encryptNotificationPreviewForDevice: vi.fn() }));
 vi.mock('../../dm/dmHelpers', () => ({ getSyncKey: () => 'fixture-sync-key', getAuthHeader: () => ({}) }));
 import { createDMOperationsSlice } from '../dmOperationsSlice';
+import type { DMGet } from '../../dm/dmHelpers';
 
 beforeEach(() => {
   vi.clearAllMocks(); h.key.mockResolvedValue(null);
@@ -19,14 +20,14 @@ describe('DM encryption send boundary', () => {
   const state = () => ({ conversations: [{ id: 'conversation', otherUserId: 'bob' }],
     messagesByConversation: { conversation: [{ id: 'message', conversationId: 'conversation' }] } });
   it('waits for secure setup without encrypting or uploading a new message/attachment', async () => {
-    const set = vi.fn(); const operations = createDMOperationsSlice(set, state);
+    const set = vi.fn(); const operations = createDMOperationsSlice(set, state as unknown as DMGet);
     await expect(operations.sendMessage('bob', 'private', new File(['private'], 'file.txt'))).rejects.toThrow('approved device');
     expect(h.legacy).not.toHaveBeenCalled(); expect(h.v2).not.toHaveBeenCalled();
     expect(h.post).not.toHaveBeenCalled(); expect(h.manifest).not.toHaveBeenCalled();
     expect(set).toHaveBeenLastCalledWith(expect.objectContaining({ loading: false }));
   });
   it('never falls back to legacy encryption when editing existing messages', async () => {
-    const operations = createDMOperationsSlice(vi.fn(), state);
+    const operations = createDMOperationsSlice(vi.fn(), state as unknown as DMGet);
     await expect(operations.editMessage('message', 'private edit')).rejects.toThrow('approved device');
     expect(h.legacy).not.toHaveBeenCalled(); expect(h.patch).not.toHaveBeenCalled();
   });

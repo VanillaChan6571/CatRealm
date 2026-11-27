@@ -83,10 +83,6 @@ export function WelcomeBoardSection({ onStatusChange }: WelcomeBoardSectionProps
     rulesMode === 'markdown' ? rulesMarkdown.trim().length > 0 : rules.length > 0
   );
 
-  useEffect(() => {
-    load();
-  }, []);
-
   async function load() {
     setLoading(true);
     try {
@@ -120,6 +116,10 @@ export function WelcomeBoardSection({ onStatusChange }: WelcomeBoardSectionProps
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    void load();
+  }, []);
 
   async function saveSettings(patch: Record<string, unknown>) {
     setSaving(true);

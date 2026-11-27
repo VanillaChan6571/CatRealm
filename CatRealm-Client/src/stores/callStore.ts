@@ -261,7 +261,7 @@ interface CallState {
 
 let callSocket: Socket | null = null;
 
-export function setCallSocket(socket: Socket) {
+export function setCallSocket(socket: Socket | null) {
   callSocket = socket;
 }
 
@@ -347,7 +347,7 @@ function playConfiguredCallSound(
   soundType: SoundType,
   settingKey: CallSoundSettingKey,
 ) {
-  const settings = useSettingsStore.getState() as Record<string, any>;
+  const settings = useSettingsStore.getState();
   const soundsDisabled = settings.streamerMode && settings.streamerModeDisableSounds;
   if (soundsDisabled || !settings.notificationsEnabled) return;
   if (!settings[settingKey]) return;
@@ -1746,7 +1746,7 @@ export async function rebuildCallAudioProcessing(): Promise<void> {
   const publication = mediaSession?.localMicrophonePublication;
   if (publication && processedTrack) {
     try {
-      await (publication.track as any)?.replaceTrack(processedTrack);
+      await publication.track?.replaceTrack(processedTrack);
       if (processedTrack) processedTrack.enabled = !isMuted;
     } catch {
       // ignore replacement errors

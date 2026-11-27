@@ -719,7 +719,8 @@ export const useMessageStore = create<MessageState>((set, get) => {
 
   clearChannel: (channelId) => {
     set((s) => {
-      const { [channelId]: _, ...rest } = s.messagesByChannel;
+      const rest = { ...s.messagesByChannel };
+      delete rest[channelId];
       return { messagesByChannel: rest };
     });
   },

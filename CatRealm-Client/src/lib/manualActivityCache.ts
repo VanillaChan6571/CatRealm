@@ -8,7 +8,7 @@ export interface ManualActivitySnapshot extends ActivitySnapshotBase {
   source: 'explicit' | 'inferred' | null;
 }
 
-export interface AutoActivitySnapshot extends ActivitySnapshotBase {}
+export type AutoActivitySnapshot = ActivitySnapshotBase;
 
 const STORAGE_PREFIX = 'catrealm:manual-activity:';
 const AUTO_STORAGE_PREFIX = 'catrealm:auto-activity:';

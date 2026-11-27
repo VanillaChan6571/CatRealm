@@ -1,5 +1,10 @@
 import { useAuthStore } from '../../stores/authStore';
+import type { StoreApi } from 'zustand';
+import type { GroupChatState } from '../../stores/groupChatStore';
 import type { GroupChatKeyVersion } from '../../types';
+
+export type GCSet = StoreApi<GroupChatState>['setState'];
+export type GCGet = StoreApi<GroupChatState>['getState'];
 
 export function getAuthHeader() {
   const token = useAuthStore.getState().token;

@@ -11,24 +11,28 @@ export default function LocalLoginScreen() {
   const { t } = useTranslation();
   const router = useRouter();
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [credential, setCredential] = useState('');
+  const [method, setMethod] = useState<'password' | 'totp'>('password');
 
   const localLogin = useAuthStore((s) => s.localLogin);
   const serverInfo = useAuthStore((s) => s.serverInfo);
+  const serverUrl = useAuthStore((s) => s.serverUrl);
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
   const loading = useAuthStore((s) => s.loading);
   const error = useAuthStore((s) => s.error);
   const clearError = useAuthStore((s) => s.clearError);
+  const totpAvailable = !!serverInfo?.localTotpAuth && !!serverUrl?.startsWith('https://');
+  const effectiveMethod = totpAvailable ? method : 'password';
 
   useEffect(() => {
     if (token && user) router.replace('/(app)/(tabs)/home');
   }, [token, user, router]);
 
   const handleSignIn = () => {
-    if (!username.trim() || !password) return;
+    if (!username.trim() || !credential) return;
     clearError();
-    void localLogin(username.trim(), password);
+    void localLogin(username.trim(), credential, effectiveMethod);
   };
 
   return (
@@ -41,6 +45,14 @@ export default function LocalLoginScreen() {
       />
 
       <AuthCard>
+          {totpAvailable ? <View style={{ flexDirection: 'row', gap: 12, marginBottom: theme.spacing.md }}>
+            <Pressable onPress={() => { setMethod('password'); setCredential(''); clearError(); }}>
+              <Text variant="bodySmall" color={method === 'password' ? theme.colors.accent : theme.colors.text3}>Password</Text>
+            </Pressable>
+            <Pressable onPress={() => { setMethod('totp'); setCredential(''); clearError(); }}>
+              <Text variant="bodySmall" color={method === 'totp' ? theme.colors.accent : theme.colors.text3}>Authenticator code</Text>
+            </Pressable>
+          </View> : null}
           <View>
             <TextInput
               value={username}
@@ -65,13 +77,16 @@ export default function LocalLoginScreen() {
             />
 
             <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder={t('auth.passwordPlaceholder')}
+              value={credential}
+              onChangeText={setCredential}
+              placeholder={effectiveMethod === 'totp' ? 'Six-digit or recovery code' : t('auth.passwordPlaceholder')}
               placeholderTextColor={theme.colors.text3}
-              secureTextEntry
-              textContentType="password"
-              autoComplete="current-password"
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry={effectiveMethod === 'password'}
+              keyboardType="default"
+              textContentType={effectiveMethod === 'totp' ? 'oneTimeCode' : 'password'}
+              autoComplete={effectiveMethod === 'totp' ? 'sms-otp' : 'current-password'}
               returnKeyType="go"
               onSubmitEditing={handleSignIn}
               style={[
@@ -95,12 +110,12 @@ export default function LocalLoginScreen() {
           <Pressable
             haptic
             onPress={handleSignIn}
-            disabled={loading || !username.trim() || !password}
+            disabled={loading || !username.trim() || !credential}
             style={[
               styles.btn,
               {
                 backgroundColor:
-                  loading || !username.trim() || !password
+                  loading || !username.trim() || !credential
                     ? theme.colors.bgElev3
                     : theme.colors.accent,
                 borderRadius: theme.radius.lg,
@@ -113,7 +128,7 @@ export default function LocalLoginScreen() {
               <Text
                 variant="subtitle"
                 color={
-                  loading || !username.trim() || !password
+                  loading || !username.trim() || !credential
                     ? theme.colors.text3
                     : theme.colors.textOnAccent
                 }
